@@ -45,6 +45,39 @@ async function getStoredBlingAccessToken(supabaseUrl: string, serviceRoleKey: st
   return String(data?.valor_texto || "").trim();
 }
 
+async function getConfigValue(supabaseUrl: string, serviceRoleKey: string, chave: string): Promise<string> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const { data, error } = await supabase
+    .from("configuracoes")
+    .select("valor_texto")
+    .eq("chave", chave)
+    .maybeSingle();
+  if (error) throw error;
+  return String(data?.valor_texto || "").trim();
+}
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysIso(dateIso: string, days: number): string {
+  const d = new Date(String(dateIso || "").slice(0, 10) + "T00:00:00.000Z");
+  if (isNaN(d.getTime())) return "";
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function clampDateRange(from: string, to: string, maxDays: number): { from: string; to: string } {
+  const f = new Date(String(from || "").slice(0, 10) + "T00:00:00.000Z");
+  const t = new Date(String(to || "").slice(0, 10) + "T00:00:00.000Z");
+  if (isNaN(f.getTime()) || isNaN(t.getTime())) return { from, to };
+  if (f.getTime() > t.getTime()) return { from: to, to: to };
+  const diffDays = Math.floor((t.getTime() - f.getTime()) / 86400000);
+  if (diffDays <= maxDays) return { from, to };
+  const clampedFrom = addDaysIso(to, -maxDays);
+  return { from: clampedFrom || from, to };
+}
+
 async function renewBlingTokenViaEdgeFunction(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -290,9 +323,27 @@ serve(async (req: Request) => {
     const parsed = safeJsonParse(bodyText);
     if (parsed === null) return jsonResponse({ error: "Invalid JSON" }, 400);
     const body = (parsed && typeof parsed === "object" ? parsed : {}) as any;
-    const from = String(body?.from ?? "").slice(0, 10);
-    const to = String(body?.to ?? "").slice(0, 10);
+    const reqFrom = String(body?.from ?? "").slice(0, 10);
+    const reqTo = String(body?.to ?? "").slice(0, 10);
+
+    let from = reqFrom;
+    let to = reqTo || isoToday();
+
+    if (!from) {
+      let lastSync = "";
+      try {
+        lastSync = await getConfigValue(supabaseUrl, serviceRoleKey, "ultima_sync_bling");
+      } catch (_e) {}
+      const lastSyncDate = String(lastSync || "").slice(0, 10);
+      if (lastSyncDate) {
+        from = lastSyncDate;
+      } else {
+        from = addDaysIso(to, -365) || "";
+      }
+    }
+
     if (!from || !to) return jsonResponse({ error: "Missing from/to (YYYY-MM-DD)" }, 400);
+    ({ from, to } = clampDateRange(from, to, 365));
 
     const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 100) || 100));
     const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
