@@ -30,13 +30,19 @@ async function renewBlingTokenViaEdgeFunction(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
       },
       body: JSON.stringify({}),
       signal: controller.signal,
     });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      throw new Error(`bling-renew-token failed: ${resp.status} ${txt}`);
+      let details = txt;
+      try {
+        const parsed = JSON.parse(txt);
+        if (parsed?.error) details = String(parsed.error);
+      } catch (_e) {}
+      throw new Error(`Falha ao renovar token: ${resp.status} ${details || "sem detalhes"}`);
     }
     const data = (await resp.json()) as BlingTokenResponse;
     const access_token = String(data?.access_token || "").trim();
