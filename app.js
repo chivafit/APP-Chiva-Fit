@@ -2258,8 +2258,94 @@ async function loadSupabaseData(){
       saveTasks();
     }
 
+    let loadedV2 = false;
+    try{
+      const {data:canais} = await supaClient.from('v2_canais').select('id,slug').limit(200);
+      canaisLookup = {};
+      const canalById = {};
+      (canais||[]).forEach(r=>{
+        const slug = String(r?.slug||"").trim();
+        const id = r?.id;
+        if(slug && id){
+          canaisLookup[slug] = id;
+          canalById[id] = slug;
+        }
+      });
+
+      const {data:clientes} = await supaClient
+        .from('v2_clientes')
+        .select('id,doc,nome,email,telefone,cidade,uf,status_manual,notas')
+        .limit(5000);
+      const cliById = {};
+      cliMetaCache = {};
+      (clientes||[]).forEach(c=>{
+        if(c?.id) cliById[c.id] = c;
+        const key = c?.doc || c?.id;
+        if(key){
+          cliMetaCache[key] = {uuid: c.id, status: c.status_manual || null, notes: c.notas || ""};
+        }
+      });
+
+      const {data:pedidos} = await supaClient
+        .from('v2_pedidos')
+        .select('id,numero_pedido,cliente_id,canal_id,data_pedido,total,status,source')
+        .order('data_pedido',{ascending:false})
+        .limit(10000);
+
+      if(Array.isArray(pedidos) && pedidos.length){
+        const nextOrders = pedidos.map(p=>{
+          const c = p?.cliente_id ? cliById[p.cliente_id] : null;
+          const canalSlug =
+            (p?.canal_id && canalById[p.canal_id]) ||
+            (typeof p?.canal === "string" ? p.canal : "") ||
+            "outros";
+
+          const nome = String(
+            c?.nome ||
+            p?.cliente_nome ||
+            p?.nome_cliente ||
+            ""
+          ).trim();
+
+          const doc = String(c?.doc || "").trim();
+          const email = String(c?.email || "").trim();
+          const telefone = String(c?.telefone || "").trim();
+          const cidade = String(c?.cidade || "").trim();
+          const uf = String(c?.uf || "").trim();
+
+          return {
+            _source: p?.source || "supabase",
+            _canal: canalSlug,
+            id: p?.id,
+            numero: p?.numero_pedido || p?.id,
+            data: p?.data_pedido || null,
+            total: p?.total,
+            totalProdutos: p?.total,
+            situacao: {nome: p?.status || "outros"},
+            contato: {
+              nome: nome || "Desconhecido",
+              cpfCnpj: doc,
+              email,
+              telefone,
+              endereco: {municipio: cidade, uf}
+            }
+          };
+        });
+
+        blingOrders.length = 0;
+        blingOrders.push(...nextOrders);
+        localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
+        mergeOrders();
+        populateUFs();
+        renderAll();
+        loadedV2 = true;
+      }
+    }catch(e){
+      console.warn('loadSupabaseData v2:', e.message);
+    }
+
     updateBadge();
-    renderDash();
+    if(!loadedV2) renderDash();
   }catch(e){ console.warn('loadSupabaseData:', e.message); }
 }
 
