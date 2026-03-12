@@ -20,6 +20,30 @@ function jsonResponse(body: unknown, status = 200) {
 
 let tokenCache: { token: string; expiresAtMs: number } | null = null;
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let rateMutex: Promise<void> = Promise.resolve();
+let nextAllowedAtMs = 0;
+const minSpacingMs = 350;
+
+async function rateLimitWait() {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const prev = rateMutex;
+  rateMutex = prev.then(() => gate);
+  await prev;
+
+  const now = Date.now();
+  const waitMs = Math.max(0, nextAllowedAtMs - now);
+  nextAllowedAtMs = Math.max(now, nextAllowedAtMs) + minSpacingMs;
+  release();
+  if (waitMs > 0) await sleep(waitMs);
+}
+
 function isBlingCommunicationError(err: any): boolean {
   const msg = String(err?.message || err || "");
   return msg.startsWith("Bling API error:") || msg.startsWith("Falha ao renovar token:");
@@ -146,33 +170,55 @@ async function blingFetchJson(
   serviceRoleKey: string,
   retry = true,
 ): Promise<unknown> {
-  const resp = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${tokenRef.value}`,
-    },
-  });
-  if (resp.status === 401 && retry) {
-    try {
-      console.log("[bling-sync] 401 no Bling, renovando token e tentando novamente:", url);
-    } catch (_e) {}
-    tokenRef.value = await getBlingAccessToken(supabaseUrl, serviceRoleKey, true);
-    return await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey, false);
+  const maxAttempts = 6;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await rateLimitWait();
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${tokenRef.value}`,
+      },
+    });
+
+    if (resp.status === 401 && retry) {
+      try {
+        console.log("[bling-sync] 401 no Bling, renovando token e tentando novamente:", url);
+      } catch (_e) {}
+      tokenRef.value = await getBlingAccessToken(supabaseUrl, serviceRoleKey, true);
+      return await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey, false);
+    }
+
+    if (resp.status === 429 && attempt < maxAttempts) {
+      const retryAfter = String(resp.headers.get("retry-after") || "").trim();
+      let waitMs = 0;
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        if (Number.isFinite(seconds) && seconds > 0) waitMs = Math.ceil(seconds * 1000);
+      }
+      if (!waitMs) waitMs = Math.min(10_000, 500 * Math.pow(2, attempt - 1));
+      try {
+        console.log("[bling-sync] 429 rate limit, aguardando", { waitMs, attempt, url });
+      } catch (_e) {}
+      await sleep(waitMs);
+      continue;
+    }
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      try {
+        console.log("[bling-sync] Bling API error", {
+          url,
+          status: resp.status,
+          statusText: resp.statusText,
+          body: String(txt || "").slice(0, 2000),
+        });
+      } catch (_e) {}
+      throw new Error(`Bling API error: ${resp.status} ${txt}`);
+    }
+    return await resp.json();
   }
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => "");
-    try {
-      console.log("[bling-sync] Bling API error", {
-        url,
-        status: resp.status,
-        statusText: resp.statusText,
-        body: String(txt || "").slice(0, 2000),
-      });
-    } catch (_e) {}
-    throw new Error(`Bling API error: ${resp.status} ${txt}`);
-  }
-  return await resp.json();
+  throw new Error("Bling API error: 429 Too Many Requests");
 }
 
 function pick<T>(v: T | null | undefined, fallback: T): T {
