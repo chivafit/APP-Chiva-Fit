@@ -825,29 +825,31 @@ function renderReceitaDetalhe(){
   var el=document.getElementById('receita-detalhe');
   if(!sel||!el)return;
   try{
-    allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || [];
-    allProdutosReceitas = safeJsonParse('crm_receitas_produtos_produtos', null) || allProdutosReceitas || [];
+    var rpLS = safeJsonParse('crm_receitas_produtos', null);
+    if(Array.isArray(rpLS)) allReceitasProdutos = rpLS;
+    var prLS = safeJsonParse('crm_receitas_produtos_produtos', null);
+    if(Array.isArray(prLS) && prLS.length) allProdutosReceitas = prLS;
   }catch(_e){}
 
   var products=[].concat(allProdutosReceitas||[]);
+  Object.keys(RECEITAS_REAIS||{}).forEach(function(p){
+    if(p && products.indexOf(p)<0) products.push(p);
+  });
   allReceitasProdutos.forEach(function(rp){
     if(rp && rp.produto_id && products.indexOf(rp.produto_id)<0) products.push(rp.produto_id);
   });
   products = products.filter(Boolean).sort(function(a,b){ return String(a).localeCompare(String(b)); });
 
-  if(!sel.options.length || sel.options[0].value===''){
-    sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';}).join('');
-  }else{
-    var existing=[].slice.call(sel.options).map(function(o){return o.value;}).filter(Boolean);
-    var shouldRefresh=(existing.length!==products.length) || products.some(function(p){return existing.indexOf(p)===-1;});
-    if(shouldRefresh){
-      var prev=sel.value;
-      sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';}).join('');
-      if(prev && products.indexOf(prev)>=0) sel.value=prev;
-    }
-  }
+  var prev=sel.value;
+  sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){
+    return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';
+  }).join('');
+  if(prev && products.indexOf(prev)>=0) sel.value=prev;
 
   var prod=sel.value;
+  console.log('produto selecionado:', prod);
+  console.log('receitas carregadas:', Array.isArray(allReceitasProdutos) ? allReceitasProdutos.length : 0);
+  console.log('produtos no select:', products.length);
   if(!prod){el.innerHTML='<div class="empty">Selecione um produto para ver a ficha técnica.</div>';return;}
 
   var insumosSorted=[].concat(allInsumos).map(normalizeInsumo).slice().sort(function(a,b){
@@ -858,20 +860,39 @@ function renderReceitaDetalhe(){
     return;
   }
 
-  var rows = allReceitasProdutos
+  var hasSaved = (allReceitasProdutos||[]).some(function(rp){ return rp && String(rp.produto_id||"")===String(prod); });
+  if(!hasSaved){
+    var seeded = getRecipeLinesForProduct(prod);
+    if(seeded && seeded.length){
+      seeded.forEach(function(l){
+        if(!l) return;
+        allReceitasProdutos.push({
+          id: randomUUIDCompat(),
+          produto_id: String(prod),
+          insumo_id: String(l.insumo_id||""),
+          quantidade_por_unidade: Number(l.quantidade_por_unidade||0) || 0,
+          unidade: String(l.unidade||"g")
+        });
+      });
+      saveReceitasProdutos();
+    }
+  }
+
+  var rows = (allReceitasProdutos||[])
     .filter(function(rp){ return rp && String(rp.produto_id||"")===String(prod); })
-    .slice()
-    .sort(function(a,b){
-      var an = String(a.insumo_nome||"");
-      var bn = String(b.insumo_nome||"");
-      return an.localeCompare(bn);
-    });
+    .slice();
 
   var idxInsumoById={};
   insumosSorted.forEach(function(i){ idxInsumoById[String(i.id)] = i; });
   rows.forEach(function(rp){
     var ins=idxInsumoById[String(rp.insumo_id||"")];
     rp.insumo_nome = ins ? ins.nome : "";
+  });
+  console.log('receita encontrada:', rows.length);
+  rows.sort(function(a,b){
+    var an = String(a.insumo_nome||"");
+    var bn = String(b.insumo_nome||"");
+    return an.localeCompare(bn);
   });
 
   var table =
