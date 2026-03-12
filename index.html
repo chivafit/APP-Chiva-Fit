@@ -430,11 +430,48 @@
     </div>
   </div>
   <div class="section-label" id="prod-label"></div>
-  <div style="background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;border:1px solid var(--border)">
-    <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:8px">📊 RECEITA POR PRODUTO (TOP 10)</div>
-    <div class="chart-wrap" style="height:180px"><canvas id="chart-produtos"></canvas></div>
+
+  <!-- KPI Cards -->
+  <div id="prod-kpis-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px"></div>
+
+  <!-- Gráficos Principais -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px;margin-bottom:16px">
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <span>📊 RECEITA POR PRODUTO (TOP 10)</span>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-produtos"></canvas></div>
+    </div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px">🍰 PARTICIPAÇÃO NA RECEITA TOTAL</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-participacao-produtos"></canvas></div>
+    </div>
   </div>
-  <div id="prod-list"></div>
+
+  <!-- Evolução de Vendas -->
+  <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04);margin-bottom:16px">
+    <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <span>📈 EVOLUÇÃO DE VENDAS POR PRODUTO</span>
+      <select id="fil-evolucao-prod" class="saas-chip saas-chip-select" onchange="renderProdutos()" style="margin:0;padding:4px 8px;font-size:10px">
+        <option value="7">Últimos 7 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+      </select>
+    </div>
+    <div class="chart-wrap" style="height:250px"><canvas id="chart-evolucao-produtos"></canvas></div>
+  </div>
+
+  <!-- Rankings -->
+  <div id="prod-rankings-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px"></div>
+
+  <!-- Lista Detalhada -->
+  <div style="background:var(--card);border-radius:14px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04);overflow:hidden">
+    <div style="padding:16px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.01);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:13px;font-weight:800">Detalhamento de Performance</div>
+    </div>
+    <div id="prod-list-detailed" style="overflow-x:auto"></div>
+  </div>
+  <div id="prod-list" style="display:none"></div>
 </div>
 
 <!-- CIDADES -->

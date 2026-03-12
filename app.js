@@ -3386,39 +3386,114 @@ function renderProdutos(){
   }
   const ch=selCh?.value||"";
   const per=parseInt(document.getElementById("fil-periodo-prod")?.value||"0");
+  const evolucaoDias = parseInt(document.getElementById("fil-evolucao-prod")?.value || "30");
   const now=new Date();
   const m={};
+  
+  // Processamento de dados base
   allOrders
     .filter(o=>!ch||detectCh(o)===ch)
     .filter(o=>{ if(!per)return true; const d=new Date(o.data||o.dataPedido); return (now-d)/(86400000)<=per; })
     .forEach(o=>(o.itens||[]).forEach(it=>{
       const k=it.codigo||it.descricao||"?";
-      if(!m[k])m[k]={nome:it.descricao||k,code:it.codigo||"",total:0,qty:0,peds:new Set(),clis:new Set()};
-      m[k].total+=(parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1);
-      m[k].qty+=parseFloat(it.quantidade)||1;
+      const canal = detectCh(o);
+      const dataStr = o.data || o.dataPedido || "";
+      
+      if(!m[k]) m[k] = {
+        nome: it.descricao||k,
+        code: it.codigo||"",
+        total: 0,
+        qty: 0,
+        peds: new Set(),
+        clis: new Set(),
+        lastVenda: "",
+        canais: {shopify:0, amazon:0, shopee:0, outros:0, ml:0, cnpj:0, yampi:0},
+        historico: {} // { "YYYY-MM-DD": total }
+      };
+      
+      const valorTotal = (parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1);
+      const qtd = parseFloat(it.quantidade)||1;
+      
+      m[k].total += valorTotal;
+      m[k].qty += qtd;
       m[k].peds.add(o.id||o.numero);
       m[k].clis.add(cliKey(o));
+      
+      if(!m[k].lastVenda || dataStr > m[k].lastVenda) m[k].lastVenda = dataStr;
+      
+      if(m[k].canais.hasOwnProperty(canal)) m[k].canais[canal] += qtd;
+      else m[k].canais.outros += qtd;
+      
+      if(dataStr) {
+        const dStr = dataStr.slice(0, 10);
+        m[k].historico[dStr] = (m[k].historico[dStr]||0) + valorTotal;
+      }
     }));
-  let prods=Object.values(m).sort((a,b)=>b.total-a.total);
-  if(q) prods=prods.filter(p=>p.nome.toLowerCase().includes(q)||p.code.toLowerCase().includes(q));
-  document.getElementById("prod-label").textContent=`${prods.length} produto${prods.length!==1?"s/sabores":""}`;
-  // Gráfico top 10
-  const top10=prods.slice(0,10);
+
+  let prods = Object.values(m).sort((a,b)=>b.total-a.total);
+  if(q) prods = prods.filter(p=>p.nome.toLowerCase().includes(q)||p.code.toLowerCase().includes(q));
+  
+  document.getElementById("prod-label").textContent = `${prods.length} produto${prods.length!==1?"s/sabores":""}`;
+
+  // 1. Cards de KPI no Topo
+  const topVendido = prods.reduce((a, b) => (a.qty > b.qty ? a : b), {nome:"—", qty:0});
+  const topReceita = prods[0] || {nome:"—", total:0};
+  
+  // Calcular crescimento (últimos 7 dias vs 7 dias anteriores)
+  const calculateGrowth = (prod) => {
+    const week1 = 7, week2 = 14;
+    const nowTs = now.getTime();
+    let v1 = 0, v2 = 0;
+    Object.entries(prod.historico).forEach(([d, v]) => {
+      const ts = new Date(d).getTime();
+      const diff = (nowTs - ts) / 86400000;
+      if(diff <= week1) v1 += v;
+      else if(diff <= week2) v2 += v;
+    });
+    return v2 > 0 ? ((v1 - v2) / v2) * 100 : (v1 > 0 ? 100 : 0);
+  };
+  
+  const growths = prods.map(p => ({p, g: calculateGrowth(p)})).sort((a,b) => b.g - a.g);
+  const topGrowth = growths[0]?.g > 0 ? growths[0] : {p:{nome:"—"}, g:0};
+  const topDecline = growths[growths.length-1]?.g < 0 ? growths[growths.length-1] : {p:{nome:"—"}, g:0};
+
+  const kpisHtml = `
+    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Mais Vendido</div>
+      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topVendido.nome)}</div>
+      <div class="stat-sub" style="font-size:11px;color:var(--blue);font-weight:600">${topVendido.qty.toLocaleString("pt-BR")} unidades</div>
+    </div>
+    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Receita</div>
+      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topReceita.nome)}</div>
+      <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">${fmtBRL(topReceita.total)}</div>
+    </div>
+    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Crescimento</div>
+      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topGrowth.p.nome)}</div>
+      <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">▲ ${topGrowth.g.toFixed(1)}% (7d)</div>
+    </div>
+    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Queda de Vendas</div>
+      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topDecline.p.nome)}</div>
+      <div class="stat-sub" style="font-size:11px;color:var(--red);font-weight:600">▼ ${Math.abs(topDecline.g).toFixed(1)}% (7d)</div>
+    </div>
+  `;
+  document.getElementById("prod-kpis-row").innerHTML = kpisHtml;
+
+  // 2. Gráfico de Receita por Produto (TOP 10)
+  const top10 = prods.slice(0,10);
   if(charts.produtos) charts.produtos.destroy();
   const ctxP=document.getElementById("chart-produtos");
   if(ctxP && top10.length){
     charts.produtos=new Chart(ctxP,{type:"bar",data:{
-      labels:top10.map(p=>p.nome.length>22?p.nome.slice(0,20)+"…":p.nome),
+      labels:top10.map(p=>p.nome.length>18?p.nome.slice(0,16)+"…":p.nome),
       datasets:[{
         data:top10.map(p=>p.total),
-        backgroundColor:top10.map((_,i)=>{
-          const alpha = 1 - i*0.07;
-          return `rgba(107,191,58,${alpha.toFixed(2)})`;
-        }),
-        hoverBackgroundColor:'rgba(150,225,105,.95)',
-        borderRadius:4,
-        borderSkipped:false,
-        borderWidth:0
+        backgroundColor:'rgba(15,167,101,0.8)',
+        hoverBackgroundColor:'rgba(15,167,101,1)',
+        borderRadius:6,
+        borderSkipped:false
       }]
     },options:{
       indexAxis:'y',
@@ -3426,33 +3501,179 @@ function renderProdutos(){
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'#0e1018',borderColor:'#1d2235',borderWidth:1,
-          titleColor:'#edeef4',bodyColor:'#a0a8be',padding:10,
-          callbacks:{label:ctx=>fmtBRL(ctx.raw)}
+          callbacks:{label:ctx=>" "+fmtBRL(ctx.raw)}
         }
       },
       scales:{
-        x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#585f78',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}},
-        y:{grid:{display:false},ticks:{color:'#a0a8be',font:{size:10,weight:'600'}}}
-      }
-    }})
+        x:{grid:{display:false},ticks:{color:'#585f78',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}},
+        y:{grid:{display:false},ticks:{color:'#585f78',font:{size:10,weight:'600'}}}
+      },
+      animation: { duration: 1000, easing: 'easeOutQuart' }
+    }});
   }
-  // Lista
-  document.getElementById("prod-list").innerHTML=prods.length?prods.map((p,i)=>`
-    <div class="prod-item" style="display:flex;align-items:center;gap:10px;background:var(--card);border-radius:10px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border)">
-      <div style="font-size:18px;font-weight:900;color:var(--blue);width:24px;text-align:center">${i+1}</div>
-      <div style="flex:1">
-        <div style="font-size:12px;font-weight:700">${escapeHTML(p.nome)}</div>
-        <div style="font-size:10px;color:var(--text-3)">${p.code?escapeHTML(p.code)+" · ":""}${p.clis.size} clientes · ${p.peds.size} pedidos</div>
-        <div style="margin-top:4px;height:4px;background:var(--border);border-radius:4px">
-          <div style="height:4px;background:var(--blue);border-radius:4px;width:${Math.round(p.total/prods[0].total*100)}%"></div>
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:13px;font-weight:800;color:var(--green)">${fmtBRL(p.total)}</div>
-        <div style="font-size:10px;color:var(--text-3)">${p.qty.toLocaleString("pt-BR")} un</div>
-      </div>
-    </div>`).join(""):`<div class="empty">Nenhum produto encontrado.</div>`;
+
+  // 3. Gráfico de Participação (Donut)
+  const totalReceita = prods.reduce((s,p)=>s+p.total, 0);
+  if(charts.prodParticipacao) charts.prodParticipacao.destroy();
+  const ctxPart = document.getElementById("chart-participacao-produtos");
+  if(ctxPart && top10.length){
+    const otherTotal = totalReceita - top10.reduce((s,p)=>s+p.total,0);
+    const partData = top10.map(p=>p.total);
+    const partLabels = top10.map(p=>p.nome);
+    if(otherTotal > 0) { partData.push(otherTotal); partLabels.push("Outros"); }
+    
+    charts.prodParticipacao = new Chart(ctxPart, {
+      type: "doughnut",
+      data: {
+        labels: partLabels.map(l=>l.length>15?l.slice(0,13)+"…":l),
+        datasets: [{
+          data: partData,
+          backgroundColor: [
+            '#0FA765', '#22d3ee', '#84cc16', '#fbbf24', '#f97316', 
+            '#d946ef', '#6366f1', '#f43f5e', '#14b8a6', '#f59e0b', '#94a3b8'
+          ],
+          borderWidth: 2,
+          borderColor: 'var(--card)',
+          hoverOffset: 10
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } },
+          tooltip: { callbacks: { label: ctx => {
+            const pct = ((ctx.raw/totalReceita)*100).toFixed(1);
+            return ` ${ctx.label}: ${fmtBRL(ctx.raw)} (${pct}%)`;
+          }}}
+        },
+        cutout: '65%'
+      }
+    });
+  }
+
+  // 4. Gráfico de Evolução (Linha)
+  if(charts.prodEvolucao) charts.prodEvolucao.destroy();
+  const ctxEv = document.getElementById("chart-evolucao-produtos");
+  if(ctxEv && top10.length){
+    const labels = [];
+    for(let i=evolucaoDias-1; i>=0; i--){
+      const d = new Date(now.getTime() - i*86400000);
+      labels.push(d.toISOString().slice(0,10));
+    }
+    
+    const datasets = top10.slice(0, 5).map((p, idx) => {
+      const colors = ['#0FA765', '#22d3ee', '#fbbf24', '#d946ef', '#f97316'];
+      return {
+        label: p.nome,
+        data: labels.map(l => p.historico[l] || 0),
+        borderColor: colors[idx],
+        backgroundColor: colors[idx] + '10',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        borderWidth: 2
+      };
+    });
+    
+    charts.prodEvolucao = new Chart(ctxEv, {
+      type: "line",
+      data: { labels: labels.map(l => l.split("-").slice(1).reverse().join("/")), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 9 }, maxTicksLimit: 10 } },
+          y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { font: { size: 9 }, callback: v => 'R$'+v } }
+        }
+      }
+    });
+  }
+
+  // 5. Rankings
+  const rankingsHtml = `
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:12px">🏆 TOP 10 POR RECEITA</div>
+      ${prods.slice(0,10).map((p,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:800;color:var(--blue);width:20px">${i+1}</span>
+          <span style="flex:1;font-size:11px;font-weight:600">${escapeHTML(p.nome)}</span>
+          <span style="font-size:11px;font-weight:700;color:var(--green)">${fmtBRL(p.total)}</span>
+        </div>`).join("")}
+    </div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:12px">📦 TOP 10 POR QUANTIDADE</div>
+      ${prods.sort((a,b)=>b.qty-a.qty).slice(0,10).map((p,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:800;color:var(--blue);width:20px">${i+1}</span>
+          <span style="flex:1;font-size:11px;font-weight:600">${escapeHTML(p.nome)}</span>
+          <span style="font-size:11px;font-weight:700;color:var(--text-2)">${p.qty.toLocaleString("pt-BR")} un</span>
+        </div>`).join("")}
+    </div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:12px">🛒 TOP 10 POR PEDIDOS</div>
+      ${prods.sort((a,b)=>b.peds.size-a.peds.size).slice(0,10).map((p,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:800;color:var(--blue);width:20px">${i+1}</span>
+          <span style="flex:1;font-size:11px;font-weight:600">${escapeHTML(p.nome)}</span>
+          <span style="font-size:11px;font-weight:700;color:var(--text-2)">${p.peds.size} ped.</span>
+        </div>`).join("")}
+    </div>
+  `;
+  document.getElementById("prod-rankings-row").innerHTML = rankingsHtml;
+
+  // 6. Lista Detalhada
+  const avgQty = prods.reduce((s,p)=>s+p.qty,0)/prods.length || 1;
+  const avgTotal = prods.reduce((s,p)=>s+p.total,0)/prods.length || 1;
+
+  document.getElementById("prod-list-detailed").innerHTML = `
+    <table class="chiva-table" style="width:100%;min-width:900px">
+      <thead>
+        <tr>
+          <th>Produto</th>
+          <th style="text-align:right">Vendas</th>
+          <th style="text-align:right">Receita</th>
+          <th style="text-align:right">Ticket Médio</th>
+          <th style="text-align:right">Pedidos</th>
+          <th>Última Venda</th>
+          <th>Canais (Qtd)</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${prods.map(p => {
+          const tm = p.total / p.peds.size;
+          let status = '<span class="chiva-badge chiva-badge-amber">MÉDIO</span>';
+          if(p.total > avgTotal * 1.5 || p.qty > avgQty * 1.5) status = '<span class="chiva-badge chiva-badge-green">🟢 LÍDER</span>';
+          else if(p.total < avgTotal * 0.5) status = '<span class="chiva-badge chiva-badge-red">🔴 BAIXO</span>';
+          
+          const canaisHtml = Object.entries(p.canais)
+            .filter(([,q])=>q>0)
+            .map(([c,q])=>`<span style="font-size:9px;background:var(--border);padding:2px 5px;border-radius:4px;margin-right:3px" title="${CH[c]||c}">${(CH[c]||c).slice(0,3).toUpperCase()}: ${q}</span>`)
+            .join("");
+
+          return `
+            <tr>
+              <td>
+                <div style="font-weight:700">${escapeHTML(p.nome)}</div>
+                <div style="font-size:10px;color:var(--text-3)">${escapeHTML(p.code)}</div>
+              </td>
+              <td style="text-align:right;font-weight:700">${p.qty.toLocaleString("pt-BR")}</td>
+              <td style="text-align:right;font-weight:800;color:var(--green)">${fmtBRL(p.total)}</td>
+              <td style="text-align:right;font-size:11px">${fmtBRL(tm)}</td>
+              <td style="text-align:right;font-size:11px">${p.peds.size}</td>
+              <td style="font-size:11px;color:var(--text-3)">${fmtDate(p.lastVenda)}</td>
+              <td>${canaisHtml}</td>
+              <td>${status}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 
