@@ -4369,12 +4369,17 @@ async function loadOrdersFromSupabaseForCRM(){
       .order("data_pedido",{ascending:false})
       .limit(5000);
     if(pedErr) throw pedErr;
-    if(!Array.isArray(pedRows) || !pedRows.length) return;
+
+    const {data:yampiRows, error:yampiErr} = await supaClient
+      .from("yampi_orders")
+      .select("*")
+      .order("created_at",{ascending:false})
+      .limit(5000);
 
     const nextBling = [];
     const nextYampi = [];
 
-    pedRows.forEach(p=>{
+    (pedRows||[]).forEach(p=>{
       const cli = cliById[p.cliente_id] || null;
       const o = {
         id: String(p.bling_id || p.id || p.numero_pedido || ""),
@@ -4401,6 +4406,36 @@ async function loadOrdersFromSupabaseForCRM(){
       const normalized = normalizeOrderForCRM(o, o._source);
       if(normalized._source === "yampi") nextYampi.push(normalized);
       else nextBling.push(normalized);
+    });
+
+    (yampiRows||[]).forEach(y=>{
+      const o = {
+        id: y.external_id,
+        numero: y.external_id,
+        data: String(y.created_at || "").slice(0,10),
+        total: Number(y.total || 0),
+        totalProdutos: Number(y.total || 0),
+        situacao: { nome: y.status || "" },
+        _source: "yampi",
+        _canal: "yampi",
+        contato: {
+          nome: y.customer_name || "Cliente Yampi",
+          email: y.customer_email || "",
+          telefone: y.customer_phone || "",
+          endereco: { municipio: y.city || "", uf: y.state || "" }
+        },
+        itens: Array.isArray(y.raw?.items) ? y.raw.items.map(it=>({
+          descricao: it.name || it.product_name || "",
+          codigo: it.sku || it.id || "",
+          quantidade: Number(it.quantity || 1),
+          valor: Number(it.price || 0)
+        })) : []
+      };
+      const normalized = normalizeOrderForCRM(o, "yampi");
+      // Evitar duplicidade se já veio de v2_pedidos (caso tenha sido processado por algum outro script)
+      if(!nextYampi.some(existing => existing.id === normalized.id)){
+        nextYampi.push(normalized);
+      }
     });
 
     if(nextBling.length){

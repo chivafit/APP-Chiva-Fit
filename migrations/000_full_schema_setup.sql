@@ -165,6 +165,33 @@ CREATE TABLE IF NOT EXISTS public.v2_insights (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- 14. TABELA DE PEDIDOS YAMPI (Webhook RAW/Landing)
+CREATE TABLE IF NOT EXISTS public.yampi_orders (
+    external_id text PRIMARY KEY,
+    canal text DEFAULT 'yampi',
+    event text,
+    status text,
+    total numeric DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    is_abandoned_cart boolean DEFAULT false,
+    customer_name text,
+    customer_email text,
+    customer_phone text,
+    city text,
+    state text,
+    raw jsonb DEFAULT '{}'::jsonb
+);
+
+-- Habilitar RLS em yampi_orders
+ALTER TABLE public.yampi_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.v2_insights ENABLE ROW LEVEL SECURITY;
+
+
+-- Adicionar à política de acesso anon
+-- (Isso será feito automaticamente pelo loop no final do script se rodar tudo de novo)
+
+
 -- ==========================================
 -- CONFIGURAÇÃO DE RLS (ACESSO PÚBLICO/ANON)
 -- Importante: Para um CRM estático, as tabelas 
