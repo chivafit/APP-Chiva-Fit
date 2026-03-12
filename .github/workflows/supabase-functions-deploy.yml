@@ -21,6 +21,17 @@ jobs:
         with:
           version: latest
 
+      - name: Validate secrets
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "Missing SUPABASE_ACCESS_TOKEN secret"
+            exit 1
+          fi
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "Missing SUPABASE_PROJECT_ID secret"
+            exit 1
+          fi
+
       - name: Deploy bling-renew-token
         run: supabase functions deploy bling-renew-token --project-ref $SUPABASE_PROJECT_ID
 
