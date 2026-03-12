@@ -376,7 +376,11 @@ async function handleLoginSubmit(e){
     const isAdmin = ADMIN_EMAILS.has(email);
     const canonicalEmail = (email === "admin" || email === "admin@chivafit.com.br") ? "admin@chivafit.com" : email;
     
-    const ok = await verifyAccessUser(canonicalEmail, pass);
+    let ok = await verifyAccessUser(canonicalEmail, pass);
+    if(!ok){
+      const hydrated = await hydrateAccessUsersFromSupabaseForLogin();
+      if(hydrated) ok = await verifyAccessUser(canonicalEmail, pass);
+    }
     
     if(ok){
       localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
@@ -386,7 +390,17 @@ async function handleLoginSubmit(e){
     }
     
     if(isAdmin){
-      if(errEl) errEl.textContent = "Senha do administrador inválida.";
+      const hasAdmin = !!getAccessUserByEmail("admin@chivafit.com");
+      if(!hasAdmin){
+        const bootPass = localStorage.getItem("crm_bootstrap_pass");
+        if(errEl){
+          errEl.textContent = bootPass
+            ? `Administrador não cadastrado neste navegador. Use a senha temporária ${bootPass}.`
+            : "Administrador não cadastrado neste navegador. Cadastre um usuário em Configurações.";
+        }
+      }else{
+        if(errEl) errEl.textContent = "Senha do administrador inválida.";
+      }
     } else {
       if(errEl) errEl.textContent = "Credenciais inválidas. Use o admin ou um usuário cadastrado.";
     }
@@ -437,7 +451,7 @@ function enterApp(userEmail){
   (async()=>{
     try{
       const connected = await initSupabase();
-      if(connected) await bootstrapFromSupabase();
+      if(connected) await loadSupabaseData();
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
     }catch(e){
@@ -447,6 +461,11 @@ function enterApp(userEmail){
         const cached = safeJsonParse("crm_bling_orders", []);
         blingOrders.length = 0;
         blingOrders.push(...cached);
+      }
+      if(!yampiOrders.length){
+        const cached = safeJsonParse("crm_yampi_orders", []);
+        yampiOrders.length = 0;
+        yampiOrders.push(...cached);
       }
       safeInvokeName("mergeOrders");
       safeInvokeName("populateUFs");
@@ -668,6 +687,35 @@ function saveAccessUsers(users){
   if(supaConnected && supaClient) sbSetConfig("crm_access_users", JSON.stringify(users)).catch(()=>{});
 }
 
+function getAccessUserByEmail(email){
+  const em = normalizeAccessEmail(email);
+  if(!em) return null;
+  const users = loadAccessUsers();
+  return users.find(x => normalizeAccessEmail(x.email) === em) || null;
+}
+
+async function hydrateAccessUsersFromSupabaseForLogin(){
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
+  if(!url || !key) return false;
+  if(!globalThis.supabase?.createClient) return false;
+  try{
+    const tmp = supabase.createClient(url, key);
+    const {data, error} = await tmp
+      .from("configuracoes")
+      .select("valor_texto")
+      .eq("chave","crm_access_users")
+      .maybeSingle();
+    if(error) return false;
+    const raw = data?.valor_texto;
+    if(!raw) return false;
+    localStorage.setItem("crm_access_users", raw);
+    return true;
+  }catch(_e){
+    return false;
+  }
+}
+
 function bytesToBase64(bytes){
   let bin = "";
   for(let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
@@ -874,7 +922,7 @@ function saveSupabaseConfig(){
   setTimeout(async()=>{
     const connected = await initSupabase();
     if(connected && document.getElementById("app-shell")?.classList.contains("visible")){
-      try{ await bootstrapFromSupabase(); }catch(_e){}
+      try{ await loadSupabaseData(); }catch(_e){}
     }
   }, 300);
 }
@@ -1014,7 +1062,7 @@ async function syncYampi(){
     
     // Como a Yampi trabalha apenas via Webhook, o "Recarregar" busca os dados
     // que o Webhook da Yampi já salvou no nosso banco de dados Supabase.
-    await loadOrdersFromSupabaseForCRM();
+    await loadOrdersFromSupabaseForCRM({ persistBack: true });
     await loadCarrinhosAbandonadosFromSupabase();
     
     if(st){ 
@@ -4649,6 +4697,9 @@ function normalizeOrderForCRM(o, sourceHint){
 }
 
 async function loadOrdersFromSupabaseForCRM(){
+  const options = arguments?.[0] && typeof arguments[0] === "object" ? arguments[0] : {};
+  const persistBack = options.persistBack === true;
+  const silent = options.silent === true;
   if(!supaConnected || !supaClient) return;
   try{
     const {data:cliRows, error:cliErr} = await supaClient
@@ -4671,6 +4722,7 @@ async function loadOrdersFromSupabaseForCRM(){
       .select("*")
       .order("created_at",{ascending:false})
       .limit(5000);
+    if(yampiErr) throw yampiErr;
 
     const nextBling = [];
     const nextYampi = [];
@@ -4734,24 +4786,25 @@ async function loadOrdersFromSupabaseForCRM(){
       if(!exists) nextYampi.push(normalized);
     });
 
-    if(nextBling.length){
-      blingOrders.length = 0;
-      blingOrders.push(...nextBling);
-      localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
-    }
-    if(nextYampi.length){
-      yampiOrders.length = 0;
-      yampiOrders.push(...nextYampi);
-      localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
-    }
+    blingOrders.length = 0;
+    blingOrders.push(...nextBling);
+    localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
+    yampiOrders.length = 0;
+    yampiOrders.push(...nextYampi);
+    localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
 
     mergeOrders();
     populateUFs();
     renderAll();
 
     // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
-    if(nextYampi.length || nextBling.length){
-      upsertOrdersToSupabase([...nextBling, ...nextYampi]).catch(()=>{});
+    if(persistBack && (nextYampi.length || nextBling.length)){
+      const shouldBackfill =
+        (!Array.isArray(pedRows) || pedRows.length === 0) ||
+        (!Array.isArray(cliRows) || cliRows.length === 0);
+      if(shouldBackfill){
+        upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch(()=>{});
+      }
     }
   }catch(_e){}
 }
@@ -4762,6 +4815,8 @@ async function sbSetConfig(chave, valor){
 }
 
 async function upsertOrdersToSupabase(orders){
+  const options = arguments?.[1] && typeof arguments[1] === "object" ? arguments[1] : {};
+  const silent = options.silent === true;
   if(!supaConnected || !supaClient || !orders.length) return;
   try{
     const cliMap = buildCli(orders);
@@ -4839,7 +4894,7 @@ async function upsertOrdersToSupabase(orders){
     }).filter(p => p.canal_id); // pedidos sem canal_id são descartados (NOT NULL constraint)
     for(let i=0; i<pedRows.length; i+=100)
       await supaClient.from('v2_pedidos').upsert(pedRows.slice(i,i+100), {onConflict:'numero_pedido'});
-    toast('✓ Dados salvos no Supabase!');
+    if(!silent) toast('✓ Dados salvos no Supabase!');
   }catch(e){ console.warn('upsert:', e.message); }
 }
 
