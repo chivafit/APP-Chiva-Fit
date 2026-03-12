@@ -476,23 +476,68 @@
 
 <!-- CIDADES -->
 <div class="page" id="page-cidades">
-<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
     <div>
-      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">📍 Cidades</h1>
-      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Distribuição geográfica das vendas</p>
+      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">📍 Inteligência Geográfica</h1>
+      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Expansão e cobertura nacional (Base IBGE)</p>
+    </div>
+    <div id="geo-sync-box" style="display:none">
+      <button class="btn" onclick="seedCidadesIBGE()" style="font-size:10px;padding:6px 12px">📥 Importar Base IBGE</button>
     </div>
   </div>
+
+  <!-- KPI Geográficos -->
+  <div id="geo-kpis-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px"></div>
+
+  <!-- Mapa e Gráfico de Estados -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px;margin-bottom:16px">
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px">🗺️ COBERTURA NACIONAL (HEATMAP)</div>
+      <div id="brazil-map-container" style="height:350px;display:flex;justify-content:center;align-items:center;background:#f9fafb;border-radius:8px">
+        <div style="font-size:11px;color:var(--text-3)">Carregando mapa...</div>
+      </div>
+    </div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px">📊 VENDAS POR ESTADO</div>
+      <div class="chart-wrap" style="height:350px"><canvas id="chart-geo-estados"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Filtros e Rankings -->
   <div class="saas-filterbar" style="margin-bottom:12px">
     <div class="saas-search">
       <span class="saas-search-ico">⌕</span>
       <input id="search-city" class="saas-search-input" placeholder="Buscar cidade..." oninput="renderCidades()"/>
     </div>
     <div class="saas-chips">
-      <select id="fil-uf" class="saas-chip saas-chip-select" onchange="renderCidades()"><option value="">Estado</option></select>
+      <select id="fil-uf" class="saas-chip saas-chip-select" onchange="renderCidades()">
+        <option value="">Todos os Estados</option>
+      </select>
+      <select id="fil-geo-venda" class="saas-chip saas-chip-select" onchange="renderCidades()">
+        <option value="all">Todas as cidades</option>
+        <option value="with">Com vendas</option>
+        <option value="without">Sem vendas (Potencial)</option>
+      </select>
     </div>
   </div>
-  <div class="section-label" id="city-label"></div>
-  <div class="city-table" id="city-table"></div>
+
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start">
+    <!-- Tabela Detalhada -->
+    <div style="background:var(--card);border-radius:14px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04);overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.01);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:12px;font-weight:800" id="city-label">Cidades</div>
+      </div>
+      <div id="city-table-detailed" style="max-height:600px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Top 20 Cidades -->
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:12px">🏆 TOP 20 CIDADES</div>
+      <div id="geo-top-cities"></div>
+    </div>
+  </div>
+  
+  <div id="city-table" style="display:none"></div>
 </div>
 
 <!-- ALERTAS -->

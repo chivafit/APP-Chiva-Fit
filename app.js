@@ -1091,7 +1091,9 @@ function normalizeCarrinhoAbandonado(raw){
   };
 }
 
-function clamp01(n){ n=Number(n); if(!isFinite(n)) return 0; return Math.max(0, Math.min(1, n)); }
+function val(o){ return Number(o?.total || 0); }
+function cliKey(o){ return String(o?.contato?.cpfCnpj || o?.contato?.email || o?.contato?.nome || ""); }
+
 
 function minutosDesdeIso(isoStr){
   const ts = isoStr ? new Date(isoStr).getTime() : NaN;
@@ -3702,75 +3704,261 @@ function renderProdutos(){
 // ═══════════════════════════════════════════════════
 //  CIDADES
 // ═══════════════════════════════════════════════════
-function renderCidades(){
-  const q=(document.getElementById("search-city")?.value||"").toLowerCase();
-  const uf=document.getElementById("fil-uf")?.value||"";
-  const m={}, estados={};
-  allOrders.forEach(o=>{
-    // Tentar múltiplos campos de endereço do Bling
-    const ci=(o.contato?.endereco?.municipio||o.contato?.endereco?.cidade||
-               o.contato?.municipio||o.contato?.cidade||"").trim();
-    const es=(o.contato?.endereco?.uf||o.contato?.endereco?.estado||
-               o.contato?.uf||o.contato?.estado||"").toUpperCase().trim().slice(0,2);
-    if(!ci) return;
-    const k=ci+"|"+es;
-    if(!m[k])m[k]={ci,es,total:0,peds:0,clis:new Set(),pedidos:[]};
-    m[k].total+=val(o); m[k].peds++; m[k].clis.add(cliKey(o));
-    // Acumular por estado
-    if(es){ if(!estados[es])estados[es]={total:0,peds:0,clis:new Set()}; estados[es].total+=val(o); estados[es].peds++; estados[es].clis.add(cliKey(o)); }
-  });
-  // Popular select de UF
-  const selUF=document.getElementById("fil-uf");
-  const ufs=Object.keys(estados).sort();
-  if(selUF && selUF.options.length<=1){
-    ufs.forEach(u=>{ const op=document.createElement("option"); op.value=u; op.textContent=u; selUF.appendChild(op); });
+async function renderCidades(){
+  const q = (document.getElementById("search-city")?.value||"").toLowerCase();
+  const ufFilter = document.getElementById("fil-uf")?.value||"";
+  const typeFilter = document.getElementById("fil-geo-venda")?.value||"all";
+  
+  // 1. Carregar estados do Supabase se ainda não carregados
+  if(supaConnected && !geoEstados.length){
+    const {data} = await supaClient.from("estados").select("*").order("nome");
+    if(data) geoEstados = data;
+    // Popular select de UF
+    const selUF = document.getElementById("fil-uf");
+    if(selUF && geoEstados.length){
+      selUF.innerHTML = '<option value="">Todos os Estados</option>' + 
+        geoEstados.map(e => `<option value="${e.sigla}">${e.nome}</option>`).join("");
+    }
   }
-  let cids=Object.values(m).sort((a,b)=>b.total-a.total);
-  if(uf) cids=cids.filter(c=>c.es===uf);
-  if(q) cids=cids.filter(c=>c.ci.toLowerCase().includes(q)||c.es.toLowerCase().includes(q));
-  const max=cids[0]?.total||1;
-  document.getElementById("city-label").textContent=`${cids.length} cidade${cids.length!==1?"s":""} encontrada${cids.length!==1?"s":""}`;
-  // Resumo por estado (quando sem filtro)
-  let estadoHtml="";
-  if(!uf && !q){
-    const topEst=Object.entries(estados).sort((a,b)=>b[1].total-a[1].total).slice(0,8);
-    const maxEst=topEst[0]?.[1]?.total||1;
-    estadoHtml=`<div class="estado-card">
-      <div class="estado-title">📍 RECEITA POR ESTADO</div>
-      ${topEst.map(([est,d])=>`
-        <div class="estado-row">
-          <div class="estado-uf">${est}</div>
-          <div class="estado-bar-track">
-            <div class="estado-bar" data-pct="${Math.round(d.total/maxEst*100)}"></div>
-          </div>
-          <div class="estado-total">${fmtBRL(d.total)}</div>
-          <div class="estado-clis">${d.clis.size} cli.</div>
-        </div>`).join("")}
-    </div>`;
-  }
-  const host = document.getElementById("city-table");
-  if(!host) return;
-  host.innerHTML=estadoHtml+
-    (cids.length?cids.map((c,i)=>`
-    <div class="cidade-row" data-ci="${escapeHTML(c.ci)}" data-uf="${escapeHTML(c.es||"")}" onclick="filterClientesByCity(this.dataset.ci,this.dataset.uf)">
-      <div class="cidade-rank">${i+1}</div>
-      <div class="cidade-info">
-        <div class="cidade-name">${escapeHTML(c.ci)} <span class="cidade-uf-badge">${escapeHTML(c.es||"?")}</span></div>
-        <div class="cidade-bar-track">
-          <div class="cidade-bar" data-pct="${Math.round(c.total/max*100)}"></div>
-        </div>
-      </div>
-      <div class="cidade-right">
-        <div class="cidade-total">${fmtBRL(c.total)}</div>
-        <div class="cidade-sub">${c.clis.size} cli. · ${c.peds} ped.</div>
-      </div>
-    </div>`).join(""):
-    `<div class="empty">Nenhuma cidade encontrada.</div>`);
 
-  host.querySelectorAll(".cidade-bar[data-pct], .estado-bar[data-pct]").forEach(el=>{
-    const pct = parseFloat(el.getAttribute("data-pct")||"0");
-    el.style.width = (isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0) + "%";
+  // 2. Processar vendas por localidade
+  const salesMap = {};
+  const stateMap = {};
+  geoEstados.forEach(e => { stateMap[e.sigla] = { ...e, total: 0, clis: new Set(), peds: 0 }; });
+
+  allOrders.forEach(o => {
+    const ci = (o.contato?.endereco?.municipio || o.contato?.municipio || "").trim();
+    const es = (o.contato?.endereco?.uf || o.contato?.uf || "").toUpperCase().trim().slice(0,2);
+    if(!ci || !es) return;
+    
+    const k = ci + "|" + es;
+    if(!salesMap[k]) salesMap[k] = { ci, es, total: 0, peds: 0, clis: new Set() };
+    salesMap[k].total += val(o);
+    salesMap[k].peds++;
+    salesMap[k].clis.add(cliKey(o));
+
+    if(stateMap[es]){
+      stateMap[es].total += val(o);
+      stateMap[es].peds++;
+      stateMap[es].clis.add(cliKey(o));
+    }
   });
+
+  // 3. Buscar cidades do Supabase baseadas no filtro
+  let cities = [];
+  if(supaConnected){
+    let query = supaClient.from("cidades").select("*");
+    if(ufFilter) query = query.eq("estado_sigla", ufFilter);
+    if(q) query = query.ilike("nome", `%${q}%`);
+    const {data} = await query.limit(q || ufFilter ? 1000 : 200).order("nome");
+    cities = data || [];
+  }
+
+  // 4. Mesclar dados de vendas com a base de cidades
+  const mergedCities = cities.map(c => {
+    const sales = salesMap[c.nome + "|" + c.estado_sigla] || { total: 0, peds: 0, clis: new Set() };
+    return { ...c, ...sales, clisCount: sales.clis.size };
+  });
+
+  // Se estiver pesquisando e não houver no Supabase, mostrar apenas o que tem nas vendas
+  if(!mergedCities.length && (q || ufFilter)){
+    Object.values(salesMap).forEach(s => {
+      if((!ufFilter || s.es === ufFilter) && (!q || s.ci.toLowerCase().includes(q))){
+        mergedCities.push({ id: 0, nome: s.ci, estado_sigla: s.es, ...s, clisCount: s.clis.size });
+      }
+    });
+  }
+
+  let finalCities = mergedCities;
+  if(typeFilter === "with") finalCities = finalCities.filter(c => c.total > 0);
+  if(typeFilter === "without") finalCities = finalCities.filter(c => c.total === 0);
+  
+  finalCities.sort((a,b) => b.total - a.total || a.nome.localeCompare(b.nome));
+
+  // 5. Renderizar KPIs
+  const totalEstadosVendas = Object.values(stateMap).filter(s => s.total > 0).length;
+  const totalCidadesVendas = Object.values(salesMap).filter(s => s.total > 0).length;
+  const topEstado = Object.values(stateMap).sort((a,b) => b.total - a.total)[0] || { sigla: "—", total: 0 };
+
+  document.getElementById("geo-kpis-row").innerHTML = `
+    <div class="stat-card-modern">
+      <div class="stat-label">COBERTURA</div>
+      <div class="stat-value">${totalEstadosVendas}/27 <span style="font-size:12px;font-weight:500">Estados</span></div>
+      <div class="stat-sub">${totalCidadesVendas} cidades atendidas</div>
+    </div>
+    <div class="stat-card-modern">
+      <div class="stat-label">LÍDER GEOGRÁFICO</div>
+      <div class="stat-value">${topEstado.sigla}</div>
+      <div class="stat-sub">${fmtBRL(topEstado.total)} em faturamento</div>
+    </div>
+    <div class="stat-card-modern">
+      <div class="stat-label">POTENCIAL</div>
+      <div class="stat-value">${(5570 - totalCidadesVendas).toLocaleString()}</div>
+      <div class="stat-sub">Cidades brasileiras sem vendas</div>
+    </div>
+  `;
+
+  // 6. Gráfico de Estados
+  renderGeoChart(Object.values(stateMap));
+
+  // 7. Mapa Heatmap (SVG)
+  renderBrazilMap(stateMap);
+
+  // 8. Tabela Detalhada
+  const maxTotal = finalCities[0]?.total || 1;
+  document.getElementById("city-table-detailed").innerHTML = `
+    <table class="chiva-table">
+      <thead>
+        <tr>
+          <th>Cidade</th>
+          <th style="text-align:right">Clientes</th>
+          <th style="text-align:right">Pedidos</th>
+          <th style="text-align:right">Receita</th>
+          <th>Penetração</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${finalCities.map(c => `
+          <tr>
+            <td>
+              <div style="font-weight:700">${escapeHTML(c.nome)}</div>
+              <div style="font-size:10px;color:var(--text-3)">${escapeHTML(c.estado_sigla)}</div>
+            </td>
+            <td style="text-align:right">${c.clisCount}</td>
+            <td style="text-align:right">${c.peds}</td>
+            <td style="text-align:right;font-weight:700;color:var(--green)">${fmtBRL(c.total)}</td>
+            <td>
+              <div class="cidade-bar-track" style="width:80px">
+                <div class="cidade-bar" style="width:${Math.min(100, (c.total/maxTotal)*100)}%"></div>
+              </div>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  // 9. Top 20 Cidades Ranking
+  const top20 = Object.values(salesMap).sort((a,b) => b.total - a.total).slice(0,20);
+  document.getElementById("geo-top-cities").innerHTML = top20.map((c, i) => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:11px">
+      <span style="font-weight:800;color:var(--blue);width:20px">${i+1}</span>
+      <span style="flex:1;font-weight:600">${escapeHTML(c.ci)} (${c.es})</span>
+      <span style="font-weight:700">${fmtBRL(c.total)}</span>
+    </div>
+  `).join("") || '<div class="empty">Sem vendas registradas</div>';
+
+  // Mostrar botão de importação se o banco estiver vazio
+  if(supaConnected && !cities.length && !q && !ufFilter){
+    document.getElementById("geo-sync-box").style.display = "block";
+  } else {
+    document.getElementById("geo-sync-box").style.display = "none";
+  }
+}
+
+function renderGeoChart(data){
+  if(charts.geoEstados) charts.geoEstados.destroy();
+  const top = data.filter(s => s.total > 0).sort((a,b) => b.total - a.total).slice(0,10);
+  const ctx = document.getElementById("chart-geo-estados");
+  if(!ctx || !top.length) return;
+
+  charts.geoEstados = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(s => s.sigla),
+      datasets: [{
+        label: 'Receita',
+        data: top.map(s => s.total),
+        backgroundColor: 'rgba(34, 211, 238, 0.8)',
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { display: false }, ticks: { font: { size: 10 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 10, weight: '700' } } }
+      }
+    }
+  });
+}
+
+function renderBrazilMap(stateMap){
+  const container = document.getElementById("brazil-map-container");
+  if(!container) return;
+  
+  const maxTotal = Math.max(...Object.values(stateMap).map(s => s.total), 1);
+  
+  // Cores de intensidade (escala de azul/ciano)
+  const getColor = (val) => {
+    if(val === 0) return "#e5e7eb";
+    const intensity = Math.min(1, val / maxTotal);
+    const opacity = 0.2 + (intensity * 0.8);
+    return `rgba(34, 211, 238, ${opacity})`;
+  };
+
+  // Simplificação: Vamos usar um SVG Inline do mapa do Brasil
+  // Para economizar espaço, vou usar um placeholder visual estilizado ou carregar um SVG externo.
+  // Aqui vou injetar um SVG básico via código.
+  
+  container.innerHTML = `
+    <div style="width:100%;text-align:center">
+      <div style="display:grid;grid-template-columns:repeat(9, 1fr);gap:4px;width:280px;margin:0 auto">
+        ${["RR","AP","AM","PA","MA","CE","RN","PB","PE",
+           "AC","RO","TO","PI","BA","AL","SE","MT","GO",
+           "DF","MG","ES","MS","SP","RJ","PR","SC","RS"].map(sigla => {
+             const s = stateMap[sigla] || { total: 0 };
+             return `
+               <div title="${sigla}: ${fmtBRL(s.total)}" 
+                    style="width:28px;height:28px;background:${getColor(s.total)};border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:${s.total > 0 ? '#083344' : '#9ca3af'};cursor:help">
+                 ${sigla}
+               </div>
+             `;
+           }).join("")}
+      </div>
+      <p style="font-size:10px;color:var(--text-3);margin-top:12px">Distribuição por intensidade de vendas</p>
+    </div>
+  `;
+}
+
+async function seedCidadesIBGE(){
+  if(!supaConnected || !supaClient) return;
+  const btn = document.querySelector("#geo-sync-box button");
+  btn.disabled = true;
+  btn.textContent = "⌛ Importando (IBGE)...";
+  
+  try {
+    // 1. Buscar todos os municípios via API do IBGE
+    const resp = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/municipios");
+    const data = await resp.json();
+    
+    // 2. Preparar lotes para o Supabase
+    const rows = data.map(m => ({
+      id: m.id,
+      nome: m.nome,
+      estado_id: m.microrregiao.mesorregiao.UF.id,
+      estado_sigla: m.microrregiao.mesorregiao.UF.sigla,
+      nome_slug: m.nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    }));
+
+    // 3. Inserir em lotes de 500
+    for(let i=0; i<rows.length; i+=500){
+      const batch = rows.slice(i, i+500);
+      const {error} = await supaClient.from("cidades").upsert(batch);
+      if(error) throw error;
+      btn.textContent = `⌛ Importando (${Math.round((i/rows.length)*100)}%)`;
+    }
+
+    toast("✅ Base IBGE importada com sucesso!");
+    renderCidades();
+  } catch(e) {
+    console.error(e);
+    toast("❌ Erro na importação: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "📥 Importar Base IBGE";
+  }
 }
 
 
@@ -3800,8 +3988,12 @@ function installApp(){ if(deferred){ deferred.prompt(); deferred.userChoice.then
 // ═══════════════════════════════════════════════════
 //  SUPABASE COMPLETO
 // ═══════════════════════════════════════════════════
-supaClient = null;
-supaConnected = false;
+let supaClient = null;
+let supaConnected = false;
+let canaisLookup = {};
+let geoEstados = []; // Cache completo de estados
+let geoCidades = []; // Cache de cidades (apenas as que têm vendas + principais)
+
 cliMetaCache = {};
 tarefasCache = [];
 canaisLookup = {}; // slug → uuid, carregado em loadSupabaseData()
