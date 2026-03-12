@@ -2009,12 +2009,19 @@ function buildCli(list){
     if(!m[k]) m[k]={id:k,nome:o.contato?.nome||"Desconhecido",doc:o.contato?.cpfCnpj||"",email:o.contato?.email||"",telefone:o.contato?.telefone||o.contato?.celular||"",cidade:o.contato?.endereco?.municipio||"",uf:o.contato?.endereco?.uf||"",orders:[],channels:new Set(),last:null,first:null};
     m[k].orders.push(o);
     m[k].channels.add(detectCh(o));
-    if(!m[k].email&&o.contato?.email) m[k].email=o.contato.email;
-    if(!m[k].telefone&&(o.contato?.telefone||o.contato?.celular)) m[k].telefone=o.contato?.telefone||o.contato?.celular;
+    
+    // Atualiza campos se estiverem vazios
+    if(!m[k].email && o.contato?.email) m[k].email = o.contato.email;
+    if(!m[k].telefone && (o.contato?.telefone || o.contato?.celular)) m[k].telefone = o.contato?.telefone || o.contato?.celular;
+    if(!m[k].cidade && o.contato?.endereco?.municipio) m[k].cidade = o.contato.endereco.municipio;
+    if(!m[k].uf && o.contato?.endereco?.uf) m[k].uf = o.contato.endereco.uf;
+    if(!m[k].doc && o.contato?.cpfCnpj) m[k].doc = o.contato.cpfCnpj;
+
     const d=new Date(o.data);
     if(!isNaN(d)){
-      if(!m[k].last||d>new Date(m[k].last)) m[k].last=o.data;
-      if(!m[k].first||d<new Date(m[k].first)) m[k].first=o.data;
+      const ds = d.toISOString().slice(0,10);
+      if(!m[k].last || ds > m[k].last) m[k].last = ds;
+      if(!m[k].first || ds < m[k].first) m[k].first = ds;
     }
   });
   return m;
@@ -4674,8 +4681,7 @@ async function loadOrdersFromSupabaseForCRM(){
         id: String(p.bling_id || p.id || p.numero_pedido || ""),
         numero: String(p.numero_pedido || p.id || ""),
         data: String(p.data_pedido || p.created_at || "").slice(0,10),
-        total: Number(p.total || 0) || 0,
-        totalProdutos: Number(p.total || 0) || 0,
+        total: p.total,
         situacao: { nome: p.status || "" },
         _source: String(p.source || "").toLowerCase() || "bling",
         _canal: (()=>{
@@ -4698,12 +4704,12 @@ async function loadOrdersFromSupabaseForCRM(){
     });
 
     (yampiRows||[]).forEach(y=>{
+      // Normalização unificada para dados brutos da Yampi
       const o = {
         id: y.external_id,
         numero: y.external_id,
-        data: String(y.created_at || "").slice(0,10),
-        total: Number(y.total || 0),
-        totalProdutos: Number(y.total || 0),
+        data: y.created_at,
+        total: y.total,
         situacao: { nome: y.status || "" },
         _source: "yampi",
         _canal: "yampi",
@@ -4716,15 +4722,16 @@ async function loadOrdersFromSupabaseForCRM(){
         itens: Array.isArray(y.raw?.items) ? y.raw.items.map(it=>({
           descricao: it.name || it.product_name || "",
           codigo: it.sku || it.id || "",
-          quantidade: Number(it.quantity || 1),
-          valor: Number(it.price || 0)
+          quantidade: it.quantity,
+          valor: it.price
         })) : []
       };
+      
       const normalized = normalizeOrderForCRM(o, "yampi");
-      // Evitar duplicidade se já veio de v2_pedidos (caso tenha sido processado por algum outro script)
-      if(!nextYampi.some(existing => existing.id === normalized.id)){
-        nextYampi.push(normalized);
-      }
+      
+      // Evitar duplicidade se já veio de v2_pedidos
+      const exists = nextYampi.some(ex => ex.id === normalized.id || ex.numero === normalized.numero);
+      if(!exists) nextYampi.push(normalized);
     });
 
     if(nextBling.length){
@@ -4741,6 +4748,11 @@ async function loadOrdersFromSupabaseForCRM(){
     mergeOrders();
     populateUFs();
     renderAll();
+
+    // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
+    if(nextYampi.length || nextBling.length){
+      upsertOrdersToSupabase([...nextBling, ...nextYampi]).catch(()=>{});
+    }
   }catch(_e){}
 }
 
