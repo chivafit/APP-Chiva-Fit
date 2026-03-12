@@ -1167,7 +1167,21 @@ function val(o){
   const v = o.total_pedido || o.total_venda || o.totalProdutos || o.total || o.valor || 0;
   return parseFloat(v) || 0; 
 }
-function cliKey(o){ return String(o?.contato?.cpfCnpj || o?.contato?.email || o?.contato?.nome || ""); }
+function cliKey(o){
+  const contato = o?.contato || {};
+  const docDigits = String(contato.cpfCnpj || contato.numeroDocumento || "").replace(/\D/g,"");
+  if(docDigits.length===11 || docDigits.length===14) return docDigits;
+  const email = String(contato.email || "").trim().toLowerCase();
+  if(email) return email;
+  const phoneDigits = String(contato.telefone || contato.celular || "").replace(/\D/g,"");
+  if(phoneDigits.length>=10) return phoneDigits;
+  return String(contato.nome || "").trim();
+}
+function orderCustomerKey(o){
+  const cid = String(o?.cliente_id || "").trim();
+  if(cid) return cid;
+  return cliKey(o);
+}
 
 
 function minutosDesdeIso(isoStr){
@@ -2099,12 +2113,34 @@ function fmtPhone(p){ p=(p||"").replace(/\D/g,""); if(!p)return""; if(p.length==
 function rawPhone(p){ return(p||"").replace(/\D/g,""); }
 function daysSince(ds){ if(!ds)return 9999; const d=new Date(ds); return isNaN(d)?9999:Math.floor((Date.now()-d)/86400000); }
 function isCNPJ(doc){ return (doc||"").replace(/\D/g,"").length===14; }
+function cleanText(v){
+  const s = String(v ?? "").trim();
+  if(!s) return "";
+  if(s === "-" || s === "—") return "";
+  return s;
+}
+function cleanEmail(v){
+  const s = cleanText(v).toLowerCase();
+  return s.includes("@") ? s : "";
+}
+function cleanPhoneDigits(v){
+  const d = String(v ?? "").replace(/\D/g,"");
+  return d.length>=10 ? d : "";
+}
+function cleanDocDigits(v){
+  const d = String(v ?? "").replace(/\D/g,"");
+  return (d.length===11 || d.length===14) ? d : "";
+}
+function cleanCepDigits(v){
+  const d = String(v ?? "").replace(/\D/g,"");
+  return d.length===8 ? d : "";
+}
 
 function buildCli(list){
   const m={};
   list.forEach(o=>{
-    const k=cliKey(o);
-    if(!m[k]) m[k]={id:k,nome:o.contato?.nome||"Desconhecido",doc:o.contato?.cpfCnpj||"",email:o.contato?.email||"",telefone:o.contato?.telefone||o.contato?.celular||"",cidade:o.contato?.endereco?.municipio||"",uf:o.contato?.endereco?.uf||"",orders:[],channels:new Set(),last:null,first:null};
+    const k = orderCustomerKey(o);
+    if(!m[k]) m[k]={id:k,nome:o.contato?.nome||"Desconhecido",doc:o.contato?.cpfCnpj||"",email:o.contato?.email||"",telefone:o.contato?.telefone||o.contato?.celular||"",cidade:o.contato?.endereco?.municipio||"",uf:o.contato?.endereco?.uf||"",cep:o.contato?.endereco?.cep||"",orders:[],channels:new Set(),last:null,first:null};
     m[k].orders.push(o);
     m[k].channels.add(detectCh(o));
     
@@ -2114,6 +2150,7 @@ function buildCli(list){
     if(!m[k].cidade && o.contato?.endereco?.municipio) m[k].cidade = o.contato.endereco.municipio;
     if(!m[k].uf && o.contato?.endereco?.uf) m[k].uf = o.contato.endereco.uf;
     if(!m[k].doc && o.contato?.cpfCnpj) m[k].doc = o.contato.cpfCnpj;
+    if(!m[k].cep && o.contato?.endereco?.cep) m[k].cep = o.contato.endereco.cep;
 
     const d=new Date(o.data);
     if(!isNaN(d)){
@@ -2182,6 +2219,7 @@ function populateUFs(){
     if(uf) ufs.add(uf);
   };
   (Array.isArray(allOrders) ? allOrders : []).forEach(o=>{
+    add(o?.uf_entrega);
     add(o?.contato?.endereco?.uf);
     add(o?.contato?.uf);
     add(o?.uf);
@@ -2789,7 +2827,8 @@ function renderClientes(){
   const filt=allOrders.filter(o=>{
     if(activeCh!=="all"&&detectCh(o)!==activeCh) return false;
     if(stP&&normSt(o.situacao)!==stP) return false;
-    if(uf&&(o.contato?.endereco?.uf||o.contato?.uf||"").toUpperCase()!==uf) return false;
+    const ufOrder = String(o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || o?.uf || "").toUpperCase().trim();
+    if(uf && ufOrder !== uf) return false;
     if(q){ const n=(o.contato?.nome||"").toLowerCase(),e=(o.contato?.email||"").toLowerCase(),t=rawPhone(o.contato?.telefone||""); if(!n.includes(q)&&!e.includes(q)&&!t.includes(q.replace(/\D/g,"")))return false; }
     return true;
   });
@@ -2894,7 +2933,7 @@ function renderClientePage(){
   // Tentar buscar dados mais completos do meta cache ou do banco
   const meta = cliMetaCache?.[c.id] || {};
   const orders = allOrders
-    .filter(o=>cliKey(o)===c.id)
+    .filter(o=>orderCustomerKey(o)===c.id)
     .slice()
     .sort((a,b)=>new Date(b.data||0)-new Date(a.data||0));
 
@@ -2908,15 +2947,28 @@ function renderClientePage(){
   
   // Enriquecer dados do cliente com o primeiro pedido se estiverem faltando
   const firstOrder = orders[orders.length-1] || {};
-  const enriched = {
-    nome: c.nome || firstOrder.contato?.nome || "",
-    telefone: c.telefone || firstOrder.contato?.telefone || "",
-    email: c.email || firstOrder.contato?.email || "",
-    doc: c.doc || firstOrder.contato?.cpfCnpj || firstOrder.contato?.numeroDocumento || "",
-    cidade: c.cidade || firstOrder.contato?.endereco?.municipio || "",
-    uf: c.uf || firstOrder.contato?.endereco?.uf || "",
-    cep: firstOrder.contato?.endereco?.cep || ""
-  };
+  const enriched = (()=>{
+    const nome = cleanText(c.nome || firstOrder.contato?.nome || "");
+    const telefone = cleanPhoneDigits(c.telefone || firstOrder.contato?.telefone || firstOrder.contato?.celular || "");
+    const email = cleanEmail(c.email || firstOrder.contato?.email || "");
+    const doc = cleanDocDigits(c.doc || firstOrder.contato?.cpfCnpj || firstOrder.contato?.numeroDocumento || "");
+    const cidade = cleanText(c.cidade || firstOrder.contato?.endereco?.municipio || "");
+    const uf = normalizeUF(c.uf || firstOrder.contato?.endereco?.uf || "");
+    const cep = cleanCepDigits(c.cep || firstOrder.contato?.endereco?.cep || "");
+    return { nome, telefone, email, doc, cidade, uf, cep };
+  })();
+
+  try{
+    console.groupCollapsed("cliente carregado na tela");
+    console.log("currentClienteId:", currentClienteId);
+    console.log("cliente carregado na tela:", c);
+    console.log("orders:", orders.length, orders[0] || null);
+    console.log("firstOrder:", firstOrder || null);
+    console.log("firstOrder.contato:", firstOrder?.contato || null);
+    console.log("firstOrder.contato.endereco:", firstOrder?.contato?.endereco || null);
+    console.log("enriched:", enriched);
+    console.groupEnd();
+  }catch(_e){}
 
   const loc = [enriched.cidade, enriched.uf].filter(Boolean).join(" — ");
 
@@ -2944,7 +2996,7 @@ function renderClientePage(){
   infoEl.innerHTML = `
     <div class="profile-h2">Informações</div>
     <div class="profile-row"><span style="color:var(--text-3)">Nome</span><span>${escapeHTML(enriched.nome||"—")}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(enriched.doc||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(enriched.doc ? fmtDoc(enriched.doc) : "—")}</span></div>
     <div class="profile-row"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(enriched.telefone ? fmtPhone(enriched.telefone) : "—")}</span></div>
     <div class="profile-row"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(enriched.email||"—")}</span></div>
     <div class="profile-row"><span style="color:var(--text-3)">Cidade</span><span>${escapeHTML(loc||"—")}</span></div>
@@ -3009,6 +3061,58 @@ function renderClientePage(){
     }).join("")}</div>` : `<div class="empty">Nenhum pedido para este cliente.</div>`}
   `;
   renderClienteTimeline(currentClienteId).catch(()=>{});
+  hydrateClienteInfoFromSupabase(currentClienteId);
+}
+
+const clienteInfoHydrateInFlight = new Set();
+const clienteInfoHydrateDone = new Set();
+function hydrateClienteInfoFromSupabase(customerKey){
+  if(!supaConnected || !supaClient) return;
+  const key = String(customerKey||"").trim();
+  if(!key) return;
+  if(clienteInfoHydrateDone.has(key) || clienteInfoHydrateInFlight.has(key)) return;
+  clienteInfoHydrateInFlight.add(key);
+  (async()=>{
+    const digits = key.replace(/\D/g,"");
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
+    const isEmail = key.includes("@");
+    let q = supaClient.from("v2_clientes").select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at").limit(1);
+    if(isUuid) q = q.eq("id", key);
+    else if(digits.length===11 || digits.length===14) q = q.eq("doc", digits);
+    else if(isEmail) q = q.ilike("email", key.toLowerCase());
+    else if(digits.length>=10) q = q.eq("telefone", digits);
+    else q = q.ilike("nome", key);
+    const {data, error} = await q.maybeSingle();
+    if(error){
+      console.log("cliente v2_clientes (lookup) error:", error);
+      return;
+    }
+    if(!data){
+      console.log("cliente v2_clientes (lookup): não encontrado para", key);
+      return;
+    }
+    console.log("cliente v2_clientes (lookup):", data);
+    const c = allCustomers.find(x=>x.id===key);
+    if(c){
+      const doc = cleanDocDigits(data.doc || "");
+      const email = cleanEmail(data.email || "");
+      const tel = cleanPhoneDigits(data.telefone || data.celular || "");
+      const cidade = cleanText(data.cidade || "");
+      const uf = normalizeUF(data.uf || "");
+      const cep = cleanCepDigits(data.cep || "");
+      if(!cleanDocDigits(c.doc)) c.doc = doc || c.doc;
+      if(!cleanEmail(c.email)) c.email = email || c.email;
+      if(!cleanPhoneDigits(c.telefone)) c.telefone = tel || c.telefone;
+      if(!cleanText(c.cidade)) c.cidade = cidade || c.cidade;
+      if(!normalizeUF(c.uf)) c.uf = uf || c.uf;
+      if(!cleanCepDigits(c.cep)) c.cep = cep || c.cep;
+    }
+    clienteInfoHydrateDone.add(key);
+    renderClientePage();
+  })().finally(()=>{
+    clienteInfoHydrateInFlight.delete(key);
+    clienteInfoHydrateDone.add(key);
+  });
 }
 
 async function renderClienteTimeline(customerKey){
@@ -3896,20 +4000,20 @@ async function renderCidades(){
   geoEstados.forEach(e => { stateMap[e.sigla] = { ...e, total: 0, clis: new Set(), peds: 0 }; });
 
   allOrders.forEach(o => {
-    const ci = (o.contato?.endereco?.municipio || o.contato?.municipio || "").trim();
-    const es = (o.contato?.endereco?.uf || o.contato?.uf || "").toUpperCase().trim().slice(0,2);
+    const ci = String(o?.cidade_entrega || o.contato?.endereco?.municipio || o.contato?.municipio || "").trim();
+    const es = normalizeUF(o?.uf_entrega || o.contato?.endereco?.uf || o.contato?.uf || "");
     if(!ci || !es) return;
     
     const k = ci + "|" + es;
     if(!salesMap[k]) salesMap[k] = { ci, es, total: 0, peds: 0, clis: new Set() };
     salesMap[k].total += val(o);
     salesMap[k].peds++;
-    salesMap[k].clis.add(cliKey(o));
+    salesMap[k].clis.add(orderCustomerKey(o));
 
     if(stateMap[es]){
       stateMap[es].total += val(o);
       stateMap[es].peds++;
-      stateMap[es].clis.add(cliKey(o));
+      stateMap[es].clis.add(orderCustomerKey(o));
     }
   });
 
@@ -4166,6 +4270,98 @@ canaisLookup = {}; // slug → uuid, carregado em loadSupabaseData()
 let upsertOrdersInFlight = false;
 const resolveUuidAutocreateTried = new Set();
 const resolveUuidAutocreateInFlight = new Set();
+let v2PedidosItemsAvailable = null;
+
+async function ensureV2PedidosItemsAvailable(){
+  if(v2PedidosItemsAvailable === false) return false;
+  if(v2PedidosItemsAvailable === true) return true;
+  if(!supaConnected || !supaClient) return false;
+  try{
+    const {error} = await supaClient.from("v2_pedidos_items").select("id").limit(1);
+    if(error) throw error;
+    v2PedidosItemsAvailable = true;
+    return true;
+  }catch(_e){
+    v2PedidosItemsAvailable = false;
+    return false;
+  }
+}
+
+async function upsertV2PedidosItemsFromOrders(orders){
+  if(!supaConnected || !supaClient) return;
+  const ok = await ensureV2PedidosItemsAvailable();
+  if(!ok) return;
+  const list = Array.isArray(orders) ? orders : [];
+  const nums = Array.from(new Set(list.map(o=>String(o?.numero || o?.id || "").trim()).filter(Boolean))).slice(0,800);
+  if(!nums.length) return;
+
+  let pedidos = [];
+  try{
+    for(let i=0;i<nums.length;i+=200){
+      const batch = nums.slice(i,i+200);
+      const {data, error} = await supaClient
+        .from("v2_pedidos")
+        .select("id,numero_pedido")
+        .in("numero_pedido", batch)
+        .limit(2000);
+      if(error) throw error;
+      pedidos = pedidos.concat(Array.isArray(data) ? data : []);
+    }
+  }catch(_e){
+    return;
+  }
+  const numToId = {};
+  pedidos.forEach(p=>{
+    const n = String(p?.numero_pedido || "").trim();
+    const id = p?.id;
+    if(n && id) numToId[n] = id;
+  });
+  const pedidoIds = Array.from(new Set(Object.values(numToId))).slice(0,1500);
+  if(!pedidoIds.length) return;
+
+  try{
+    for(let i=0;i<pedidoIds.length;i+=200){
+      const batch = pedidoIds.slice(i,i+200);
+      await supaClient.from("v2_pedidos_items").delete().in("pedido_id", batch);
+    }
+  }catch(_e){}
+
+  const rows = [];
+  const getName = (it)=>String(it?.produto_nome || it?.descricao || it?.title || it?.nome || it?.name || "").trim();
+  const getQty = (it)=>Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
+  const getUnit = (it)=>Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? 0) || 0;
+  const getTotal = (it, qty, unit)=>Number(it?.valor_total ?? it?.total ?? 0) || (qty*unit);
+  list.forEach(o=>{
+    const n = String(o?.numero || o?.id || "").trim();
+    const pid = numToId[n];
+    if(!pid) return;
+    const itens = Array.isArray(o?.itens) ? o.itens : [];
+    itens.forEach(it=>{
+      const produtoNome = getName(it);
+      const quantidade = getQty(it);
+      const valorUnitario = getUnit(it);
+      const valorTotal = getTotal(it, quantidade, valorUnitario);
+      if(!produtoNome) return;
+      rows.push({
+        pedido_id: pid,
+        produto_nome: produtoNome,
+        quantidade,
+        valor_unitario: valorUnitario,
+        valor_total: valorTotal,
+        created_at: new Date().toISOString()
+      });
+    });
+  });
+  if(!rows.length) return;
+
+  try{
+    for(let i=0;i<rows.length;i+=500){
+      const batch = rows.slice(i,i+500);
+      const {error} = await supaClient.from("v2_pedidos_items").insert(batch);
+      if(error) throw error;
+    }
+  }catch(_e){}
+}
 
 async function loadClienteMetaCache(){
   if(!supaConnected || !supaClient) return;
@@ -4795,6 +4991,9 @@ function normalizeOrderForCRM(o, sourceHint){
   const municipio = endereco.municipio || endereco.cidade || endereco.city || endereco.localidade || "";
   const uf = normalizeUF(endereco.uf || endereco.estado || endereco.state || endereco.province || endereco.province_code || "");
   const logradouro = endereco.logradouro || endereco.endereco || endereco.address1 || "";
+  const numero = endereco.numero || endereco.number || "";
+  const bairro = endereco.bairro || endereco.neighborhood || endereco.district || "";
+  const cep = endereco.cep || endereco.zipcode || endereco.zip || "";
 
   next.contato = {
     id: contato.id || next.cliente_id || next.customer_id || next.contato_id || undefined,
@@ -4806,7 +5005,10 @@ function normalizeOrderForCRM(o, sourceHint){
     endereco: {
       municipio: String(municipio || ""),
       uf: String(uf || ""),
-      logradouro: String(logradouro || "")
+      logradouro: String(logradouro || ""),
+      numero: String(numero || ""),
+      bairro: String(bairro || ""),
+      cep: String(cep || "")
     }
   };
 
@@ -4838,7 +5040,7 @@ async function loadOrdersFromSupabaseForCRM(){
   try{
     const {data:cliRows, error:cliErr} = await supaClient
       .from("v2_clientes")
-      .select("id,nome,doc,email,telefone,cidade,uf")
+      .select("id,nome,doc,email,telefone,celular,cidade,uf,cep")
       .limit(5000);
     if(cliErr) throw cliErr;
     const cliById = {};
@@ -4858,18 +5060,103 @@ async function loadOrdersFromSupabaseForCRM(){
       .limit(5000);
     if(yampiErr) throw yampiErr;
 
+    let itemsByPedidoId = {};
+    try{
+      const okItems = await ensureV2PedidosItemsAvailable();
+      if(okItems && Array.isArray(pedRows) && pedRows.length){
+        const pedidoIds = Array.from(new Set(pedRows.map(p=>p?.id).filter(Boolean))).slice(0,1000);
+        for(let i=0;i<pedidoIds.length;i+=200){
+          const batchIds = pedidoIds.slice(i,i+200);
+          const {data, error} = await supaClient
+            .from("v2_pedidos_items")
+            .select("pedido_id,produto_nome,quantidade,valor_unitario,valor_total")
+            .in("pedido_id", batchIds)
+            .limit(20000);
+          if(error) throw error;
+          (data||[]).forEach(r=>{
+            const pid = String(r.pedido_id||"");
+            if(!pid) return;
+            if(!itemsByPedidoId[pid]) itemsByPedidoId[pid] = [];
+            itemsByPedidoId[pid].push({
+              descricao: r.produto_nome || "",
+              codigo: "",
+              quantidade: Number(r.quantidade||0) || 0,
+              valor: Number(r.valor_unitario||0) || 0,
+              valor_total: Number(r.valor_total||0) || 0
+            });
+          });
+        }
+      }
+    }catch(_e){}
+
     const nextBling = [];
     const nextYampi = [];
 
+    const extractYampiCustomer = (raw)=>{
+      const obj = raw && typeof raw === "object" ? raw : {};
+      const customer = obj.customer || obj.cliente || obj.buyer || obj.comprador || obj.user || {};
+      const shipping = obj.shipping_address || obj.shippingAddress || obj.shipping || obj.address || {};
+      const billing = obj.billing_address || obj.billingAddress || {};
+      const addr = (shipping && typeof shipping === "object" && Object.keys(shipping).length) ? shipping : billing;
+      const name =
+        customer.name ||
+        customer.nome ||
+        [customer.first_name, customer.last_name].filter(Boolean).join(" ").trim() ||
+        obj.customer_name ||
+        obj.nome ||
+        "";
+      const email =
+        customer.email ||
+        customer.email_address ||
+        customer.emailAddress ||
+        customer.mail ||
+        obj.customer_email ||
+        obj.email ||
+        "";
+      const phone =
+        customer.phone ||
+        customer.phone_number ||
+        customer.phoneNumber ||
+        customer.mobile ||
+        customer.cellphone ||
+        customer.whatsapp ||
+        customer.telefone ||
+        customer.celular ||
+        obj.customer_phone ||
+        obj.phone ||
+        "";
+      const doc =
+        customer.document ||
+        customer.document_number ||
+        customer.documentNumber ||
+        customer.cpf ||
+        customer.cnpj ||
+        obj.document ||
+        obj.doc ||
+        "";
+      const city = addr.city || addr.cidade || addr.municipio || addr.localidade || "";
+      const state = addr.state || addr.uf || addr.estado || addr.province || addr.province_code || "";
+      const cep = addr.zipcode || addr.cep || addr.zip || "";
+      const logradouro = addr.address1 || addr.logradouro || addr.endereco || addr.street || "";
+      const numero = addr.number || addr.numero || "";
+      const bairro = addr.neighborhood || addr.bairro || addr.district || "";
+      return { name, email, phone, doc, city, state, cep, logradouro, numero, bairro };
+    };
+
     (pedRows||[]).forEach(p=>{
       const cli = cliById[p.cliente_id] || null;
+      const pid = String(p.id || "");
       const o = {
         id: String(p.bling_id || p.id || p.numero_pedido || ""),
         numero: String(p.numero_pedido || p.id || ""),
+        cliente_id: p.cliente_id || null,
+        pedido_uuid: pid || null,
         data: String(p.data_pedido || p.created_at || "").slice(0,10),
         total: p.total,
         situacao: { nome: p.status || "" },
         _source: String(p.source || "").toLowerCase() || "bling",
+        cidade_entrega: p.cidade_entrega || null,
+        uf_entrega: p.uf_entrega || null,
         _canal: (()=>{
           const inv = Object.entries(canaisLookup||{}).find(([,id])=>String(id)===String(p.canal_id));
           return inv ? inv[0] : "";
@@ -4879,10 +5166,10 @@ async function loadOrdersFromSupabaseForCRM(){
           nome: cli?.nome || "Desconhecido",
           cpfCnpj: cli?.doc || "",
           email: cli?.email || "",
-          telefone: cli?.telefone || "",
-          endereco: { municipio: cli?.cidade || "", uf: cli?.uf || "" }
+          telefone: cli?.telefone || cli?.celular || "",
+          endereco: { municipio: cli?.cidade || "", uf: cli?.uf || "", cep: cli?.cep || "" }
         },
-        itens: Array.isArray(p.itens) ? p.itens : Array.isArray(p.items) ? p.items : []
+        itens: (pid && Array.isArray(itemsByPedidoId[pid]) && itemsByPedidoId[pid].length) ? itemsByPedidoId[pid] : (Array.isArray(p.itens) ? p.itens : Array.isArray(p.items) ? p.items : [])
       };
       const normalized = normalizeOrderForCRM(o, o._source);
       if(normalized._source === "yampi") nextYampi.push(normalized);
@@ -4892,24 +5179,25 @@ async function loadOrdersFromSupabaseForCRM(){
     (yampiRows||[]).forEach(y=>{
       // Normalização unificada para dados brutos da Yampi
       const raw = y.raw || {};
-      const ship = raw.shipping_address || raw.shippingAddress || raw.shipping || raw.address || {};
-      const bill = raw.billing_address || raw.billingAddress || {};
-      const addr = (ship && typeof ship === "object" && Object.keys(ship).length) ? ship : bill;
-      const city = y.city || addr.city || addr.cidade || addr.municipio || "";
-      const state = y.state || addr.state || addr.uf || addr.estado || addr.province || addr.province_code || "";
+      const ex = extractYampiCustomer(raw);
+      const city = y.city || ex.city || "";
+      const state = y.state || ex.state || "";
       const o = {
         id: y.external_id,
         numero: y.external_id,
+        cidade_entrega: city || null,
+        uf_entrega: state || null,
         data: y.created_at,
         total: y.total,
         situacao: { nome: y.status || "" },
         _source: "yampi",
         _canal: "yampi",
         contato: {
-          nome: y.customer_name || "Cliente Yampi",
-          email: y.customer_email || "",
-          telefone: y.customer_phone || "",
-          endereco: { municipio: city || "", uf: state || "" }
+          nome: y.customer_name || ex.name || "Cliente Yampi",
+          cpfCnpj: ex.doc || "",
+          email: y.customer_email || ex.email || "",
+          telefone: y.customer_phone || ex.phone || "",
+          endereco: { municipio: city || "", uf: state || "", cep: ex.cep || "", logradouro: ex.logradouro || "", numero: ex.numero || "", bairro: ex.bairro || "" }
         },
         itens: Array.isArray(y.raw?.items) ? y.raw.items.map(it=>({
           descricao: it.name || it.product_name || "",
@@ -4978,6 +5266,7 @@ async function upsertOrdersToSupabase(orders){
         telefone: telDigits,
         cidade: c.cidade || end.municipio || "", 
         uf: c.uf || end.uf || "",
+        cep: c.cep || end.cep || end.zipcode || end.zip || "",
         primeiro_pedido: c.first, 
         ultimo_pedido: c.last,
         total_pedidos: c.orders.length, 
@@ -5044,6 +5333,8 @@ async function upsertOrdersToSupabase(orders){
         data_pedido: o.data,
         total: val(o),
         status: normSt(o.situacao),
+        cidade_entrega: o.cidade_entrega || o.contato?.endereco?.municipio || null,
+        uf_entrega: normalizeUF(o.uf_entrega || o.contato?.endereco?.uf || ""),
         source: o._source||'bling',
         created_at: o.dataCriacao||o.data||new Date().toISOString()
       };
@@ -5056,6 +5347,7 @@ async function upsertOrdersToSupabase(orders){
         throw error;
       }
     }
+    upsertV2PedidosItemsFromOrders(orders).catch(()=>{});
     if(!silent) toast('✓ Dados salvos no Supabase!');
   }catch(e){
     logSupabaseUpsertError("upsert orders error", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null });
