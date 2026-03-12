@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
 declare const Deno: any;
 
@@ -31,6 +32,17 @@ function safeJsonParse(text: string): unknown {
   } catch (_e) {
     return null;
   }
+}
+
+async function getStoredBlingAccessToken(supabaseUrl: string, serviceRoleKey: string): Promise<string> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const { data, error } = await supabase
+    .from("configuracoes")
+    .select("valor_texto")
+    .eq("chave", "bling_access_token")
+    .maybeSingle();
+  if (error) throw error;
+  return String(data?.valor_texto || "").trim();
 }
 
 async function renewBlingTokenViaEdgeFunction(
@@ -77,6 +89,16 @@ async function getBlingAccessToken(supabaseUrl: string, serviceRoleKey: string, 
   const now = Date.now();
   const safetyWindowMs = 120_000;
   if (!forceRenew && tokenCache?.token && now < tokenCache.expiresAtMs - safetyWindowMs) return tokenCache.token;
+
+  if (!forceRenew) {
+    try {
+      const stored = await getStoredBlingAccessToken(supabaseUrl, serviceRoleKey);
+      if (stored) {
+        tokenCache = { token: stored, expiresAtMs: now + 10 * 60 * 1000 };
+        return stored;
+      }
+    } catch (_e) {}
+  }
 
   const renewed = await renewBlingTokenViaEdgeFunction(supabaseUrl, serviceRoleKey);
   const expiresInSec = Number(renewed?.expires_in ?? 0) || 6 * 60 * 60;

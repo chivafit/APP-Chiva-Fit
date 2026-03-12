@@ -308,7 +308,6 @@ async function upsertCustomerIntelligenceToSupabase(ctx, intel){
       cliente_id: customerId,
       score_final: Number(c?.score_final ?? 0) || 0,
       next_best_action: c?.next_best_action != null ? String(c.next_best_action).trim() : null,
-      updated_at: new Date().toISOString()
     };
   }).filter(Boolean);
   if(!rows.length) return;
