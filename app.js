@@ -1028,15 +1028,20 @@ function normalizeYampiOrder(o){
   const cliente = next.cliente || next.customer || next.buyer || {};
   const endereco = cliente.endereco || cliente.address || next.endereco_entrega || next.shipping_address || {};
   const nome = cliente.nome || cliente.name || [cliente.first_name, cliente.last_name].filter(Boolean).join(" ").trim();
+  
+  // Extração completa para persistência
   next.contato = next.contato || {
     nome: nome || "Cliente",
-    cpfCnpj: cliente.cpf || cliente.cnpj || cliente.document || "",
+    cpfCnpj: cliente.cpf || cliente.cnpj || cliente.document || cliente.document_number || "",
     email: cliente.email || next.email || "",
     telefone: cliente.telefone || cliente.phone || next.phone || "",
     endereco: {
       municipio: endereco.cidade || endereco.city || endereco.municipio || "",
       uf: (endereco.uf || endereco.state || endereco.province || endereco.estado || "").toString().toUpperCase().slice(0,2),
-      logradouro: endereco.logradouro || endereco.address1 || endereco.endereco || ""
+      logradouro: endereco.logradouro || endereco.address1 || endereco.endereco || endereco.street || "",
+      numero: endereco.numero || endereco.number || "",
+      bairro: endereco.bairro || endereco.neighborhood || endereco.district || "",
+      cep: endereco.cep || endereco.zipcode || endereco.zip || ""
     }
   };
 
@@ -2740,6 +2745,8 @@ function renderClientePage(){
     return;
   }
 
+  // Tentar buscar dados mais completos do meta cache ou do banco
+  const meta = cliMetaCache?.[c.id] || {};
   const orders = allOrders
     .filter(o=>cliKey(o)===c.id)
     .slice()
@@ -2752,12 +2759,25 @@ function renderClientePage(){
   const first = orders[orders.length-1]?.data || c.first || null;
   const ds = daysSince(last);
   const avgInterval = calcCliScores(c).avgInterval;
-  const loc = [c.cidade,c.uf].filter(Boolean).join(" — ");
+  
+  // Enriquecer dados do cliente com o primeiro pedido se estiverem faltando
+  const firstOrder = orders[orders.length-1] || {};
+  const enriched = {
+    nome: c.nome || firstOrder.contato?.nome || "",
+    telefone: c.telefone || firstOrder.contato?.telefone || "",
+    email: c.email || firstOrder.contato?.email || "",
+    doc: c.doc || firstOrder.contato?.cpfCnpj || firstOrder.contato?.numeroDocumento || "",
+    cidade: c.cidade || firstOrder.contato?.endereco?.municipio || "",
+    uf: c.uf || firstOrder.contato?.endereco?.uf || "",
+    cep: firstOrder.contato?.endereco?.cep || ""
+  };
+
+  const loc = [enriched.cidade, enriched.uf].filter(Boolean).join(" — ");
 
   const titleEl = document.getElementById("cliente-title");
   const subEl = document.getElementById("cliente-sub");
-  if(titleEl) titleEl.textContent = c.nome || "Cliente";
-  const meta = cliMetaCache?.[c.id] || {};
+  if(titleEl) titleEl.textContent = enriched.nome || "Cliente";
+  
   const stageLabel = {
     novo_lead: "Novo lead",
     contato_iniciado: "Contato iniciado",
@@ -2765,6 +2785,7 @@ function renderClientePage(){
     pedido_criado: "Pedido criado",
     fechado: "Fechado"
   }[meta.pipeline_stage] || null;
+  
   const lastInt = meta.last_interaction_at ? fmtDate(String(meta.last_interaction_at).slice(0,10)) : null;
   const subParts = [
     c.status || "",
@@ -2776,10 +2797,12 @@ function renderClientePage(){
 
   infoEl.innerHTML = `
     <div class="profile-h2">Informações</div>
-    <div class="profile-row"><span style="color:var(--text-3)">Nome</span><span>${escapeHTML(c.nome||"—")}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(c.telefone ? fmtPhone(c.telefone) : "—")}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(c.email||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Nome</span><span>${escapeHTML(enriched.nome||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(enriched.doc||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(enriched.telefone ? fmtPhone(enriched.telefone) : "—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(enriched.email||"—")}</span></div>
     <div class="profile-row"><span style="color:var(--text-3)">Cidade</span><span>${escapeHTML(loc||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">CEP</span><span>${escapeHTML(enriched.cep||"—")}</span></div>
     <div class="profile-row"><span style="color:var(--text-3)">Primeiro pedido</span><span>${escapeHTML(fmtDate(first))}</span></div>
   `;
 
@@ -2851,7 +2874,7 @@ async function renderClienteTimeline(customerKey){
   }
   const uuid = await resolveCustomerUuid(customerKey);
   if(!uuid){
-    host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Cliente ainda não vinculado no Supabase.</div>`;
+    host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Não foi possível vincular o cliente ao Supabase.</div>`;
     return;
   }
   try{
@@ -4030,24 +4053,38 @@ async function resolveCustomerUuid(customerKey){
 
   const digits = key.replace(/\D/g,"");
   const isEmail = key.includes("@");
+  
   try{
+    let existingId = null;
     if(digits.length===11 || digits.length===14){
-      const {data} = await supaClient.from("v2_clientes").select("id,doc").eq("doc", digits).maybeSingle();
-      if(data?.id){
-        cliMetaCache[key] = cliMetaCache[key] || {};
-        cliMetaCache[key].uuid = data.id;
-        return data.id;
-      }
+      const {data} = await supaClient.from("v2_clientes").select("id").eq("doc", digits).maybeSingle();
+      existingId = data?.id;
     }
-    if(isEmail){
+    if(!existingId && isEmail){
       const em = key.trim().toLowerCase();
-      const {data} = await supaClient.from("v2_clientes").select("id,email").ilike("email", em).maybeSingle();
-      if(data?.id) return data.id;
+      const {data} = await supaClient.from("v2_clientes").select("id").ilike("email", em).maybeSingle();
+      existingId = data?.id;
     }
-    if(digits.length>=10){
-      const {data} = await supaClient.from("v2_clientes").select("id,telefone").eq("telefone", digits).maybeSingle();
-      if(data?.id) return data.id;
+    if(!existingId && digits.length>=10){
+      const {data} = await supaClient.from("v2_clientes").select("id").eq("telefone", digits).maybeSingle();
+      existingId = data?.id;
     }
+
+    if(existingId){
+      cliMetaCache[key] = cliMetaCache[key] || {};
+      cliMetaCache[key].uuid = existingId;
+      return existingId;
+    }
+
+    // Tentar criação automática se não encontrar e for uma chave válida
+    const foundLocal = allCustomers.find(c => cliKey({contato:c}) === key);
+    if(foundLocal){
+      console.log("Criando cliente no Supabase via resolveUuid:", foundLocal.nome);
+      await upsertOrdersToSupabase(foundLocal.orders);
+      // Tentar buscar novamente após o upsert
+      return await resolveCustomerUuid(customerKey);
+    }
+
   }catch(_e){}
   return null;
 }
@@ -4702,20 +4739,31 @@ async function upsertOrdersToSupabase(orders){
     const cliRows = Object.values(cliMap).map(c => {
       const sc = calcCliScores(c);
       const docDigits = String(c.doc||"").replace(/\D/g,"");
-      const docKey = docDigits.length===11 || docDigits.length===14 ? docDigits : "";
-      const fallbackKey =
-        (c.email && String(c.email).trim().toLowerCase()) ||
-        (c.telefone && String(c.telefone).replace(/\D/g,"")) ||
-        String(c.id||"");
       const telDigits = (c.telefone && String(c.telefone).replace(/\D/g,"")) || "";
-      return { nome:c.nome, doc:c.doc, email: c.email ? String(c.email).trim().toLowerCase() : "", telefone: telDigits,
-        cidade:c.cidade, uf:c.uf, primeiro_pedido:c.first, ultimo_pedido:c.last,
-        total_pedidos:c.orders.length, total_gasto:sc.ltv, ltv:sc.ltv,
+      
+      // Captura de endereço completa
+      const end = c.orders[0]?.contato?.endereco || {};
+      
+      return { 
+        nome: c.nome, 
+        doc: c.doc, 
+        email: c.email ? String(c.email).trim().toLowerCase() : "", 
+        telefone: telDigits,
+        cidade: c.cidade || end.municipio || "", 
+        uf: c.uf || end.uf || "",
+        primeiro_pedido: c.first, 
+        ultimo_pedido: c.last,
+        total_pedidos: c.orders.length, 
+        total_gasto: sc.ltv, 
+        ltv: sc.ltv,
         ticket_medio: c.orders.length ? sc.ltv/c.orders.length : 0,
-        intervalo_medio_dias:sc.avgInterval, score_recompra:sc.recompraScore,
-        risco_churn:sc.churnRisk, status:sc.status,
-        canal_principal:[...c.channels][0]||'outros',
-        updated_at: new Date().toISOString() };
+        intervalo_medio_dias: sc.avgInterval, 
+        score_recompra: sc.recompraScore,
+        risco_churn: sc.churnRisk, 
+        status: sc.status,
+        canal_principal: [...c.channels][0]||'outros',
+        updated_at: new Date().toISOString() 
+      };
     });
     cliRows.forEach(r=>{
       const digits = String(r.doc||"").replace(/\D/g,"");
