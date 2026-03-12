@@ -1049,6 +1049,58 @@ async function syncBling(){
   }
 }
 
+async function backfillBlingEnderecos(){
+  const st = document.getElementById("bling-status");
+  if(st){ st.textContent="Backfill: buscando período no Supabase..."; st.className="setup-status"; }
+  try{
+    if(!supaConnected || !supaClient) throw new Error("Conecte o Supabase primeiro.");
+
+    let from = "";
+    try{
+      const {data} = await supaClient
+        .from("v2_pedidos")
+        .select("data_pedido")
+        .order("data_pedido", { ascending: true })
+        .limit(1);
+      from = String(data?.[0]?.data_pedido || "").slice(0,10);
+    }catch(_e){}
+
+    const to = new Date().toISOString().slice(0,10);
+    if(!from) from = "2020-01-01";
+
+    if(st){ st.textContent=`Backfill: importando Bling (${from} → ${to})...`; st.className="setup-status"; }
+
+    const resp = await fetch(getSupaFnBase()+"/bling-sync",{
+      method:"POST",
+      headers:supaFnHeaders(),
+      body:JSON.stringify({from,to, maxPages: 200})
+    });
+    if(!resp.ok){
+      const txt=await resp.text();
+      throw new Error(txt||"Erro na função Bling");
+    }
+    const data=await resp.json();
+    const orders = (data.orders||[]).map(o=>normalizeOrderForCRM(o,"bling"));
+    if(!orders.length){
+      if(st){ st.textContent="Backfill: nenhum pedido retornado."; st.className="setup-status s-err"; }
+      return;
+    }
+
+    blingOrders.length = 0;
+    blingOrders.push(...orders);
+    localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
+
+    mergeOrders(); populateUFs();
+    await upsertOrdersToSupabase(blingOrders, { silent: true });
+    renderAll();
+
+    if(st){ st.textContent=`✓ Backfill concluído: ${orders.length} pedidos`; st.className="setup-status s-ok"; }
+    toast("✓ Backfill Bling concluído!");
+  }catch(e){
+    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
+  }
+}
+
 // ═══════════════════════════════════════════════════
 //  YAMPI
 // ═══════════════════════════════════════════════════
@@ -2842,7 +2894,10 @@ function renderClientes(){
 }
 
 function openClientePage(clienteId){
-  currentClienteId = clienteId;
+  const raw = String(clienteId||"").trim();
+  hydrateClienteInfoFromSupabase(raw);
+  const mapped = clienteKeyToUuid?.[raw] || raw;
+  currentClienteId = mapped;
   showPage("cliente");
 }
 
@@ -3066,6 +3121,7 @@ function renderClientePage(){
 
 const clienteInfoHydrateInFlight = new Set();
 const clienteInfoHydrateDone = new Set();
+const clienteKeyToUuid = {};
 function hydrateClienteInfoFromSupabase(customerKey){
   if(!supaConnected || !supaClient) return;
   const key = String(customerKey||"").trim();
@@ -3092,21 +3148,53 @@ function hydrateClienteInfoFromSupabase(customerKey){
       return;
     }
     console.log("cliente v2_clientes (lookup):", data);
-    const c = allCustomers.find(x=>x.id===key);
-    if(c){
-      const doc = cleanDocDigits(data.doc || "");
-      const email = cleanEmail(data.email || "");
-      const tel = cleanPhoneDigits(data.telefone || data.celular || "");
-      const cidade = cleanText(data.cidade || "");
-      const uf = normalizeUF(data.uf || "");
-      const cep = cleanCepDigits(data.cep || "");
-      if(!cleanDocDigits(c.doc)) c.doc = doc || c.doc;
-      if(!cleanEmail(c.email)) c.email = email || c.email;
-      if(!cleanPhoneDigits(c.telefone)) c.telefone = tel || c.telefone;
-      if(!cleanText(c.cidade)) c.cidade = cidade || c.cidade;
-      if(!normalizeUF(c.uf)) c.uf = uf || c.uf;
-      if(!cleanCepDigits(c.cep)) c.cep = cep || c.cep;
-    }
+    const uuid = String(data.id||"").trim();
+    if(uuid) clienteKeyToUuid[key] = uuid;
+
+    const doc = cleanDocDigits(data.doc || "");
+    const email = cleanEmail(data.email || "");
+    const tel = cleanPhoneDigits(data.telefone || data.celular || "");
+    const cidade = cleanText(data.cidade || "");
+    const uf = normalizeUF(data.uf || "");
+    const cep = cleanCepDigits(data.cep || "");
+
+    const ensureCustomer = (id)=>{
+      const existing = allCustomers.find(x=>String(x.id||"")===String(id));
+      if(existing) return existing;
+      const created = {
+        id: String(id),
+        nome: "",
+        doc: "",
+        email: "",
+        telefone: "",
+        cidade: "",
+        uf: "",
+        cep: "",
+        orders: [],
+        channels: new Set(),
+        last: null,
+        first: null,
+        total_gasto: 0,
+        status: "",
+        canal_principal: ""
+      };
+      allCustomers.push(created);
+      return created;
+    };
+
+    const cUuid = uuid ? ensureCustomer(uuid) : null;
+    const cKey = ensureCustomer(key);
+    [cKey, cUuid].filter(Boolean).forEach(c=>{
+      if(doc) c.doc = doc;
+      if(email) c.email = email;
+      if(tel) c.telefone = tel;
+      if(cidade) c.cidade = cidade;
+      if(uf) c.uf = uf;
+      if(cep) c.cep = cep;
+      if(cleanText(data.nome)) c.nome = cleanText(data.nome);
+    });
+
+    if(currentClienteId === key && uuid) currentClienteId = uuid;
     clienteInfoHydrateDone.add(key);
     renderClientePage();
   })().finally(()=>{
@@ -5253,20 +5341,18 @@ async function upsertOrdersToSupabase(orders){
     const cliMap = buildCli(orders);
     const cliRows = Object.values(cliMap).map(c => {
       const sc = calcCliScores(c);
-      const docDigits = String(c.doc||"").replace(/\D/g,"");
-      const telDigits = (c.telefone && String(c.telefone).replace(/\D/g,"")) || "";
       
       // Captura de endereço completa
       const end = c.orders[0]?.contato?.endereco || {};
+      const nome = cleanText(c.nome || "");
+      const email = cleanEmail(c.email || "");
+      const telefone = cleanPhoneDigits(c.telefone || "");
+      const cidade = cleanText(c.cidade || end.municipio || "");
+      const uf = normalizeUF(c.uf || end.uf || "");
+      const cep = cleanCepDigits(c.cep || end.cep || end.zipcode || end.zip || "");
       
-      return { 
-        nome: c.nome, 
-        doc: c.doc, 
-        email: c.email ? String(c.email).trim().toLowerCase() : "", 
-        telefone: telDigits,
-        cidade: c.cidade || end.municipio || "", 
-        uf: c.uf || end.uf || "",
-        cep: c.cep || end.cep || end.zipcode || end.zip || "",
+      const row = {
+        doc: c.doc,
         primeiro_pedido: c.first, 
         ultimo_pedido: c.last,
         total_pedidos: c.orders.length, 
@@ -5280,6 +5366,13 @@ async function upsertOrdersToSupabase(orders){
         canal_principal: [...c.channels][0]||'outros',
         updated_at: new Date().toISOString() 
       };
+      if(nome) row.nome = nome;
+      if(email) row.email = email;
+      if(telefone) row.telefone = telefone;
+      if(cidade) row.cidade = cidade;
+      if(uf) row.uf = uf;
+      if(cep) row.cep = cep;
+      return row;
     });
     cliRows.forEach(r=>{
       const digits = String(r.doc||"").replace(/\D/g,"");
@@ -5324,7 +5417,9 @@ async function upsertOrdersToSupabase(orders){
       const canalId = canaisLookup[canalSlug] || canaisLookup["outros"] || null;
       const baseId = String(o.id || o.numero || "").trim();
       const id = baseId || "";
-      return {
+      const cidadeEntrega = cleanText(o.cidade_entrega || o.contato?.endereco?.municipio || "");
+      const ufEntrega = normalizeUF(o.uf_entrega || o.contato?.endereco?.uf || "");
+      const row = {
         id,
         bling_id: String(o.id||o.numero),
         numero_pedido: String(o.numero||o.id),
@@ -5333,11 +5428,12 @@ async function upsertOrdersToSupabase(orders){
         data_pedido: o.data,
         total: val(o),
         status: normSt(o.situacao),
-        cidade_entrega: o.cidade_entrega || o.contato?.endereco?.municipio || null,
-        uf_entrega: normalizeUF(o.uf_entrega || o.contato?.endereco?.uf || ""),
         source: o._source||'bling',
         created_at: o.dataCriacao||o.data||new Date().toISOString()
       };
+      if(cidadeEntrega) row.cidade_entrega = cidadeEntrega;
+      if(ufEntrega) row.uf_entrega = ufEntrega;
+      return row;
     }).filter(p => p.id && p.canal_id); // id é obrigatório (PK) e canal_id pode estar como NOT NULL no banco
     for(let i=0; i<pedRows.length; i+=100){
       const batch = pedRows.slice(i,i+100);
@@ -5442,7 +5538,7 @@ async function runPostFixValidation(){
 
 async function runClienteDebug(customerKey){
   const key = String(customerKey||"").trim();
-  const result = { input: key, cliente: null, pedidos: [], itensByPedido: {}, errors: [] };
+  const result = { input: key, cliente: null, pedidos: [], itensByPedido: {}, match_clienteId: null, errors: [] };
   if(!supaConnected || !supaClient){
     result.errors.push("Supabase não conectado");
     console.warn("runClienteDebug: Supabase não conectado");
@@ -5481,6 +5577,8 @@ async function runClienteDebug(customerKey){
         .limit(20);
       if(error) throw error;
       result.pedidos = Array.isArray(data) ? data : [];
+      const first = result.pedidos[0];
+      if(first?.cliente_id != null) result.match_clienteId = String(first.cliente_id) === String(clienteId);
     }catch(e){
       result.errors.push("Erro v2_pedidos: " + (e?.message || String(e)));
     }
@@ -6154,6 +6252,7 @@ Object.assign(window,{
   syncOrdensProducaoToSupabase,
   logMovimentoEstoque,
   syncBling,
+  backfillBlingEnderecos,
   syncYampi,
   syncCarrinhosAbandonadosYampi,
   renderCarrinhosAbandonados,
