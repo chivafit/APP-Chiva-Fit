@@ -405,6 +405,7 @@ async function handleLoginSubmit(e){
   }
   return false;
 }
+window.handleLoginSubmit = handleLoginSubmit;
 function enterApp(userEmail){
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
   try{ localStorage.removeItem("crm_bootstrap_pass_ts"); }catch(_e){}
@@ -457,6 +458,7 @@ function enterApp(userEmail){
     }
   })();
 }
+window.enterApp = enterApp;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
@@ -650,6 +652,7 @@ function goLogout(){
   const passEl = document.getElementById("login-pass");
   if(passEl) passEl.value = "";
 }
+window.goLogout = goLogout;
 
 function normalizeAccessEmail(email){
   return String(email||"").trim().toLowerCase();
@@ -4035,9 +4038,6 @@ function installApp(){ if(deferred){ deferred.prompt(); deferred.userChoice.then
 // ═══════════════════════════════════════════════════
 //  SUPABASE COMPLETO
 // ═══════════════════════════════════════════════════
-let supaClient = null;
-let supaConnected = false;
-let canaisLookup = {};
 let geoEstados = []; // Cache completo de estados
 let geoCidades = []; // Cache de cidades (apenas as que têm vendas + principais)
 
@@ -4347,7 +4347,7 @@ async function initSupabase(){
   }
 
   try{
-    if(!supaClient) supaClient = supabase.createClient(url, key);
+    supaClient = supabase.createClient(url, key);
     
     const { error } = await supaClient.from('configuracoes').select('chave').limit(1);
     
