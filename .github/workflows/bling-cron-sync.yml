@@ -1,0 +1,35 @@
+name: Bling Sync (Cron)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate secrets
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "Missing SUPABASE_PROJECT_ID secret"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET secret"
+            exit 1
+          fi
+
+      - name: Trigger bling-sync (persist)
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-sync" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            --data '{"persist":true,"maxPages":200}'

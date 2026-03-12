@@ -24,6 +24,12 @@ supabase secrets set BLING_CLIENT_ID="seu_id"
 supabase secrets set BLING_CLIENT_SECRET="seu_secret"
 ```
 
+### Cron (Bling Sync automático)
+Crie um segredo para autorizar o job agendado (GitHub Actions) a rodar a sincronização persistente:
+```bash
+supabase secrets set CRON_SECRET="um_valor_aleatorio_longo"
+```
+
 ### Yampi Webhook
 ```bash
 supabase secrets set YAMPI_SECRET="wh_8lgW9FUnSkNZiQ5QSYIbXeUf4wIeg5biV279r"

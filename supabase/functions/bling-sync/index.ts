@@ -24,6 +24,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
 let rateMutex: Promise<void> = Promise.resolve();
 let nextAllowedAtMs = 0;
 const minSpacingMs = 350;
@@ -138,6 +142,168 @@ function inferCanalSlugFromBling(detailData: any, lojaIdMap: Record<string, stri
   }
 
   return { slug, lojaId, lojaNome, canalNome, numeroPedidoEcommerce };
+}
+
+function onlyDigitsStr(v: unknown): string {
+  return String(v ?? "").replace(/\D/g, "");
+}
+
+function isValidDocDigits(d: string): boolean {
+  return d.length === 11 || d.length === 14;
+}
+
+function cleanEmail(v: unknown): string {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s.includes("@") ? s : "";
+}
+
+function cleanPhone(v: unknown): string {
+  const d = onlyDigitsStr(v);
+  return d.length >= 10 ? d : "";
+}
+
+function makeCustomerDocKey(order: any): string {
+  const contato = order?.contato ?? {};
+  const doc = onlyDigitsStr(contato?.cpfCnpj ?? contato?.numeroDocumento ?? contato?.cpf ?? contato?.cnpj ?? "");
+  if (isValidDocDigits(doc)) return doc;
+  const email = cleanEmail(contato?.email ?? "");
+  if (email) return email;
+  const tel = cleanPhone(contato?.telefone ?? contato?.celular ?? "");
+  if (tel) return tel;
+  const nome = String(contato?.nome ?? "").trim();
+  return nome || String(order?.id ?? order?.numero ?? "").trim();
+}
+
+const CANAL_NAME_BY_SLUG: Record<string, string> = {
+  ml: "Mercado Livre",
+  shopee: "Shopee",
+  amazon: "Amazon",
+  shopify: "Site (Shopify)",
+  yampi: "Yampi",
+  cnpj: "B2B (Atacado)",
+  outros: "Outros",
+};
+
+async function ensureCanaisAndGetMap(supabaseUrl: string, serviceRoleKey: string): Promise<Record<string, string>> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const rows = Object.entries(CANAL_NAME_BY_SLUG).map(([slug, nome]) => ({
+    slug,
+    nome,
+    created_at: nowIso(),
+  }));
+  await supabase.from("v2_canais").upsert(rows, { onConflict: "slug" });
+  const { data, error } = await supabase
+    .from("v2_canais")
+    .select("id,slug")
+    .in("slug", Object.keys(CANAL_NAME_BY_SLUG))
+    .limit(50);
+  if (error) throw error;
+  const map: Record<string, string> = {};
+  (data || []).forEach((r: any) => {
+    const slug = String(r?.slug ?? "").trim().toLowerCase();
+    const id = String(r?.id ?? "").trim();
+    if (slug && id) map[slug] = id;
+  });
+  return map;
+}
+
+async function persistSyncResultToDb(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  orders: any[],
+  canaisMap: Record<string, string>,
+) {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const now = nowIso();
+
+  const customersByDoc: Record<string, any> = {};
+  orders.forEach((o) => {
+    const docKey = String(makeCustomerDocKey(o) || "").trim();
+    if (!docKey) return;
+    const contato = o?.contato ?? {};
+    const end = contato?.endereco ?? {};
+    const nome = String(contato?.nome ?? "Desconhecido").trim() || "Desconhecido";
+    const email = cleanEmail(contato?.email ?? "");
+    const telefone = cleanPhone(contato?.telefone ?? contato?.celular ?? "");
+    const cidade = String(end?.municipio ?? o?.cidade_entrega ?? "").trim();
+    const uf = String(end?.uf ?? o?.uf_entrega ?? "").trim().toUpperCase();
+    customersByDoc[docKey] = {
+      doc: docKey,
+      nome,
+      email: email || null,
+      telefone: telefone || null,
+      cidade: cidade || null,
+      uf: uf || null,
+      updated_at: now,
+    };
+  });
+
+  const customerRows = Object.values(customersByDoc);
+  for (let i = 0; i < customerRows.length; i += 100) {
+    const batch = customerRows.slice(i, i + 100);
+    const { error } = await supabase.from("v2_clientes").upsert(batch, { onConflict: "doc" });
+    if (error) throw error;
+  }
+
+  const docToId: Record<string, string> = {};
+  const docs = Object.keys(customersByDoc);
+  for (let i = 0; i < docs.length; i += 200) {
+    const slice = docs.slice(i, i + 200);
+    const { data, error } = await supabase.from("v2_clientes").select("id,doc").in("doc", slice).limit(5000);
+    if (error) throw error;
+    (data || []).forEach((r: any) => {
+      const doc = String(r?.doc ?? "").trim();
+      const id = String(r?.id ?? "").trim();
+      if (doc && id) docToId[doc] = id;
+    });
+  }
+
+  const pedidosRows = orders
+    .map((o) => {
+      const id = String(o?.id ?? o?.numero ?? "").trim();
+      if (!id) return null;
+      const docKey = String(makeCustomerDocKey(o) || "").trim();
+      const clienteId = docToId[docKey] || null;
+      const contato = o?.contato ?? {};
+      const docDigits = onlyDigitsStr(contato?.cpfCnpj ?? "");
+      const isCnpj = docDigits.length === 14;
+
+      let canalSlug = String(o?._canal ?? "").trim().toLowerCase();
+      if (isCnpj) canalSlug = "cnpj";
+      if (!canalSlug) canalSlug = "outros";
+      const canalId = canaisMap[canalSlug] || canaisMap["outros"] || null;
+
+      const numero = String(o?.numero ?? id).trim();
+      const dataPedido = String(o?.data ?? "").slice(0, 10);
+      const total = Number(o?.total ?? 0) || 0;
+      const status = String(o?.situacao?.nome ?? o?.situacao ?? "").trim();
+      const itens = Array.isArray(o?.itens) ? o.itens : [];
+
+      return {
+        id,
+        numero_pedido: numero || null,
+        bling_id: id,
+        cliente_id: clienteId,
+        canal_id: canalId,
+        data_pedido: dataPedido || null,
+        total,
+        status: status || null,
+        source: "bling",
+        itens,
+        created_at: now,
+      };
+    })
+    .filter(Boolean);
+
+  for (let i = 0; i < pedidosRows.length; i += 100) {
+    const batch = pedidosRows.slice(i, i + 100);
+    const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling", valor_texto: now, updated_at: now }], {
+    onConflict: "chave",
+  });
 }
 
 function isoToday(): string {
@@ -429,11 +595,20 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     if (!supabaseUrl || !serviceRoleKey) return jsonResponse({ error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }, 500);
+    const cronSecret = Deno.env.get("CRON_SECRET") || "";
 
     const bodyText = await req.text().catch(() => "");
     const parsed = safeJsonParse(bodyText);
     if (parsed === null) return jsonResponse({ error: "Invalid JSON" }, 400);
     const body = (parsed && typeof parsed === "object" ? parsed : {}) as any;
+    const persist = body?.persist === true;
+
+    if (persist) {
+      const headerSecret = String(req.headers.get("x-cron-secret") || "").trim();
+      if (!cronSecret || headerSecret !== cronSecret) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    }
     const reqFrom = String(body?.from ?? "").slice(0, 10);
     const reqTo = String(body?.to ?? "").slice(0, 10);
 
@@ -500,7 +675,13 @@ serve(async (req: Request) => {
       return mapped;
     });
 
-    return jsonResponse({ orders: details, count: details.length });
+    if (persist) {
+      const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
+      await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap);
+      return jsonResponse({ ok: true, persisted: true, count: details.length, from, to });
+    }
+
+    return jsonResponse({ orders: details, count: details.length, from, to });
   } catch (e) {
     const err = e as any;
     try {
