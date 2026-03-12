@@ -888,13 +888,29 @@ function saveAIKey(){
   st.className="setup-status s-ok";
 }
 async function renewToken(){
-  if(!REFRESH||!CID||!CSEC) throw new Error("Refresh Token/Client ID/Secret necessários.");
-  const b64=btoa(`${CID}:${CSEC}`);
-  const url="https://corsproxy.io/?"+encodeURIComponent("https://api.bling.com.br/Api/v3/oauth/token");
-  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","Authorization":"Basic "+b64},body:`grant_type=refresh_token&refresh_token=${encodeURIComponent(REFRESH)}`});
-  if(!r.ok) throw new Error("Falha ao renovar token");
-  const d=await r.json(); TOKEN=d.access_token; REFRESH=d.refresh_token||REFRESH; saveCreds();
-  toast("🔄 Token renovado!");
+  if(!REFRESH) throw new Error("Refresh Token necessário.");
+  try {
+    const resp = await fetch(getSupaFnBase() + "/bling-renew-token", {
+      method: "POST",
+      headers: supaFnHeaders(),
+      body: JSON.stringify({ refreshToken: REFRESH })
+    });
+
+    if (!resp.ok) {
+      const errorData = await resp.json();
+      throw new Error(errorData.error || "Falha ao renovar token via Edge Function");
+    }
+
+    const d = await resp.json();
+    TOKEN = d.access_token;
+    REFRESH = d.refresh_token || REFRESH;
+    saveCreds();
+    toast("🔄 Token renovado com sucesso!");
+  } catch (e) {
+    console.error("renewToken error:", e);
+    toast(`⚠ ${e.message}`);
+    throw e;
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -940,32 +956,27 @@ async function syncBling(){
 // ═══════════════════════════════════════════════════
 //  YAMPI
 // ═══════════════════════════════════════════════════
-async function fetchYampi(){
-  const r = await fetch(getSupaFnBase()+"/yampi-sync",{
-    method:"POST",
-    headers:supaFnHeaders(),
-    body:JSON.stringify({})
-  });
-  if(!r.ok){
-    const txt = await r.text();
-    throw new Error(txt || ("Erro no yampi-sync ("+r.status+")"));
+async function syncYampi(){
+  const st = document.getElementById("yampi-status");
+  if(st){ st.textContent="Sincronizando com Supabase..."; st.className="setup-status"; }
+  try{
+    if(!supaConnected || !supaClient){
+      throw new Error("Supabase não conectado. Conecte primeiro para ver os dados do Webhook.");
+    }
+    
+    // Como a Yampi trabalha apenas via Webhook, o "Recarregar" busca os dados
+    // que o Webhook da Yampi já salvou no nosso banco de dados Supabase.
+    await loadOrdersFromSupabaseForCRM();
+    await loadCarrinhosAbandonadosFromSupabase();
+    
+    if(st){ 
+      st.textContent=`✓ Dados da Yampi atualizados do banco`; 
+      st.className="setup-status s-ok"; 
+    }
+    toast("✓ Yampi sincronizado!");
+  }catch(e){
+    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
   }
-  const d = await r.json();
-  return d.orders || d.pedidos || d.data || [];
-}
-
-async function fetchYampiAbandoned(){
-  const r = await fetch(getSupaFnBase()+"/yampi-abandoned-sync",{
-    method:"POST",
-    headers:supaFnHeaders(),
-    body:JSON.stringify({})
-  });
-  if(!r.ok){
-    const txt = await r.text();
-    throw new Error(txt || ("Erro no yampi-abandoned-sync ("+r.status+")"));
-  }
-  const d = await r.json();
-  return d.checkouts || d.carts || d.abandoned || d.data || [];
 }
 
 function normalizeYampiOrder(o){
@@ -1012,26 +1023,6 @@ function normalizeYampiOrder(o){
 
   next._canal = next._canal || String(next.canal || next.channel || "yampi").toLowerCase();
   return next;
-}
-
-async function syncYampi(){
-  const st = document.getElementById("yampi-status");
-  if(st){ st.textContent="Recarregando..."; st.className="setup-status"; }
-  try{
-    const raw = await fetchYampi();
-    const next = (Array.isArray(raw) ? raw : []).map(o=>normalizeOrderForCRM(o,"yampi"));
-    yampiOrders.length = 0;
-    yampiOrders.push(...next);
-    localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
-    mergeOrders();
-    populateUFs();
-    renderAll();
-    upsertOrdersToSupabase(yampiOrders).catch(e=>console.warn(e));
-    if(st){ st.textContent=`✓ ${yampiOrders.length} pedidos Yampi carregados`; st.className="setup-status s-ok"; }
-    toast("✓ Yampi sincronizada!");
-  }catch(e){
-    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
-  }
 }
 
 function normalizeCarrinhoAbandonado(raw){
@@ -4061,78 +4052,41 @@ async function logMovimentoEstoque(mov){
 }
 
 async function initSupabase(){
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
+  const st = document.getElementById("supa-status");
+
+  if(!url || !key){
+    if(st){ st.textContent="⚠ Preencha URL e chave."; st.className="setup-status s-err"; }
+    setSyncDot(false);
+    return false;
+  }
+
   try{
-    if(supaConnected && supaClient) return true;
-    const inputUrl = document.getElementById("inp-supa-url")?.value?.trim() || "";
-    const inputKey = document.getElementById("inp-supa-key")?.value?.trim() || "";
+    if(!supaClient) supaClient = supabase.createClient(url, key);
+    
+    const { error } = await supaClient.from('configuracoes').select('chave').limit(1);
+    
+    if(error) throw error;
 
-    const savedUrl = getSupabaseProjectUrl();
-    const savedKey = getSupabaseAnonKey();
+    supaConnected = true;
+    if(st){ st.textContent="✓ Conectado"; st.className="setup-status s-ok"; }
+    setSyncDot(true);
+    return true;
 
-    const supabaseUrl = (savedUrl || inputUrl).trim().replace(/\/+$/,"");
-    const supabaseKey = (savedKey || inputKey).trim();
-
-    if(typeof supabase === 'undefined'){
-      console.warn('Supabase SDK not loaded');
-      supaConnected = false;
-      setSyncDot(false);
-      if (typeof updateSupabaseStatus === "function") {
-        updateSupabaseStatus("SDK do Supabase não carregado.", "err");
-      }
-      return false;
-    }
-
-    if(!supabaseUrl || !supabaseKey){
-      console.warn('Supabase init: URL/chave ausentes');
-      supaConnected = false;
-      setSyncDot(false);
-      if (typeof updateSupabaseStatus === "function") {
-        updateSupabaseStatus("Informe URL e chave pública do Supabase.", "err");
-      }
-      return false;
-    }
-
-    supaClient = supabase.createClient(supabaseUrl, supabaseKey);
-
-    const {error} = await supaClient
-      .from('configuracoes')
-      .select('chave')
-      .limit(1);
-
-    if(!error){
-      supaConnected = true;
-      setSyncDot(true);
-
-      if (typeof updateSupabaseStatus === "function") {
-        updateSupabaseStatus("✓ Conectado ao Supabase", "ok");
-      } else if (typeof toast === "function") {
-        toast('🟣 Supabase conectado!');
-      }
-
-      await loadSupabaseData();
-
-      if (typeof setupRealtimeSync === "function") {
-        setupRealtimeSync();
-      }
-      return true;
-    } else {
-      console.warn('Supabase error:', error.message);
-      supaConnected = false;
-      setSyncDot(false);
-
-      if (typeof updateSupabaseStatus === "function") {
-        updateSupabaseStatus("Falha na conexão: " + error.message, "err");
-      }
-      return false;
-    }
   }catch(e){
-    console.warn('Supabase init failed:', e.message);
+    console.warn("Supabase connection failed:", e.message);
+    let errMsg = e.message;
+    if (e.message.includes("JWT") || e.message.includes("token")) {
+      errMsg = "Chave (anon) inválida.";
+    } else if (e.message.includes("Failed to fetch")) {
+      errMsg = "URL do Supabase incorreta ou offline.";
+    } else if (e.message.includes("RLS")) {
+      errMsg = "Verifique as políticas de RLS da tabela 'configuracoes'.";
+    }
+    if(st){ st.textContent=`⚠ ${errMsg}`; st.className="setup-status s-err"; }
     supaConnected = false;
     setSyncDot(false);
-
-    if (typeof updateSupabaseStatus === "function") {
-      updateSupabaseStatus("Erro ao conectar: " + e.message, "err");
-    }
     return false;
   }
 }
