@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
 const corsHeaders: Record<string, string> = {
@@ -15,25 +15,151 @@ type BlingTokenResponse = {
   scope?: string;
 };
 
-serve(async (req) => {
+declare const Deno: any;
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function safeJsonParse(text: string): any | null {
+  if (!text || !text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isInvalidGrant(status: number, bodyText: string) {
+  if (status === 400 || status === 401) {
+    const t = String(bodyText || "").toLowerCase();
+    return t.includes("invalid_grant");
+  }
+  return false;
+}
+
+function parseLock(raw: unknown) {
+  try {
+    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!obj || typeof obj !== "object") return { locked: false, by: null, at: null };
+    return {
+      locked: !!(obj as any).locked,
+      by: (obj as any).by ?? null,
+      at: (obj as any).at ?? null,
+    };
+  } catch (_e) {
+    return { locked: false, by: null, at: null };
+  }
+}
+
+async function getConfigValue(supabase: any, chave: string) {
+  const { data, error } = await supabase
+    .from("configuracoes")
+    .select("valor_texto")
+    .eq("chave", chave)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.valor_texto ?? null;
+}
+
+async function upsertConfigValue(supabase: any, chave: string, valor_texto: string) {
+  const { error } = await supabase.from("configuracoes").upsert([
+    { chave, valor_texto, updated_at: nowIso() },
+  ], { onConflict: "chave" });
+  if (error) throw error;
+}
+
+async function ensureLockRowExists(supabase: any, lockKey: string) {
+  try {
+    const existing = await getConfigValue(supabase, lockKey);
+    if (existing != null) return;
+  } catch (_e) {}
+  try {
+    await supabase.from("configuracoes").insert([{ chave: lockKey, valor_texto: JSON.stringify({ locked: false, by: null, at: null }), updated_at: nowIso() }]);
+  } catch (_e) {}
+}
+
+async function acquireRefreshLock(supabase: any, lockKey: string, requestId: string) {
+  await ensureLockRowExists(supabase, lockKey);
+  const maxWaitMs = 30_000;
+  const pollMs = 600;
+  const staleMs = 40_000;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    const current = await supabase
+      .from("configuracoes")
+      .select("valor_texto")
+      .eq("chave", lockKey)
+      .maybeSingle();
+
+    const curVal = String(current?.data?.valor_texto ?? JSON.stringify({ locked: false, by: null, at: null }));
+    const parsed = parseLock(curVal);
+    const lockAtMs = parsed.at ? new Date(String(parsed.at)).getTime() : 0;
+    const isStale = parsed.locked && (!lockAtMs || isNaN(lockAtMs) || (Date.now() - lockAtMs) > staleMs);
+
+    if (parsed.locked && !isStale) {
+      await sleep(pollMs);
+      continue;
+    }
+
+    const nextVal = JSON.stringify({ locked: true, by: requestId, at: nowIso() });
+    const { data, error } = await supabase
+      .from("configuracoes")
+      .update({ valor_texto: nextVal, updated_at: nowIso() })
+      .eq("chave", lockKey)
+      .eq("valor_texto", curVal)
+      .select("chave");
+    if (!error && Array.isArray(data) && data.length) {
+      return { acquired: true, lockValue: nextVal };
+    }
+    await sleep(150);
+  }
+  return { acquired: false, lockValue: null };
+}
+
+async function releaseRefreshLock(supabase: any, lockKey: string, lockValue: string) {
+  try {
+    const nextVal = JSON.stringify({ locked: false, by: null, at: null });
+    await supabase
+      .from("configuracoes")
+      .update({ valor_texto: nextVal, updated_at: nowIso() })
+      .eq("chave", lockKey)
+      .eq("valor_texto", lockValue);
+  } catch (_e) {}
+}
+
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  let supabase: any = null;
+  let lockKey = "bling_refresh_lock";
+  let lockValue: string | null = null;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const auth = req.headers.get("authorization") || "";
     if (!supabaseKey || auth !== `Bearer ${supabaseKey}`) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized" }, 401);
     }
     if (!supabaseUrl) {
       throw new Error("Missing SUPABASE_URL environment variable.");
     }
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    supabase = createClient(supabaseUrl, supabaseKey);
 
     const clientId = Deno.env.get("BLING_CLIENT_ID");
     const clientSecret = Deno.env.get("BLING_CLIENT_SECRET");
@@ -43,17 +169,31 @@ serve(async (req) => {
       throw new Error("Missing environment variables: BLING_CLIENT_ID or BLING_CLIENT_SECRET.");
     }
 
-    const { data: configData, error: configError } = await supabase
-      .from("configuracoes")
-      .select("valor_texto")
-      .eq("chave", "bling_refresh_token")
-      .maybeSingle();
+    const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + String(Math.random()).slice(2);
 
-    if (configError) throw configError;
-    
-    const body = await req.json().catch(() => ({}));
+    const rawBody = await req.text().catch(() => "");
+    const body = safeJsonParse(rawBody);
+    if (body === null) return json({ error: "Invalid JSON" }, 400);
+
     const bodyRefresh = String(body?.refresh_token || body?.refreshToken || "").trim();
-    const currentRefreshToken = String(configData?.valor_texto || bodyRefresh || envRefreshToken || "").trim();
+
+    const lock = await acquireRefreshLock(supabase, lockKey, requestId);
+    if (!lock.acquired || !lock.lockValue) {
+      const latestAccess = String(await getConfigValue(supabase, "bling_access_token") || "").trim();
+      if (latestAccess) {
+        return json({ access_token: latestAccess, token_type: "bearer", expires_in: 0, scope: "" });
+      }
+      return json({ error: "Token refresh in progress. Tente novamente." }, 429);
+    }
+    lockValue = lock.lockValue;
+
+    let currentRefreshToken = "";
+    try {
+      const cfgRefresh = String(await getConfigValue(supabase, "bling_refresh_token") || "").trim();
+      currentRefreshToken = String(cfgRefresh || bodyRefresh || envRefreshToken || "").trim();
+    } catch (_e) {
+      currentRefreshToken = String(bodyRefresh || envRefreshToken || "").trim();
+    }
 
     if (!currentRefreshToken) {
       throw new Error("Missing refresh token (set BLING_REFRESH_TOKEN secret or store bling_refresh_token in configuracoes).");
@@ -73,7 +213,16 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      throw new Error(`Erro API Bling: ${response.status} - Verifique se o Refresh Token ainda é válido.`);
+      const txt = await response.text().catch(() => "");
+      if (isInvalidGrant(response.status, txt)) {
+        await releaseRefreshLock(supabase, lockKey, lockValue);
+        return json({
+          error: "invalid_grant",
+          message: "Refresh Token do Bling inválido/rotacionado. Reautorize o Bling nas Configurações.",
+          reauthorize: true,
+        }, 401);
+      }
+      throw new Error(`Erro API Bling: ${response.status} ${txt || "- Verifique o Refresh Token"}`);
     }
 
     const data = (await response.json()) as BlingTokenResponse;
@@ -82,11 +231,8 @@ serve(async (req) => {
     if (!access_token) throw new Error("Bling token response missing access_token.");
 
     const nextRefresh = refresh_token || currentRefreshToken;
-    if (nextRefresh && nextRefresh !== currentRefreshToken) {
-      await supabase.from("configuracoes").upsert([
-        { chave: "bling_refresh_token", valor_texto: nextRefresh, updated_at: new Date().toISOString() },
-      ]);
-    }
+    await upsertConfigValue(supabase, "bling_access_token", access_token);
+    await upsertConfigValue(supabase, "bling_refresh_token", nextRefresh);
 
     const safeResponse = {
       access_token,
@@ -95,14 +241,14 @@ serve(async (req) => {
       scope: data?.scope,
     };
 
-    return new Response(JSON.stringify(safeResponse), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    await releaseRefreshLock(supabase, lockKey, lockValue);
+    return json(safeResponse, 200);
 
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: (error as any)?.message || String(error) }, 500);
+  } finally {
+    if (supabase && lockValue) {
+      await releaseRefreshLock(supabase, lockKey, lockValue);
+    }
   }
 });

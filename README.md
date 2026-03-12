@@ -13,7 +13,7 @@ Abra: `http://localhost:8000/`
 ## Deploy no GitHub Pages
 
 - Publicar a pasta do projeto como site estático.
-- O app é carregado por `index.html` e `./js/main.js` (ESM).
+- O app é carregado por `index.html` e `./main.js` (ESM).
 
 ## Supabase (pré-requisitos)
 

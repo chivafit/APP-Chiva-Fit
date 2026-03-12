@@ -1,4 +1,4 @@
-import { escapeHTML, safeJsonParse } from "./utils.js";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js";
 
 function toast(msg){
   if(typeof globalThis.toast === "function") globalThis.toast(msg);
@@ -6,10 +6,6 @@ function toast(msg){
 
 function fecharModal(id){
   if(typeof globalThis.fecharModal === "function") globalThis.fecharModal(id);
-}
-
-function escapeJsSingleQuote(s){
-  return String(s||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g,"\\n");
 }
 
 function randomUUIDCompat(){

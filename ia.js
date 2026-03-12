@@ -306,49 +306,18 @@ async function upsertCustomerIntelligenceToSupabase(ctx, intel){
     if(!customerId) return null;
     return {
       cliente_id: customerId,
-      nome: c.nome,
-      total_pedidos: c.total_pedidos,
-      valor_total: c.valor_total,
-      ticket_medio: c.ticket_medio,
-      dias_desde_ultima_compra: c.dias_desde_ultima_compra,
-      intervalo_medio_recompra: c.intervalo_medio_recompra,
-      score_final: c.score_final,
-      next_best_action: c.next_best_action,
-      action_priority: c.action_priority,
-      last_order_at: c.last_order_at,
-      last_whatsapp_at: c.last_whatsapp_at || null,
-      updated_at: new Date().toISOString(),
-      suggested_whatsapp_message: c.suggested_whatsapp_message || null
+      score_final: Number(c?.score_final ?? 0) || 0,
+      next_best_action: c?.next_best_action != null ? String(c.next_best_action).trim() : null,
+      updated_at: new Date().toISOString()
     };
   }).filter(Boolean);
-  let mustFallback = false;
-  if(rows.length){
-    for(let i=0;i<rows.length;i+=100){
-      const {error} = await ctx.supaClient.from("customer_intelligence").upsert(rows.slice(i,i+100),{onConflict:"cliente_id"});
-      if(error){ mustFallback = true; break; }
-    }
-  }else{
-    mustFallback = true;
-  }
-  if(mustFallback){
-    const legacyRows = intel.map(c=>({
-      cliente_id: c.cliente_id,
-      nome: c.nome,
-      total_pedidos: c.total_pedidos,
-      valor_total: c.valor_total,
-      ticket_medio: c.ticket_medio,
-      dias_desde_ultima_compra: c.dias_desde_ultima_compra,
-      intervalo_medio_recompra: c.intervalo_medio_recompra,
-      score_final: c.score_final,
-      next_best_action: c.next_best_action,
-      action_priority: c.action_priority,
-      last_order_at: c.last_order_at,
-      last_whatsapp_at: c.last_whatsapp_at || null,
-      updated_at: new Date().toISOString(),
-      suggested_whatsapp_message: c.suggested_whatsapp_message || null
-    }));
-    for(let i=0;i<legacyRows.length;i+=100){
-      await ctx.supaClient.from("customer_intelligence").upsert(legacyRows.slice(i,i+100),{onConflict:"cliente_id"});
+  if(!rows.length) return;
+  for(let i=0;i<rows.length;i+=100){
+    const batch = rows.slice(i,i+100);
+    const {error} = await ctx.supaClient.from("customer_intelligence").upsert(batch, { onConflict: "cliente_id" });
+    if(error){
+      console.warn("customer_intelligence upsert error:", error);
+      return;
     }
   }
 }

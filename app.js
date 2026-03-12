@@ -12,6 +12,7 @@ import {
 import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js";
 import { CRMStore } from "./store.js";
 import { STORAGE_KEYS } from "./constants.js";
+import { getSupabaseClient } from "./supabaseClient.js";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -694,9 +695,8 @@ async function hydrateAccessUsersFromSupabaseForLogin(){
   const url = getSupabaseProjectUrl();
   const key = getSupabaseAnonKey();
   if(!url || !key) return false;
-  if(!globalThis.supabase?.createClient) return false;
   try{
-    const tmp = supabase.createClient(url, key);
+    const tmp = getSupabaseClient(url, key);
     const {data, error} = await tmp
       .from("configuracoes")
       .select("valor_texto")
@@ -4752,7 +4752,7 @@ async function initSupabase(){
   }
 
   try{
-    supaClient = supabase.createClient(url, key);
+    supaClient = getSupabaseClient(url, key);
     
     const { error } = await supaClient.from('configuracoes').select('chave').limit(1);
     
