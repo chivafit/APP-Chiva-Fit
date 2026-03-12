@@ -1102,7 +1102,7 @@ function normalizeYampiOrder(o){
     telefone: cliente.telefone || cliente.phone || next.phone || "",
     endereco: {
       municipio: endereco.cidade || endereco.city || endereco.municipio || "",
-      uf: (endereco.uf || endereco.state || endereco.province || endereco.estado || "").toString().toUpperCase().slice(0,2),
+      uf: normalizeUF(endereco.uf || endereco.state || endereco.province || endereco.estado || ""),
       logradouro: endereco.logradouro || endereco.address1 || endereco.endereco || endereco.street || "",
       numero: endereco.numero || endereco.number || "",
       bairro: endereco.bairro || endereco.neighborhood || endereco.district || "",
@@ -1210,6 +1210,53 @@ function prioridadePorScore(score){
   if(s >= 75) return {id:"alta", label:"Alta"};
   if(s >= 45) return {id:"media", label:"Média"};
   return {id:"baixa", label:"Baixa"};
+}
+
+function normalizeUF(raw){
+  const s = String(raw||"").trim();
+  if(!s) return "";
+  const up = s.toUpperCase().trim();
+  if(/^[A-Z]{2}$/.test(up)) return up;
+  const norm = up
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const map = {
+    "ACRE":"AC",
+    "ALAGOAS":"AL",
+    "AMAPA":"AP",
+    "AMAZONAS":"AM",
+    "BAHIA":"BA",
+    "CEARA":"CE",
+    "DISTRITO FEDERAL":"DF",
+    "ESPIRITO SANTO":"ES",
+    "GOIAS":"GO",
+    "MARANHAO":"MA",
+    "MATO GROSSO":"MT",
+    "MATO GROSSO DO SUL":"MS",
+    "MINAS GERAIS":"MG",
+    "PARA":"PA",
+    "PARAIBA":"PB",
+    "PARANA":"PR",
+    "PERNAMBUCO":"PE",
+    "PIAUI":"PI",
+    "RIO DE JANEIRO":"RJ",
+    "RIO GRANDE DO NORTE":"RN",
+    "RIO GRANDE DO SUL":"RS",
+    "RONDONIA":"RO",
+    "RORAIMA":"RR",
+    "SANTA CATARINA":"SC",
+    "SAO PAULO":"SP",
+    "SERGIPE":"SE",
+    "TOCANTINS":"TO",
+    "FEDERAL DISTRICT":"DF"
+  };
+  if(map[norm]) return map[norm];
+  const letters = norm.replace(/ /g,"");
+  if(letters.length>=2) return letters.slice(0,2);
+  return "";
 }
 
 function buildClienteLookupParaCarrinhos(){
@@ -2129,8 +2176,32 @@ function calcCliScores(c){
 }
 
 function populateUFs(){
-  const ufs=new Set(); allOrders.forEach(o=>{ const uf=(o.contato?.endereco?.uf||o.contato?.uf||"").trim().toUpperCase(); if(uf)ufs.add(uf); });
-  ["fil-estado","fil-uf"].forEach(id=>{ const s=document.getElementById(id); if(!s)return; const v=s.value; s.innerHTML=`<option value="">Todos estados</option>`; [...ufs].sort().forEach(uf=>s.innerHTML+=`<option>${escapeHTML(uf)}</option>`); s.value=v; });
+  const ufs = new Set();
+  const add = (v)=>{
+    const uf = normalizeUF(v);
+    if(uf) ufs.add(uf);
+  };
+  (Array.isArray(allOrders) ? allOrders : []).forEach(o=>{
+    add(o?.contato?.endereco?.uf);
+    add(o?.contato?.uf);
+    add(o?.uf);
+    add(o?.state);
+    add(o?.contato?.endereco?.estado);
+    add(o?.contato?.endereco?.state);
+  });
+  (Array.isArray(allCustomers) ? allCustomers : []).forEach(c=>{
+    add(c?.uf);
+    add(c?.endereco?.uf);
+    add(c?.endereco?.estado);
+  });
+  ["fil-estado","fil-uf"].forEach(id=>{
+    const s = document.getElementById(id);
+    if(!s) return;
+    const v = s.value;
+    s.innerHTML = `<option value="">Todos estados</option>`;
+    [...ufs].sort().forEach(uf=>s.innerHTML += `<option>${escapeHTML(uf)}</option>`);
+    s.value = v;
+  });
 }
 
 // ═══════════════════════════════════════════════════
@@ -4092,6 +4163,9 @@ let geoCidades = []; // Cache de cidades (apenas as que têm vendas + principais
 cliMetaCache = {};
 tarefasCache = [];
 canaisLookup = {}; // slug → uuid, carregado em loadSupabaseData()
+let upsertOrdersInFlight = false;
+const resolveUuidAutocreateTried = new Set();
+const resolveUuidAutocreateInFlight = new Set();
 
 async function loadClienteMetaCache(){
   if(!supaConnected || !supaClient) return;
@@ -4119,7 +4193,8 @@ async function loadClienteMetaCache(){
 }
 
 async function resolveCustomerUuid(customerKey){
-  const key = String(customerKey||"");
+  const key = String(customerKey||"").trim();
+  if(!key) return null;
   if(cliMetaCache?.[key]?.uuid) return cliMetaCache[key].uuid;
   if(!supaConnected || !supaClient) return null;
 
@@ -4127,20 +4202,28 @@ async function resolveCustomerUuid(customerKey){
   const isEmail = key.includes("@");
   
   try{
-    let existingId = null;
-    if(digits.length===11 || digits.length===14){
-      const {data} = await supaClient.from("v2_clientes").select("id").eq("doc", digits).maybeSingle();
-      existingId = data?.id;
-    }
-    if(!existingId && isEmail){
-      const em = key.trim().toLowerCase();
-      const {data} = await supaClient.from("v2_clientes").select("id").ilike("email", em).maybeSingle();
-      existingId = data?.id;
-    }
-    if(!existingId && digits.length>=10){
-      const {data} = await supaClient.from("v2_clientes").select("id").eq("telefone", digits).maybeSingle();
-      existingId = data?.id;
-    }
+    const lookup = async ()=>{
+      let existingId = null;
+      if(digits.length===11 || digits.length===14){
+        const {data, error} = await supaClient.from("v2_clientes").select("id").eq("doc", digits).maybeSingle();
+        if(error) throw error;
+        existingId = data?.id;
+      }
+      if(!existingId && isEmail){
+        const em = key.toLowerCase();
+        const {data, error} = await supaClient.from("v2_clientes").select("id").ilike("email", em).maybeSingle();
+        if(error) throw error;
+        existingId = data?.id;
+      }
+      if(!existingId && digits.length>=10){
+        const {data, error} = await supaClient.from("v2_clientes").select("id").eq("telefone", digits).maybeSingle();
+        if(error) throw error;
+        existingId = data?.id;
+      }
+      return existingId || null;
+    };
+
+    const existingId = await lookup();
 
     if(existingId){
       cliMetaCache[key] = cliMetaCache[key] || {};
@@ -4151,14 +4234,65 @@ async function resolveCustomerUuid(customerKey){
     // Tentar criação automática se não encontrar e for uma chave válida
     const foundLocal = allCustomers.find(c => cliKey({contato:c}) === key);
     if(foundLocal){
+      if(resolveUuidAutocreateTried.has(key)) return null;
+      if(resolveUuidAutocreateInFlight.has(key)) return null;
+      resolveUuidAutocreateInFlight.add(key);
+      resolveUuidAutocreateTried.add(key);
       console.log("Criando cliente no Supabase via resolveUuid:", foundLocal.nome);
-      await upsertOrdersToSupabase(foundLocal.orders);
-      // Tentar buscar novamente após o upsert
-      return await resolveCustomerUuid(customerKey);
+      try{
+        await upsertOrdersToSupabase(foundLocal.orders, { silent: true });
+      }finally{
+        resolveUuidAutocreateInFlight.delete(key);
+      }
+
+      const afterId = await lookup();
+      if(afterId){
+        cliMetaCache[key] = cliMetaCache[key] || {};
+        cliMetaCache[key].uuid = afterId;
+        return afterId;
+      }
+      return null;
     }
 
   }catch(_e){}
   return null;
+}
+
+function maskDigitsForLog(v){
+  const s = String(v||"").replace(/\D/g,"");
+  if(!s) return "";
+  if(s.length<=4) return "*".repeat(s.length);
+  return "*".repeat(Math.max(0, s.length-4)) + s.slice(-4);
+}
+function maskEmailForLog(v){
+  const s = String(v||"").trim();
+  const at = s.indexOf("@");
+  if(at<=1) return s ? "***" : "";
+  const user = s.slice(0, at);
+  const dom = s.slice(at+1);
+  const userMasked = user[0] + "***" + user.slice(-1);
+  const domMasked = dom ? "***" + (dom.includes(".") ? dom.slice(dom.lastIndexOf(".")) : "") : "***";
+  return userMasked + "@" + domMasked;
+}
+function sanitizeForSupabaseLog(obj){
+  if(!obj || typeof obj !== "object") return obj;
+  const next = Array.isArray(obj) ? obj.map(sanitizeForSupabaseLog) : { ...obj };
+  if(!Array.isArray(next)){
+    if("doc" in next) next.doc = maskDigitsForLog(next.doc) || String(next.doc||"");
+    if("telefone" in next) next.telefone = maskDigitsForLog(next.telefone) || String(next.telefone||"");
+    if("email" in next) next.email = maskEmailForLog(next.email) || String(next.email||"");
+    if("customer_email" in next) next.customer_email = maskEmailForLog(next.customer_email) || String(next.customer_email||"");
+    if("customer_phone" in next) next.customer_phone = maskDigitsForLog(next.customer_phone) || String(next.customer_phone||"");
+  }
+  return next;
+}
+function logSupabaseUpsertError(label, error, payload){
+  try{
+    console.groupCollapsed(label);
+    console.log("error:", error);
+    if(payload != null) console.log("payload enviado:", sanitizeForSupabaseLog(payload));
+    console.groupEnd();
+  }catch(_e){}
 }
 
 async function logInteraction(customerKey, type, description, metadata){
@@ -4659,7 +4793,7 @@ function normalizeOrderForCRM(o, sourceHint){
   const email = contato.email || next.email || "";
   const telefone = contato.telefone || contato.celular || next.phone || "";
   const municipio = endereco.municipio || endereco.cidade || endereco.city || endereco.localidade || "";
-  const uf = (endereco.uf || endereco.estado || endereco.state || endereco.province || endereco.province_code || "").toString().toUpperCase().slice(0,2);
+  const uf = normalizeUF(endereco.uf || endereco.estado || endereco.state || endereco.province || endereco.province_code || "");
   const logradouro = endereco.logradouro || endereco.endereco || endereco.address1 || "";
 
   next.contato = {
@@ -4757,6 +4891,12 @@ async function loadOrdersFromSupabaseForCRM(){
 
     (yampiRows||[]).forEach(y=>{
       // Normalização unificada para dados brutos da Yampi
+      const raw = y.raw || {};
+      const ship = raw.shipping_address || raw.shippingAddress || raw.shipping || raw.address || {};
+      const bill = raw.billing_address || raw.billingAddress || {};
+      const addr = (ship && typeof ship === "object" && Object.keys(ship).length) ? ship : bill;
+      const city = y.city || addr.city || addr.cidade || addr.municipio || "";
+      const state = y.state || addr.state || addr.uf || addr.estado || addr.province || addr.province_code || "";
       const o = {
         id: y.external_id,
         numero: y.external_id,
@@ -4769,7 +4909,7 @@ async function loadOrdersFromSupabaseForCRM(){
           nome: y.customer_name || "Cliente Yampi",
           email: y.customer_email || "",
           telefone: y.customer_phone || "",
-          endereco: { municipio: y.city || "", uf: y.state || "" }
+          endereco: { municipio: city || "", uf: state || "" }
         },
         itens: Array.isArray(y.raw?.items) ? y.raw.items.map(it=>({
           descricao: it.name || it.product_name || "",
@@ -4818,6 +4958,9 @@ async function upsertOrdersToSupabase(orders){
   const options = arguments?.[1] && typeof arguments[1] === "object" ? arguments[1] : {};
   const silent = options.silent === true;
   if(!supaConnected || !supaClient || !orders.length) return;
+  if(upsertOrdersInFlight) return;
+  upsertOrdersInFlight = true;
+  setSyncDot(true);
   try{
     const cliMap = buildCli(orders);
     const cliRows = Object.values(cliMap).map(c => {
@@ -4863,11 +5006,21 @@ async function upsertOrdersToSupabase(orders){
     });
     const filteredCliRows = cliRows.filter(r=>String(r.doc||"").trim());
     // upsert por doc (chave natural) — preserva UUID existente
-    for(let i=0; i<filteredCliRows.length; i+=50)
-      await supaClient.from('v2_clientes').upsert(filteredCliRows.slice(i,i+50), {onConflict:'doc'});
+    for(let i=0; i<filteredCliRows.length; i+=50){
+      const batch = filteredCliRows.slice(i,i+50);
+      const {error} = await supaClient.from("v2_clientes").upsert(batch, { onConflict: "doc" });
+      if(error){
+        logSupabaseUpsertError("upsert v2_clientes error", error, batch.slice(0,5));
+        throw error;
+      }
+    }
 
     // Recarregar mapa doc→uuid após upsert de clientes
-    const {data:cliRefresh} = await supaClient.from('v2_clientes').select('id,doc').limit(5000);
+    const {data:cliRefresh, error:cliRefreshErr} = await supaClient.from("v2_clientes").select("id,doc").limit(5000);
+    if(cliRefreshErr){
+      logSupabaseUpsertError("select v2_clientes refresh error", cliRefreshErr, null);
+      throw cliRefreshErr;
+    }
     const docToUuid = {};
     (cliRefresh||[]).forEach(c => { if(c.doc) docToUuid[c.doc] = c.id; });
 
@@ -4880,7 +5033,10 @@ async function upsertOrdersToSupabase(orders){
         String(o.contato?.nome||"");
       const canalSlug = detectCh(o);
       const canalId = canaisLookup[canalSlug] || canaisLookup["outros"] || null;
+      const baseId = String(o.id || o.numero || "").trim();
+      const id = baseId || "";
       return {
+        id,
         bling_id: String(o.id||o.numero),
         numero_pedido: String(o.numero||o.id),
         cliente_id: docToUuid[doc] || null,
@@ -4891,11 +5047,92 @@ async function upsertOrdersToSupabase(orders){
         source: o._source||'bling',
         created_at: o.dataCriacao||o.data||new Date().toISOString()
       };
-    }).filter(p => p.canal_id); // pedidos sem canal_id são descartados (NOT NULL constraint)
-    for(let i=0; i<pedRows.length; i+=100)
-      await supaClient.from('v2_pedidos').upsert(pedRows.slice(i,i+100), {onConflict:'numero_pedido'});
+    }).filter(p => p.id && p.canal_id); // id é obrigatório (PK) e canal_id pode estar como NOT NULL no banco
+    for(let i=0; i<pedRows.length; i+=100){
+      const batch = pedRows.slice(i,i+100);
+      const {error} = await supaClient.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+      if(error){
+        logSupabaseUpsertError("upsert v2_pedidos error", error, batch.slice(0,5));
+        throw error;
+      }
+    }
     if(!silent) toast('✓ Dados salvos no Supabase!');
-  }catch(e){ console.warn('upsert:', e.message); }
+  }catch(e){
+    logSupabaseUpsertError("upsert orders error", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null });
+    if(!silent) toast("⚠ Erro ao salvar no Supabase");
+  }finally{
+    upsertOrdersInFlight = false;
+    setSyncDot(false);
+  }
+}
+
+async function runPostFixValidation(){
+  const result = {
+    supabase: { connected: !!(supaConnected && supaClient) },
+    local: {
+      allOrders: Array.isArray(allOrders) ? allOrders.length : 0,
+      allCustomers: Array.isArray(allCustomers) ? allCustomers.length : 0,
+      blingOrders: Array.isArray(blingOrders) ? blingOrders.length : 0,
+      yampiOrders: Array.isArray(yampiOrders) ? yampiOrders.length : 0
+    },
+    remote: {
+      v2_pedidos: { count: null, sample: [] },
+      v2_clientes: { count: null, sample: [] }
+    }
+  };
+
+  if(!supaConnected || !supaClient){
+    console.warn("Validação: Supabase não conectado.");
+    return result;
+  }
+
+  try{
+    const q1 = await supaClient.from("v2_pedidos").select("id", { count: "exact", head: true });
+    if(q1?.error) throw q1.error;
+    result.remote.v2_pedidos.count = q1.count ?? null;
+  }catch(e){
+    console.warn("Validação: erro ao contar v2_pedidos", e);
+  }
+
+  try{
+    const q2 = await supaClient.from("v2_clientes").select("id", { count: "exact", head: true });
+    if(q2?.error) throw q2.error;
+    result.remote.v2_clientes.count = q2.count ?? null;
+  }catch(e){
+    console.warn("Validação: erro ao contar v2_clientes", e);
+  }
+
+  try{
+    const {data, error} = await supaClient
+      .from("v2_pedidos")
+      .select("id,numero_pedido,source,total,data_pedido,created_at")
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if(error) throw error;
+    result.remote.v2_pedidos.sample = Array.isArray(data) ? data : [];
+  }catch(e){
+    console.warn("Validação: erro ao buscar amostra v2_pedidos", e);
+  }
+
+  try{
+    const {data, error} = await supaClient
+      .from("v2_clientes")
+      .select("id,nome,doc,email,telefone,cidade,uf")
+      .order("updated_at", { ascending: false })
+      .limit(5);
+    if(error) throw error;
+    result.remote.v2_clientes.sample = Array.isArray(data) ? data : [];
+  }catch(e){
+    console.warn("Validação: erro ao buscar amostra v2_clientes", e);
+  }
+
+  try{
+    console.groupCollapsed("Validação pós-correção");
+    console.log("result:", result);
+    console.groupEnd();
+  }catch(_e){}
+
+  return result;
 }
 
 function setupRealtimeSync(){
@@ -5556,5 +5793,6 @@ Object.assign(window,{
   installApp,
   gerarMensagemIA,
   copyWhatsAppMessageForCustomer,
-  openWhatsAppForCustomer
+  openWhatsAppForCustomer,
+  runPostFixValidation
 });
