@@ -80,6 +80,66 @@ async function getConfigValue(supabaseUrl: string, serviceRoleKey: string, chave
   return String(data?.valor_texto || "").trim();
 }
 
+function normText(v: unknown): string {
+  return String(v ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function parseJsonObjectMap(v: string): Record<string, string> {
+  try {
+    const obj = JSON.parse(String(v || ""));
+    if (!obj || typeof obj !== "object") return {};
+    const out: Record<string, string> = {};
+    Object.entries(obj as Record<string, unknown>).forEach(([k, val]) => {
+      const key = String(k || "").trim();
+      const value = String(val ?? "").trim().toLowerCase();
+      if (key && value) out[key] = value;
+    });
+    return out;
+  } catch (_e) {
+    return {};
+  }
+}
+
+async function getBlingLojaIdMap(supabaseUrl: string, serviceRoleKey: string): Promise<Record<string, string>> {
+  const raw =
+    (await getConfigValue(supabaseUrl, serviceRoleKey, "bling_loja_id_map").catch(() => "")) ||
+    (await getConfigValue(supabaseUrl, serviceRoleKey, "bling_loja_map").catch(() => "")) ||
+    "";
+  const map = parseJsonObjectMap(String(raw || ""));
+  return map;
+}
+
+function inferCanalSlugFromBling(detailData: any, lojaIdMap: Record<string, string>) {
+  const data = detailData && typeof detailData === "object" ? detailData : {};
+  const lojaObj = data?.loja ?? data?.store ?? {};
+
+  const lojaId = String(lojaObj?.id ?? data?.idLoja ?? data?.lojaId ?? data?.loja_id ?? "").trim();
+  const lojaNome = String(lojaObj?.nome ?? lojaObj?.descricao ?? data?.lojaNome ?? data?.nomeLoja ?? "").trim();
+
+  const canalObj = data?.canal ?? data?.canalVenda ?? data?.origem ?? data?.ecommerce ?? {};
+  const canalNome = String(canalObj?.nome ?? canalObj?.descricao ?? "").trim();
+
+  const numeroPedidoEcommerce = String(
+    data?.numeroPedidoEcommerce ?? data?.numeroPedidoLoja ?? data?.numeroPedidoEcommerceLoja ?? data?.numeroPedidoLojaEcommerce ?? "",
+  ).trim();
+
+  let slug = "";
+  if (lojaId && lojaIdMap[lojaId]) slug = String(lojaIdMap[lojaId] || "").trim().toLowerCase();
+  if (!slug) {
+    const hay = [lojaNome, canalNome, numeroPedidoEcommerce].map(normText).join(" ");
+    if (/\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(hay) || /^mlb/.test(normText(numeroPedidoEcommerce))) slug = "ml";
+    else if (/\bshopee\b/.test(hay) || /^shopee/.test(normText(numeroPedidoEcommerce))) slug = "shopee";
+    else if (/\bamazon\b/.test(hay)) slug = "amazon";
+    else if (/\bshopify\b/.test(hay)) slug = "shopify";
+    else if (/\byampi\b/.test(hay)) slug = "yampi";
+  }
+
+  return { slug, lojaId, lojaNome, canalNome, numeroPedidoEcommerce };
+}
+
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -328,6 +388,11 @@ function mapBlingOrder(detail: any) {
     total,
     situacao: { nome: status },
     _source: "bling",
+    numeroPedidoEcommerce: String(data?.numeroPedidoLoja ?? data?.numeroPedidoEcommerce ?? data?.numeroPedidoEcommerceLoja ?? "").trim() || undefined,
+    loja: data?.loja ? { id: String(data?.loja?.id ?? "").trim() || undefined, nome: String(data?.loja?.nome ?? data?.loja?.descricao ?? "").trim() || undefined } : undefined,
+    canal: data?.canalVenda || data?.canal || data?.origem || data?.ecommerce
+      ? { nome: String((data?.canalVenda?.nome ?? data?.canal?.nome ?? data?.origem?.nome ?? data?.ecommerce?.nome) ?? "").trim() || undefined }
+      : undefined,
     cidade_entrega: endereco.municipio || null,
     uf_entrega: endereco.uf || null,
     contato: {
@@ -399,6 +464,7 @@ serve(async (req: Request) => {
       console.log("[bling-sync] request", { from, to, limit, maxPages, concurrency });
     } catch (_e) {}
 
+    const lojaIdMap = await getBlingLojaIdMap(supabaseUrl, serviceRoleKey).catch(() => ({}));
     const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
 
     const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
@@ -424,7 +490,14 @@ serve(async (req: Request) => {
     const details = await mapWithConcurrency(uniqueIds, concurrency, async (id) => {
       const url = `${base}/${encodeURIComponent(id)}`;
       const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
-      return mapBlingOrder(json);
+      const mapped = mapBlingOrder(json);
+      const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
+      if (infer.slug) (mapped as any)._canal = infer.slug;
+      if (infer.lojaId && !(mapped as any)?.loja?.id) (mapped as any).loja = { ...(mapped as any).loja, id: infer.lojaId };
+      if (infer.lojaNome && !(mapped as any)?.loja?.nome) (mapped as any).loja = { ...(mapped as any).loja, nome: infer.lojaNome };
+      if (infer.canalNome && !(mapped as any)?.canal?.nome) (mapped as any).canal = { ...(mapped as any).canal, nome: infer.canalNome };
+      if (infer.numeroPedidoEcommerce && !(mapped as any)?.numeroPedidoEcommerce) (mapped as any).numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
+      return mapped;
     });
 
     return jsonResponse({ orders: details, count: details.length });

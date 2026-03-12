@@ -511,7 +511,7 @@ function openClienteDrawer(clienteId){
     `<div class="drawer-order-row" onclick="openPedidoDrawer('${o.id}')">
       <div>
         <div class="drawer-order-num">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</div>
-        <div class="drawer-order-date">${o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "—"} · ${escapeHTML(o.canal||o.canal_id||"—")}</div>
+        <div class="drawer-order-date">${o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "—"} · ${escapeHTML(CH[detectCh(o)]||detectCh(o)||"—")}</div>
       </div>
       <span class="chiva-badge ${o.status==="atendido"?"chiva-badge-green":o.status==="cancelado"?"chiva-badge-red":"chiva-badge-amber"}" style="font-size:9px">${escapeHTML(o.status||"—")}</span>
       <div class="drawer-order-val">${fmt(o.total)}</div>
@@ -551,7 +551,7 @@ function openPedidoDrawer(pedidoId){
   const infoRows = [
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Número</span><span class="chiva-table-mono">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</span></div>`,
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Data</span><span>${o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "—"}</span></div>`,
-    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Canal</span><span>${escapeHTML(o.canal||o.canal_id||"—")}</span></div>`,
+    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Canal</span><span>${escapeHTML(CH[detectCh(o)]||detectCh(o)||"—")}</span></div>`,
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Status</span><span><span class="chiva-badge ${o.status==="atendido"?"chiva-badge-green":o.status==="cancelado"?"chiva-badge-red":"chiva-badge-amber"}">${escapeHTML(o.status||"—")}</span></span></div>`,
     `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Total</span><span style="font-size:15px;font-weight:700;color:var(--chiva-primary-light)">${fmt(o.total)}</span></div>`,
   ].join("");
