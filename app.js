@@ -348,47 +348,61 @@ async function bootstrapFromSupabase(){
 // ═══════════════════════════════════════════════════
 //  LOGIN
 // ═══════════════════════════════════════════════════
-function handleLoginSubmit(e){
+async function handleLoginSubmit(e){
   if(e){ e.preventDefault(); e.stopPropagation(); }
-  const emailEl=document.getElementById("login-email");
-  const passEl=document.getElementById("login-pass");
-  const errEl=document.getElementById("login-error");
-  const email=emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
-  const pass=passEl ? String(passEl.value||"").trim() : "";
+  
+  const emailEl = document.getElementById("login-email");
+  const passEl = document.getElementById("login-pass");
+  const errEl = document.getElementById("login-error");
+  const btnEl = e?.target?.querySelector('button[type="submit"]');
+  
+  const email = emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
+  const pass = passEl ? String(passEl.value||"").trim() : "";
+  
   if(errEl){ errEl.textContent=""; errEl.style.color=""; }
-  (async()=>{
-    try{
-      if(!email || !pass){
-        if(errEl) errEl.textContent="Informe e-mail e senha.";
-        return;
-      }
-
-      const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
-      const isAdmin = ADMIN_EMAILS.has(email);
-      const canonicalEmail =
-        email === "admin" || email === "admin@chivafit.com.br"
-          ? "admin@chivafit.com"
-          : email;
-      const ok = await verifyAccessUser(canonicalEmail, pass);
-      if(ok){
-        localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
-        localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
-        enterApp(canonicalEmail);
-        return;
-      }
-      if(isAdmin){
-        if(errEl) errEl.textContent="Senha do administrador inválida.";
-        return;
-      }
-      if(errEl) errEl.textContent="Credenciais inválidas. Use o admin ou um usuário cadastrado em Gerenciamento de Acessos.";
-    }catch(_e){
-      if(!window.isSecureContext){
-        if(errEl) errEl.textContent="Este login precisa de HTTPS (ou servidor local). Evite abrir o arquivo via file://";
-        return;
-      }
-      if(errEl) errEl.textContent="Erro ao validar credenciais.";
+  
+  try {
+    if(!email || !pass){
+      if(errEl) errEl.textContent = "Informe e-mail e senha.";
+      return false;
     }
-  })();
+
+    if(btnEl){
+      btnEl.disabled = true;
+      btnEl.innerHTML = '<span>Entrando...</span>';
+    }
+
+    const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
+    const isAdmin = ADMIN_EMAILS.has(email);
+    const canonicalEmail = (email === "admin" || email === "admin@chivafit.com.br") ? "admin@chivafit.com" : email;
+    
+    const ok = await verifyAccessUser(canonicalEmail, pass);
+    
+    if(ok){
+      localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
+      localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
+      enterApp(canonicalEmail);
+      return false;
+    }
+    
+    if(isAdmin){
+      if(errEl) errEl.textContent = "Senha do administrador inválida.";
+    } else {
+      if(errEl) errEl.textContent = "Credenciais inválidas. Use o admin ou um usuário cadastrado.";
+    }
+  } catch(err) {
+    console.error("Login error:", err);
+    if(!window.isSecureContext){
+      if(errEl) errEl.textContent = "Este login precisa de HTTPS (ou servidor local). Evite abrir o arquivo via file://";
+    } else {
+      if(errEl) errEl.textContent = "Erro ao validar credenciais. Verifique o console.";
+    }
+  } finally {
+    if(btnEl){
+      btnEl.disabled = false;
+      btnEl.innerHTML = '<span>Entrar</span>';
+    }
+  }
   return false;
 }
 function enterApp(userEmail){
@@ -1096,7 +1110,12 @@ function normalizeCarrinhoAbandonado(raw){
   };
 }
 
-function val(o){ return Number(o?.total || 0); }
+// Função utilitária para obter valor numérico de um pedido
+function val(o){ 
+  if(!o) return 0;
+  const v = o.total_pedido || o.total_venda || o.totalProdutos || o.total || o.valor || 0;
+  return parseFloat(v) || 0; 
+}
 function cliKey(o){ return String(o?.contato?.cpfCnpj || o?.contato?.email || o?.contato?.nome || ""); }
 
 
@@ -1980,8 +1999,6 @@ function fmtDate(d){ if(!d)return"—"; const dt=new Date(d); return isNaN(dt)?"
 function fmtDoc(d){ d=(d||"").replace(/\D/g,""); if(d.length===11)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4"); if(d.length===14)return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5"); return d; }
 function fmtPhone(p){ p=(p||"").replace(/\D/g,""); if(!p)return""; if(p.length===11)return`(${p.slice(0,2)}) ${p.slice(2,7)}-${p.slice(7)}`; if(p.length===10)return`(${p.slice(0,2)}) ${p.slice(2,6)}-${p.slice(6)}`; return p; }
 function rawPhone(p){ return(p||"").replace(/\D/g,""); }
-function val(o){ return parseFloat(o.totalProdutos||o.total)||0; }
-function cliKey(o){ return o.contato?.id||o.contato?.email||o.contato?.cpfCnpj||o.contato?.telefone||o.contato?.nome||"?"; }
 function daysSince(ds){ if(!ds)return 9999; const d=new Date(ds); return isNaN(d)?9999:Math.floor((Date.now()-d)/86400000); }
 function isCNPJ(doc){ return (doc||"").replace(/\D/g,"").length===14; }
 
@@ -5474,5 +5491,3 @@ Object.assign(window,{
   copyWhatsAppMessageForCustomer,
   openWhatsAppForCustomer
 });
-
-window.handleLoginSubmit = handleLoginSubmit;
