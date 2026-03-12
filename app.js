@@ -5369,7 +5369,8 @@ async function runPostFixValidation(){
     },
     remote: {
       v2_pedidos: { count: null, sample: [] },
-      v2_clientes: { count: null, sample: [] }
+      v2_clientes: { count: null, sample: [] },
+      v2_pedidos_items: { available: null, count: null }
     }
   };
 
@@ -5397,7 +5398,7 @@ async function runPostFixValidation(){
   try{
     const {data, error} = await supaClient
       .from("v2_pedidos")
-      .select("id,numero_pedido,source,total,data_pedido,created_at")
+      .select("id,numero_pedido,cliente_id,source,total,data_pedido,cidade_entrega,uf_entrega,created_at")
       .order("created_at", { ascending: false })
       .limit(5);
     if(error) throw error;
@@ -5409,7 +5410,7 @@ async function runPostFixValidation(){
   try{
     const {data, error} = await supaClient
       .from("v2_clientes")
-      .select("id,nome,doc,email,telefone,cidade,uf")
+      .select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at")
       .order("updated_at", { ascending: false })
       .limit(5);
     if(error) throw error;
@@ -5419,11 +5420,101 @@ async function runPostFixValidation(){
   }
 
   try{
+    const ok = await ensureV2PedidosItemsAvailable();
+    result.remote.v2_pedidos_items.available = ok;
+    if(ok){
+      const q3 = await supaClient.from("v2_pedidos_items").select("id", { count: "exact", head: true });
+      if(q3?.error) throw q3.error;
+      result.remote.v2_pedidos_items.count = q3.count ?? null;
+    }
+  }catch(e){
+    console.warn("Validação: erro ao checar v2_pedidos_items", e);
+  }
+
+  try{
     console.groupCollapsed("Validação pós-correção");
     console.log("result:", result);
     console.groupEnd();
   }catch(_e){}
 
+  return result;
+}
+
+async function runClienteDebug(customerKey){
+  const key = String(customerKey||"").trim();
+  const result = { input: key, cliente: null, pedidos: [], itensByPedido: {}, errors: [] };
+  if(!supaConnected || !supaClient){
+    result.errors.push("Supabase não conectado");
+    console.warn("runClienteDebug: Supabase não conectado");
+    return result;
+  }
+  if(!key){
+    result.errors.push("Chave vazia");
+    return result;
+  }
+
+  const digits = key.replace(/\D/g,"");
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
+  const isEmail = key.includes("@");
+  try{
+    let q = supaClient.from("v2_clientes").select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at").limit(1);
+    if(isUuid) q = q.eq("id", key);
+    else if(digits.length===11 || digits.length===14) q = q.eq("doc", digits);
+    else if(isEmail) q = q.ilike("email", key.toLowerCase());
+    else if(digits.length>=10) q = q.eq("telefone", digits);
+    else q = q.ilike("nome", key);
+    const {data, error} = await q.maybeSingle();
+    if(error) throw error;
+    result.cliente = data || null;
+  }catch(e){
+    result.errors.push("Erro v2_clientes: " + (e?.message || String(e)));
+  }
+
+  const clienteId = result.cliente?.id;
+  if(clienteId){
+    try{
+      const {data, error} = await supaClient
+        .from("v2_pedidos")
+        .select("id,numero_pedido,cliente_id,canal_id,data_pedido,total,status,cidade_entrega,uf_entrega,created_at")
+        .eq("cliente_id", clienteId)
+        .order("data_pedido", { ascending: false })
+        .limit(20);
+      if(error) throw error;
+      result.pedidos = Array.isArray(data) ? data : [];
+    }catch(e){
+      result.errors.push("Erro v2_pedidos: " + (e?.message || String(e)));
+    }
+
+    try{
+      const ok = await ensureV2PedidosItemsAvailable();
+      if(ok && result.pedidos.length){
+        const ids = Array.from(new Set(result.pedidos.map(p=>p?.id).filter(Boolean))).slice(0,500);
+        for(let i=0;i<ids.length;i+=200){
+          const batch = ids.slice(i,i+200);
+          const {data, error} = await supaClient
+            .from("v2_pedidos_items")
+            .select("pedido_id,produto_nome,quantidade,valor_unitario,valor_total")
+            .in("pedido_id", batch)
+            .limit(20000);
+          if(error) throw error;
+          (data||[]).forEach(r=>{
+            const pid = String(r.pedido_id||"");
+            if(!pid) return;
+            if(!result.itensByPedido[pid]) result.itensByPedido[pid] = [];
+            result.itensByPedido[pid].push(r);
+          });
+        }
+      }
+    }catch(e){
+      result.errors.push("Erro v2_pedidos_items: " + (e?.message || String(e)));
+    }
+  }
+
+  try{
+    console.groupCollapsed("Cliente debug");
+    console.log("result:", result);
+    console.groupEnd();
+  }catch(_e){}
   return result;
 }
 
@@ -6086,5 +6177,6 @@ Object.assign(window,{
   gerarMensagemIA,
   copyWhatsAppMessageForCustomer,
   openWhatsAppForCustomer,
-  runPostFixValidation
+  runPostFixValidation,
+  runClienteDebug
 });
