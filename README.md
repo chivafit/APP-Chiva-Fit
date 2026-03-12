@@ -1,26 +1,60 @@
-# APP-Chiva-Fit
+# CRM (Frontend estático)
 
-CRM Chiva Fit (front-end estático) com dashboard, clientes, pedidos e integrações via Supabase.
+Frontend em HTML/CSS/JS para uso via GitHub Pages (ou qualquer host estático), com persistência e integrações via Supabase (DB + Realtime + Edge Functions).
 
 ## Rodar local
 
-- Abra o arquivo `index.html` no navegador, ou
-- Sirva a pasta com um servidor estático (recomendado).
+```bash
+python3 -m http.server 8000
+```
 
-## Publicar “no ar” (GitHub Pages)
+Abra: `http://localhost:8000/`
 
-1. No GitHub: **Settings → Pages**
-2. Em **Build and deployment**:
-   - **Source**: Deploy from a branch
-   - **Branch**: `main`
-   - **Folder**: `/ (root)`
-3. Salve. Em 1–2 minutos o site fica disponível em:
-   - `https://chivafit.github.io/APP-Chiva-Fit/`
+## Deploy no GitHub Pages
 
-## Tornar o repositório público
+- Publicar a pasta do projeto como site estático.
+- O app é carregado por `index.html` e `./js/main.js` (ESM).
 
-- **Settings → General → Danger Zone → Change repository visibility → Make public**
+## Supabase (pré-requisitos)
 
-## Configurações (Supabase)
+No CRM (Configurações) você informa:
 
-As credenciais do Supabase são informadas na tela de **Configurações** e ficam no `localStorage` do navegador.
+- URL do projeto (`https://xxxx.supabase.co`)
+- anon key (pública)
+
+O frontend usa:
+
+- Supabase JS v2 via CDN
+- Realtime via `postgres_changes`
+- Edge Functions via `POST {projectUrl}/functions/v1/*` com headers `apikey` + `Authorization: Bearer {anon}`
+
+## Tabelas usadas pelo frontend
+
+O frontend referencia tabelas e campos no Supabase. Mantenha o schema alinhado com as `select/insert/upsert/update` do código:
+
+- `insumos`
+- `receitas_produtos`
+- `ordens_producao`
+- `movimentos_estoque`
+- `carrinhos_abandonados`
+- `interactions`
+- `v2_clientes`
+- `v2_pedidos`
+- `customer_intelligence`
+- `v2_tarefas`
+- `configuracoes`
+- `v2_insights`
+
+## Edge Functions esperadas
+
+- `bootstrap-crm`
+- `bling-sync`
+- `yampi-sync`
+- `yampi-abandoned-sync`
+- `shopify-sync` (opcional)
+- `ai-analyze` (IA)
+
+## Observações de segurança
+
+- Não commit de chaves: o app guarda URL/anon key no `localStorage` do navegador.
+- O login do CRM é local (hash em `localStorage`) e não substitui autenticação/controle de acesso do Supabase.

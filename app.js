@@ -1,4 +1,4 @@
-﻿import { allInsumos, getEstPct, getEstStatus } from "./producao.js";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -63,8 +63,10 @@ function toggleTheme(){
 function updateThemeUI(){
   const isLight = document.documentElement.classList.contains("light");
   const icon = document.getElementById("theme-icon");
+  const topbarIcon = document.getElementById("topbar-theme-icon");
   const label = document.getElementById("theme-label");
   if(icon) icon.textContent = isLight ? "☀️" : "🌙";
+  if(topbarIcon) topbarIcon.textContent = isLight ? "☀️" : "🌙";
   if(label) label.textContent = isLight ? "Modo Claro" : "Modo Escuro";
 }
 initTheme();
@@ -98,7 +100,9 @@ let WA_TPLS = safeJsonParse("crm_wa_tpls", null) || [
   "Oi {nome}! 🔥 Novidades chegando na Chiva Fit essa semana! Fica de olho no nosso perfil 👀💪"
 ];
 let blingOrders = safeJsonParse("crm_bling_orders", []);
+let yampiOrders = safeJsonParse("crm_yampi_orders", []);
 let shopifyOrders = safeJsonParse("crm_shopify_orders", []);
+let carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []);
 let allOrders = [];
 let allCustomers = [];
 let customerIntel = [];
@@ -107,8 +111,10 @@ let activeCh = "all";
 let charts   = {};
 let activeSegment = null;
 let syncTimer = null;
-let waPhone="", waName="";
+let waPhone="", waName="", waCustomerId=null;
 let selectedUser="admin";
+let currentClienteId = null;
+let oppPipeline = safeJsonParse("crm_opp_pipeline", []);
 let allTasks = safeJsonParse("crm_tasks", null) || [
   {id:1,titulo:"Ligar para clientes VIP inativos",desc:"Clientes VIP que não compram há +60 dias",prioridade:"alta",status:"pendente",cliente:"",data:new Date().toISOString().slice(0,10)},
   {id:2,titulo:"Enviar campanha de reativação",desc:"Segmento de inativos - template WhatsApp",prioridade:"media",status:"pendente",cliente:"",data:new Date().toISOString().slice(0,10)},
@@ -123,7 +129,7 @@ const CRM_STATE = {
   customers: allCustomers,
   intelligence: customerIntelligence,
   tasks: allTasks,
-  integrations: { bling: blingOrders, shopify: shopifyOrders },
+  integrations: { bling: blingOrders, yampi: yampiOrders, shopify: shopifyOrders },
   cache: { tarefas: tarefasCache, notifs: notifs },
   ui: { activeChannel: activeCh, charts: charts, activeSegment: activeSegment }
 };
@@ -182,7 +188,7 @@ try{
 function mergeOrders(){
   const seen=new Set();
   allOrders.length=0;
-  [...blingOrders,...shopifyOrders].forEach(o=>{
+  [...blingOrders,...yampiOrders].forEach(o=>{
     const k=(o._source||"b")+":"+(o.id||o.numero);
     if(!seen.has(k)){ seen.add(k); allOrders.push(o); }
   });
@@ -193,6 +199,8 @@ function mergeOrders(){
   allCustomers.length=0;
   allCustomers.push(...nextCustomers);
   computeCustomerIntelligence();
+  reconcileCarrinhosRecuperados().catch(()=>{});
+  recomputeCarrinhosScoresAndPersist().catch(()=>{});
 }
 
 function iso(d){ return d.toISOString().slice(0,10); }
@@ -246,16 +254,41 @@ async function bootstrapFromSupabase(){
     }
     const data = await resp.json();
 
-    // Pedidos
-    if(Array.isArray(data.pedidos)){
-      const nextBling = data.pedidos.map(o => {
-        o._source = "bling";
-        o._canal  = detectCh(o);
-        return o;
-      });
+    // Pedidos (Bling + Yampi)
+    const pedidosRaw = Array.isArray(data.pedidos) ? data.pedidos : [];
+    const pedidosYampiRaw =
+      Array.isArray(data.yampiOrders) ? data.yampiOrders :
+      Array.isArray(data.yampi_pedidos) ? data.yampi_pedidos :
+      Array.isArray(data.pedidos_yampi) ? data.pedidos_yampi :
+      [];
+
+    if(pedidosRaw.length || pedidosYampiRaw.length){
+      const nextBling = [];
+      const nextYampi = [];
+
+      const pushNormalized = (o, fallbackSource)=>{
+        const src = String(o?._source || o?.source || fallbackSource || "").toLowerCase();
+        o._source = src || fallbackSource || "bling";
+        if(!o.numero && (o.numero_pedido || o.order_number || o.name)) o.numero = o.numero_pedido || o.order_number || o.name;
+        if(!o.data){
+          const d = o.data_pedido || o.dataPedido || o.created_at || o.updated_at || "";
+          if(d) o.data = String(d).slice(0,10);
+        }
+        o._canal = detectCh(o);
+        if(o._source === "yampi" || src.includes("yampi") || o._canal === "yampi") nextYampi.push(o);
+        else nextBling.push(o);
+      };
+
+      pedidosRaw.forEach(o => pushNormalized(o, "bling"));
+      pedidosYampiRaw.forEach(o => pushNormalized(o, "yampi"));
+
       blingOrders.length = 0;
       blingOrders.push(...nextBling);
       localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
+
+      yampiOrders.length = 0;
+      yampiOrders.push(...nextYampi);
+      localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
     }
 
     // Tarefas
@@ -322,7 +355,7 @@ function handleLoginSubmit(e){
   const errEl=document.getElementById("login-error");
   const email=emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
   const pass=passEl ? String(passEl.value||"").trim() : "";
-  if(errEl) errEl.textContent="";
+  if(errEl){ errEl.textContent=""; errEl.style.color=""; }
   (async()=>{
     try{
       if(!email || !pass){
@@ -332,17 +365,15 @@ function handleLoginSubmit(e){
 
       const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
       const isAdmin = ADMIN_EMAILS.has(email);
-      if(isAdmin && pass==="chiva2026"){
-        localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
-        localStorage.setItem(STORAGE_KEYS.sessionEmail, email==="admin"?"admin@chivafit.com":email);
-        enterApp(email==="admin"?"admin@chivafit.com":email);
-        return;
-      }
-      const ok = await verifyAccessUser(email, pass);
+      const canonicalEmail =
+        email === "admin" || email === "admin@chivafit.com.br"
+          ? "admin@chivafit.com"
+          : email;
+      const ok = await verifyAccessUser(canonicalEmail, pass);
       if(ok){
         localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
-        localStorage.setItem(STORAGE_KEYS.sessionEmail, email);
-        enterApp(email);
+        localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
+        enterApp(canonicalEmail);
         return;
       }
       if(isAdmin){
@@ -361,6 +392,8 @@ function handleLoginSubmit(e){
   return false;
 }
 function enterApp(userEmail){
+  try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
+  try{ localStorage.removeItem("crm_bootstrap_pass_ts"); }catch(_e){}
   const loginEl = document.getElementById("login-screen");
   if(loginEl) loginEl.style.display="none";
   const shell = document.getElementById("app-shell");
@@ -370,6 +403,8 @@ function enterApp(userEmail){
   }
   const emojiEl = document.getElementById("user-emoji");
   if(emojiEl) emojiEl.textContent=(userEmail && userEmail !== "admin@chivafit.com") ? "👤" : "🛡️";
+  const topbarAvatarEl = document.getElementById("topbar-avatar");
+  if(topbarAvatarEl) topbarAvatarEl.textContent=(userEmail && userEmail !== "admin@chivafit.com") ? "👤" : "🛡️";
   const nameEl = document.getElementById("user-name-hdr");
   if(nameEl){
     if(userEmail && userEmail !== "admin@chivafit.com"){
@@ -524,15 +559,33 @@ function filterClientesByCity(cidade, uf){
 }
 
 function renderPedidosPage(){
-  const q = (document.getElementById("ped-search")||{value:""}).value.toLowerCase();
-  const sf = (document.getElementById("ped-status-filter")||{value:""}).value.toLowerCase();
-  let orders = allOrders;
-  if(q) orders = orders.filter(o=>(o.numero_pedido||"").toLowerCase().includes(q) || (() => {const c=allCustomers.find(x=>x.id===o.cliente_id); return c&&(c.nome||"").toLowerCase().includes(q);})());
-  if(sf) orders = orders.filter(o=>(o.status||"").toLowerCase()===sf);
-  orders = orders.sort((a,b)=>new Date(b.data_pedido||0)-new Date(a.data_pedido||0));
+  const q = String((document.getElementById("ped-search")||{value:""}).value||"").toLowerCase().trim();
+  const sf = String((document.getElementById("ped-status-filter")||{value:""}).value||"").toLowerCase().trim();
+  const ch = String((document.getElementById("ped-canal-filter")||{value:""}).value||"").toLowerCase().trim();
+  const from = String((document.getElementById("ped-date-from")||{value:""}).value||"").trim();
+  const to = String((document.getElementById("ped-date-to")||{value:""}).value||"").trim();
+  const minRaw = String((document.getElementById("ped-min")||{value:""}).value||"").trim();
+  const minVal = minRaw ? (Number(minRaw)||0) : null;
+
+  let orders = allOrders.slice();
+  if(ch) orders = orders.filter(o=>detectCh(o)===ch);
+  if(sf) orders = orders.filter(o=>normSt(o.situacao)===sf);
+  if(from) orders = orders.filter(o=>String(o.data||"")>=from);
+  if(to) orders = orders.filter(o=>String(o.data||"")<=to);
+  if(minVal != null) orders = orders.filter(o=>val(o) >= minVal);
+  if(q){
+    orders = orders.filter(o=>{
+      const num = String(o.numero||o.id||"").toLowerCase();
+      const nm = String(o.contato?.nome||"").toLowerCase();
+      const em = String(o.contato?.email||"").toLowerCase();
+      const ph = rawPhone(o.contato?.telefone||"");
+      return num.includes(q) || nm.includes(q) || em.includes(q) || (ph && ph.includes(q.replace(/\D/g,"")));
+    });
+  }
+  orders.sort((a,b)=>new Date(b.data||0)-new Date(a.data||0));
 
   // KPIs
-  const total = orders.reduce((s,o)=>s+(o.total||0),0);
+  const total = orders.reduce((s,o)=>s+val(o),0);
   const kpiEl = document.getElementById("ped-kpi-row");
   if(kpiEl) kpiEl.innerHTML = [
     {label:"Total Pedidos",val:orders.length.toLocaleString("pt-BR")},
@@ -555,13 +608,15 @@ function renderPedidosPage(){
       <span class="pedido-th pedido-th-center">Status</span>
     </div>
     ${orders.slice(0,200).map(o=>{
-      const c = allCustomers.find(x=>x.id===o.cliente_id);
-      return `<div class="pedido-row" onclick="openPedidoDrawer('${o.id}')">
-        <span class="pedido-num">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</span>
-        <span class="pedido-client">${escapeHTML(c?c.nome:"—")}<br><span class="pedido-date">${o.data_pedido?new Date(o.data_pedido).toLocaleDateString("pt-BR"):"—"}</span></span>
-        <span class="pedido-canal">${escapeHTML(o.canal||o.canal_id||"—")}</span>
-        <span class="pedido-val">${fmt(o.total)}</span>
-        <span class="pedido-status"><span class="chiva-badge pedido-status-badge ${o.status==="atendido"?"chiva-badge-green":o.status==="cancelado"?"chiva-badge-red":"chiva-badge-amber"}">${escapeHTML(o.status||"—")}</span></span>
+      const st = normSt(o.situacao);
+      const ch = detectCh(o);
+      const oid = escapeJsSingleQuote(String(o.id||o.numero||""));
+      return `<div class="pedido-row" onclick="openCRMOrderDrawer('${oid}')">
+        <span class="pedido-num">#${escapeHTML(String(o.numero||o.id||"—"))}</span>
+        <span class="pedido-client">${escapeHTML(o.contato?.nome||"—")}<br><span class="pedido-date">${escapeHTML(fmtDate(o.data))}</span></span>
+        <span class="pedido-canal">${escapeHTML(CH[ch]||ch)}</span>
+        <span class="pedido-val">${fmt(val(o))}</span>
+        <span class="pedido-status"><span class="sp ${ST_CLASS[st]||"s-outros"}">${escapeHTML(ST_LABEL[st]||st)}</span></span>
       </div>`;
     }).join("")}
   `;
@@ -623,6 +678,52 @@ async function verifyAccessUser(email, password){
   if(!u || !u.salt || !u.hash) return false;
   const h = await hashPassword(password, u.salt);
   return h === u.hash;
+}
+
+function generateBootstrapPassword(){
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for(let i=0;i<bytes.length;i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+function showBootstrapHintIfNeeded(pass){
+  const loggedIn = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+  if(loggedIn) return;
+  const errEl = document.getElementById("login-error");
+  if(!errEl) return;
+  if(String(errEl.textContent||"").trim()) return;
+  errEl.textContent = `Primeiro acesso: use admin@chivafit.com e a senha temporária ${pass}.`;
+  errEl.style.color = "rgba(52,211,153,1)";
+}
+
+async function ensureBootstrapAdminUser(){
+  if(!globalThis.crypto?.getRandomValues || !globalThis.crypto?.subtle) return;
+  const users = loadAccessUsers();
+  if(users.length) return;
+
+  const storedPlain = localStorage.getItem("crm_bootstrap_pass");
+  const pass = storedPlain || generateBootstrapPassword();
+
+  const saltBytes = new Uint8Array(16);
+  crypto.getRandomValues(saltBytes);
+  const salt = bytesToBase64(saltBytes);
+  const hash = await hashPassword(pass, salt);
+
+  const email = "admin@chivafit.com";
+  saveAccessUsers([{ email, salt, hash, created_at: new Date().toISOString(), bootstrap: true }]);
+  if(!storedPlain){
+    localStorage.setItem("crm_bootstrap_pass", pass);
+    localStorage.setItem("crm_bootstrap_pass_ts", new Date().toISOString());
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", ()=>showBootstrapHintIfNeeded(pass), { once:true });
+  }else{
+    showBootstrapHintIfNeeded(pass);
+  }
 }
 
 async function addAccessUser(){
@@ -689,8 +790,16 @@ function renderAccessUsers(){
 }
 
 function hydrateConfigPage(){
-  const u = localStorage.getItem("crm_supa_url") || "";
-  const k = localStorage.getItem("crm_supa_key") || "";
+  const u =
+    localStorage.getItem("crm_supa_url") ||
+    localStorage.getItem("supa_url") ||
+    localStorage.getItem("supabase_url") ||
+    "";
+  const k =
+    localStorage.getItem("crm_supa_key") ||
+    localStorage.getItem("supa_key") ||
+    localStorage.getItem("supabase_key") ||
+    "";
   const urlEl = document.getElementById("inp-supa-url");
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl) urlEl.value = u;
@@ -710,6 +819,8 @@ function hydrateConfigPage(){
   loadTemplatesUI();
   renderAccessUsers();
 }
+
+ensureBootstrapAdminUser().catch(()=>{});
 
 // ═══════════════════════════════════════════════════
 //  CREDENTIALS
@@ -738,6 +849,10 @@ function saveSupabaseConfig(){
   if(!url||!key){ if(st) st.textContent="⚠ Preencha URL e chave."; if(st) st.className="setup-status s-err"; return; }
   localStorage.setItem("crm_supa_url", url);
   localStorage.setItem("crm_supa_key", key);
+  localStorage.setItem("supa_url", url);
+  localStorage.setItem("supa_key", key);
+  localStorage.setItem("supabase_url", url);
+  localStorage.setItem("supabase_key", key);
   if(st){ st.textContent="✓ Salvo! Conectando..."; st.className="setup-status s-ok"; }
   setTimeout(async()=>{
     const connected = await initSupabase();
@@ -748,8 +863,16 @@ function saveSupabaseConfig(){
 }
 // Load supa config into form on page open
 document.addEventListener("DOMContentLoaded", ()=>{
-  const u = localStorage.getItem("crm_supa_url") || "";
-  const k = localStorage.getItem("crm_supa_key") || "";
+  const u =
+    localStorage.getItem("crm_supa_url") ||
+    localStorage.getItem("supa_url") ||
+    localStorage.getItem("supabase_url") ||
+    "";
+  const k =
+    localStorage.getItem("crm_supa_key") ||
+    localStorage.getItem("supa_key") ||
+    localStorage.getItem("supabase_key") ||
+    "";
 
   const urlEl = document.getElementById("inp-supa-url");
   const keyEl = document.getElementById("inp-supa-key");
@@ -799,7 +922,7 @@ async function syncBling(){
       throw new Error(txt||"Erro na função Bling");
     }
     const data=await resp.json();
-    const nextBling = (data.orders||[]).map(o=>{ o._source="bling"; o._canal=detectCh(o); return o; });
+    const nextBling = (data.orders||[]).map(o=>normalizeOrderForCRM(o,"bling"));
     blingOrders.length = 0;
     blingOrders.push(...nextBling);
     localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
@@ -812,6 +935,502 @@ async function syncBling(){
     st.textContent="⚠ "+e.message;
     st.className="setup-status s-err";
   }
+}
+
+// ═══════════════════════════════════════════════════
+//  YAMPI
+// ═══════════════════════════════════════════════════
+async function fetchYampi(){
+  const r = await fetch(getSupaFnBase()+"/yampi-sync",{
+    method:"POST",
+    headers:supaFnHeaders(),
+    body:JSON.stringify({})
+  });
+  if(!r.ok){
+    const txt = await r.text();
+    throw new Error(txt || ("Erro no yampi-sync ("+r.status+")"));
+  }
+  const d = await r.json();
+  return d.orders || d.pedidos || d.data || [];
+}
+
+async function fetchYampiAbandoned(){
+  const r = await fetch(getSupaFnBase()+"/yampi-abandoned-sync",{
+    method:"POST",
+    headers:supaFnHeaders(),
+    body:JSON.stringify({})
+  });
+  if(!r.ok){
+    const txt = await r.text();
+    throw new Error(txt || ("Erro no yampi-abandoned-sync ("+r.status+")"));
+  }
+  const d = await r.json();
+  return d.checkouts || d.carts || d.abandoned || d.data || [];
+}
+
+function normalizeYampiOrder(o){
+  const next = o || {};
+  next._source = "yampi";
+  next.numero = next.numero || next.numero_pedido || next.order_number || next.number || next.name || next.id;
+  next.data = next.data || next.data_pedido || next.created_at || next.updated_at || "";
+  if(next.data) next.data = String(next.data).slice(0,10);
+
+  const total =
+    Number(next.total ?? next.total_price ?? next.valor_total ?? next.amount_total ?? 0) || 0;
+  next.total = total;
+  next.totalProdutos = total;
+
+  const statusRaw = next.status || next.status_atual || next.financial_status || next.payment_status || "";
+  next.situacao = next.situacao || { nome: String(statusRaw || "").toLowerCase() };
+
+  const cliente = next.cliente || next.customer || next.buyer || {};
+  const endereco = cliente.endereco || cliente.address || next.endereco_entrega || next.shipping_address || {};
+  const nome = cliente.nome || cliente.name || [cliente.first_name, cliente.last_name].filter(Boolean).join(" ").trim();
+  next.contato = next.contato || {
+    nome: nome || "Cliente",
+    cpfCnpj: cliente.cpf || cliente.cnpj || cliente.document || "",
+    email: cliente.email || next.email || "",
+    telefone: cliente.telefone || cliente.phone || next.phone || "",
+    endereco: {
+      municipio: endereco.cidade || endereco.city || endereco.municipio || "",
+      uf: (endereco.uf || endereco.state || endereco.province || endereco.estado || "").toString().toUpperCase().slice(0,2),
+      logradouro: endereco.logradouro || endereco.address1 || endereco.endereco || ""
+    }
+  };
+
+  const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
+  if(Array.isArray(itens)){
+    next.itens = itens.map(it=>({
+      descricao: it.descricao || it.title || it.nome || it.name || it.produto || "",
+      codigo: it.codigo || it.sku || it.id || "",
+      quantidade: Number(it.quantidade ?? it.quantity ?? it.qty ?? 1) || 1,
+      valor: Number(it.valor ?? it.price ?? it.preco ?? 0) || 0
+    }));
+  }else{
+    next.itens = [];
+  }
+
+  next._canal = next._canal || String(next.canal || next.channel || "yampi").toLowerCase();
+  return next;
+}
+
+async function syncYampi(){
+  const st = document.getElementById("yampi-status");
+  if(st){ st.textContent="Recarregando..."; st.className="setup-status"; }
+  try{
+    const raw = await fetchYampi();
+    const next = (Array.isArray(raw) ? raw : []).map(o=>normalizeOrderForCRM(o,"yampi"));
+    yampiOrders.length = 0;
+    yampiOrders.push(...next);
+    localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
+    mergeOrders();
+    populateUFs();
+    renderAll();
+    upsertOrdersToSupabase(yampiOrders).catch(e=>console.warn(e));
+    if(st){ st.textContent=`✓ ${yampiOrders.length} pedidos Yampi carregados`; st.className="setup-status s-ok"; }
+    toast("✓ Yampi sincronizada!");
+  }catch(e){
+    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
+  }
+}
+
+function normalizeCarrinhoAbandonado(raw){
+  const c = raw || {};
+  const checkoutId = String(c.checkout_id || c.id || c.checkoutId || c.uuid || "").trim();
+  const nome = String(c.cliente_nome || c.customer_name || c.nome || c.customer?.name || c.cliente?.nome || "").trim();
+  const email = String(c.email || c.customer_email || c.customer?.email || c.cliente?.email || "").trim().toLowerCase();
+  const telefone = String(c.telefone || c.phone || c.customer_phone || c.customer?.phone || c.cliente?.telefone || "").trim();
+  const valor = Number(c.valor ?? c.total ?? c.amount ?? c.total_price ?? 0) || 0;
+  const produtos = c.produtos || c.items || c.itens || c.products || c.line_items || [];
+  const criado = c.criado_em || c.created_at || c.createdAt || c.created || c.data || null;
+  const criadoEm = criado ? new Date(criado).toISOString() : new Date().toISOString();
+  const recuperado = !!(c.recuperado || c.recovered || c.recovered_at || c.recuperado_em);
+  const recuperadoEm = c.recuperado_em || c.recovered_at || null;
+  const linkFinalizacao = String(c.link_finalizacao || c.checkout_url || c.recovery_url || c.recover_url || c.url || "").trim() || null;
+  const score = c.score_recuperacao == null ? null : (Number(c.score_recuperacao||0) || 0);
+  const lastEtapa = String(c.last_etapa_enviada || c.last_whatsapp_stage || "").trim() || null;
+  const lastAtRaw = c.last_mensagem_at || c.last_whatsapp_at || null;
+  const lastAt = lastAtRaw ? new Date(lastAtRaw).toISOString() : null;
+  return {
+    checkout_id: checkoutId,
+    cliente_nome: nome,
+    telefone,
+    email,
+    valor,
+    produtos,
+    criado_em: criadoEm,
+    recuperado,
+    recuperado_em: recuperadoEm,
+    recuperado_pedido_id: c.recuperado_pedido_id || c.recovered_order_id || null,
+    link_finalizacao: linkFinalizacao,
+    score_recuperacao: score,
+    last_etapa_enviada: lastEtapa,
+    last_mensagem_at: lastAt
+  };
+}
+
+function clamp01(n){ n=Number(n); if(!isFinite(n)) return 0; return Math.max(0, Math.min(1, n)); }
+
+function minutosDesdeIso(isoStr){
+  const ts = isoStr ? new Date(isoStr).getTime() : NaN;
+  if(!isFinite(ts)) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+
+function fmtTempoDesde(mins){
+  if(mins == null) return "—";
+  if(mins < 60) return mins + "min";
+  const h = Math.floor(mins/60);
+  if(h < 48) return h + "h";
+  const d = Math.floor(h/24);
+  return d + "d";
+}
+
+function sugerirEtapaMensagem(mins){
+  if(mins == null) return {id:"", label:"—"};
+  if(mins < 10) return {id:"aguardar", label:"Aguardar"};
+  if(mins >= 10 && mins < 120) return {id:"ajuda", label:"Ajuda (10–20min)"};
+  if(mins >= 360 && mins < 1440) return {id:"link", label:"Link (6h)"};
+  if(mins >= 1440 && mins < 4320) return {id:"incentivo", label:"Incentivo leve (24h)"};
+  return {id:"tarde", label:"Fora da janela"};
+}
+
+function sugerirEtapaParaCarrinho(c, mins){
+  const base = sugerirEtapaMensagem(mins);
+  if(!c || c.recuperado) return {id:"", label:"—"};
+  const last = String(c.last_etapa_enviada || "").trim();
+  if(!last) return base;
+  if(base.id !== last) return base;
+  if(mins != null && mins >= 1440 && last !== "incentivo") return {id:"incentivo", label:"Incentivo leve (24h)"};
+  if(mins != null && mins >= 360 && mins < 1440 && last !== "link") return {id:"link", label:"Link (6h)"};
+  return {id:"aguardar", label:"Já enviado"};
+}
+
+function prioridadePorScore(score){
+  const s = Number(score||0)||0;
+  if(s >= 75) return {id:"alta", label:"Alta"};
+  if(s >= 45) return {id:"media", label:"Média"};
+  return {id:"baixa", label:"Baixa"};
+}
+
+function buildClienteLookupParaCarrinhos(){
+  const cliMap = buildCli(Array.isArray(allOrders)?allOrders:[]);
+  const byEmail = {};
+  const byPhone = {};
+  Object.values(cliMap).forEach(c=>{
+    const sc = calcCliScores(c);
+    const email = String(c.email||"").trim().toLowerCase();
+    const phone = rawPhone(c.telefone||"");
+    const info = {n: sc.n, status: sc.status, ltv: sc.ltv};
+    if(email) byEmail[email] = info;
+    if(phone) byPhone[phone] = info;
+  });
+  return {byEmail, byPhone};
+}
+
+function calcularScoreRecuperacaoCarrinho(c, cliLookup){
+  const mins = minutosDesdeIso(c?.criado_em);
+  const valor = Number(c?.valor||0)||0;
+  const email = String(c?.email||"").trim().toLowerCase();
+  const phone = rawPhone(c?.telefone||"");
+  const cli = (email && cliLookup?.byEmail?.[email]) || (phone && cliLookup?.byPhone?.[phone]) || null;
+
+  const valueCap = 500;
+  const valueScore = clamp01(Math.log10(Math.max(0, Math.min(valor, valueCap)) + 1) / Math.log10(valueCap + 1));
+  const hasBoughtScore = cli && cli.n > 0 ? 1 : 0;
+  const historyScore =
+    cli && cli.status === "vip" ? 1 :
+    cli && cli.n >= 2 ? 0.75 :
+    cli && cli.n === 1 ? 0.35 :
+    0;
+  const timeScore =
+    mins == null ? 0.4 :
+    mins < 60 ? 1 :
+    mins < 360 ? 0.8 :
+    mins < 1440 ? 0.6 :
+    mins < 4320 ? 0.4 :
+    0.2;
+
+  const score = Math.round(100 * (
+    0.40 * valueScore +
+    0.25 * hasBoughtScore +
+    0.20 * historyScore +
+    0.15 * timeScore
+  ));
+  return {score, mins, cli};
+}
+
+async function recomputeCarrinhosScoresAndPersist(){
+  try{
+    carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
+  }catch(_e){}
+  if(!Array.isArray(carrinhosAbandonados) || !carrinhosAbandonados.length) return;
+  const lookup = buildClienteLookupParaCarrinhos();
+  let changed = false;
+  const updated = carrinhosAbandonados.map(raw=>{
+    const c = normalizeCarrinhoAbandonado(raw);
+    if(!c.checkout_id) return c;
+    if(c.recuperado) return c;
+    const {score} = calcularScoreRecuperacaoCarrinho(c, lookup);
+    const prev = c.score_recuperacao == null ? null : (Number(c.score_recuperacao||0)||0);
+    if(prev == null || Math.abs(prev - score) >= 1){
+      changed = true;
+      return {...c, score_recuperacao: score};
+    }
+    return c;
+  });
+  if(!changed) return;
+  carrinhosAbandonados = updated;
+  localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) await upsertCarrinhosAbandonadosToSupabase(carrinhosAbandonados);
+}
+
+async function loadCarrinhosAbandonadosFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    let data=null;
+    let error=null;
+    ({data, error} = await supaClient
+      .from("carrinhos_abandonados")
+      .select("checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id,score_recuperacao,link_finalizacao,last_etapa_enviada,last_mensagem_at")
+      .order("criado_em", { ascending: false })
+      .limit(10000));
+    if(error){
+      ({data, error} = await supaClient
+        .from("carrinhos_abandonados")
+        .select("checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id")
+        .order("criado_em", { ascending: false })
+        .limit(10000));
+    }
+    if(error || !Array.isArray(data)) return;
+    carrinhosAbandonados = data.map(normalizeCarrinhoAbandonado);
+    localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+    if(document.getElementById("page-comercial")?.classList.contains("active")) {
+      if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
+    }
+    await reconcileCarrinhosRecuperados();
+    await recomputeCarrinhosScoresAndPersist();
+  }catch(_e){}
+}
+
+async function upsertCarrinhosAbandonadosToSupabase(list){
+  if(!supaConnected || !supaClient) return;
+  const rowsWithUpdatedAt = (Array.isArray(list) ? list : []).filter(x=>x && x.checkout_id).map(c=>({
+    checkout_id: String(c.checkout_id),
+    cliente_nome: c.cliente_nome || null,
+    telefone: c.telefone || null,
+    email: c.email || null,
+    valor: Number(c.valor||0) || 0,
+    produtos: c.produtos && typeof c.produtos === "object" ? c.produtos : [],
+    criado_em: c.criado_em || null,
+    recuperado: !!c.recuperado,
+    recuperado_em: c.recuperado_em || null,
+    recuperado_pedido_id: c.recuperado_pedido_id || null,
+    score_recuperacao: c.score_recuperacao == null ? null : (Number(c.score_recuperacao||0) || 0),
+    link_finalizacao: c.link_finalizacao || null,
+    last_etapa_enviada: c.last_etapa_enviada || null,
+    last_mensagem_at: c.last_mensagem_at || null,
+    updated_at: new Date().toISOString()
+  }));
+  const rowsFallback = rowsWithUpdatedAt.map(({updated_at, ...rest})=>rest);
+  const rowsFallbackCore = rowsFallback.map(({score_recuperacao, link_finalizacao, last_etapa_enviada, last_mensagem_at, ...rest})=>rest);
+  if(!rowsWithUpdatedAt.length) return;
+  try{
+    for(let i=0;i<rowsWithUpdatedAt.length;i+=200){
+      const chunk = rowsWithUpdatedAt.slice(i,i+200);
+      const {error} = await supaClient.from("carrinhos_abandonados").upsert(chunk, { onConflict: "checkout_id" });
+      if(error){
+        const {error: e2} = await supaClient.from("carrinhos_abandonados").upsert(rowsFallback.slice(i,i+200), { onConflict: "checkout_id" });
+        if(e2){
+          await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+200), { onConflict: "checkout_id" });
+        }
+      }
+    }
+  }catch(_e){}
+}
+
+async function syncCarrinhosAbandonadosYampi(){
+  const st = document.getElementById("abandoned-status");
+  if(st){ st.textContent="Sincronizando..."; st.className="setup-status"; }
+  try{
+    const raw = await fetchYampiAbandoned();
+    const next = (Array.isArray(raw) ? raw : []).map(normalizeCarrinhoAbandonado).filter(c=>c.checkout_id);
+    const byId = {};
+    (carrinhosAbandonados||[]).forEach(c=>{ if(c && c.checkout_id) byId[String(c.checkout_id)] = c; });
+    next.forEach(c=>{
+      const prev = byId[c.checkout_id] || null;
+      byId[c.checkout_id] = prev ? {...prev, ...c, recuperado: prev.recuperado || c.recuperado, recuperado_em: prev.recuperado_em || c.recuperado_em, recuperado_pedido_id: prev.recuperado_pedido_id || c.recuperado_pedido_id} : c;
+    });
+    carrinhosAbandonados = Object.values(byId).sort((a,b)=>new Date(b.criado_em||0)-new Date(a.criado_em||0));
+    localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+    await reconcileCarrinhosRecuperados();
+    await recomputeCarrinhosScoresAndPersist();
+    if(supaConnected && supaClient) await upsertCarrinhosAbandonadosToSupabase(carrinhosAbandonados);
+    if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
+    if(st){ st.textContent=`✓ ${carrinhosAbandonados.length} carrinhos carregados`; st.className="setup-status s-ok"; }
+    toast("✓ Carrinhos abandonados sincronizados!");
+  }catch(e){
+    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
+  }
+}
+
+function buildCarrinhoWaMessage(c, ctx){
+  const nome = String(c?.cliente_nome || "tudo bem?");
+  const itens = Array.isArray(c?.produtos) ? c.produtos : [];
+  const produtosTxt = itens.slice(0,4).map(it=>String(it.nome || it.title || it.descricao || it.name || "").trim()).filter(Boolean).join(", ");
+  const valorTxt = Number(c?.valor||0) ? fmtBRL(Number(c.valor||0)||0) : "";
+  const etapa = ctx?.etapa?.id || "";
+  const prioridade = ctx?.prioridade?.id || "baixa";
+  const link = c?.link_finalizacao ? String(c.link_finalizacao) : "";
+
+  if(etapa==="ajuda"){
+    return [
+      `Oi ${nome}!`,
+      "Vi que você estava finalizando seu pedido e ele ficou pendente.",
+      produtosTxt ? `Carrinho: ${produtosTxt}` : "",
+      "Quer que eu te ajude a concluir por aqui?"
+    ].filter(Boolean).join(" ");
+  }
+  if(etapa==="link"){
+    return [
+      `Oi ${nome}!`,
+      "Passando pra te ajudar a finalizar seu pedido.",
+      produtosTxt ? `Carrinho: ${produtosTxt}` : "",
+      valorTxt ? `Total: ${valorTxt}` : "",
+      link ? `Link para finalizar: ${link}` : "Se você quiser, eu te mando o link pra finalizar rapidinho.",
+      "Posso te ajudar em algo?"
+    ].filter(Boolean).join(" ");
+  }
+  if(etapa==="incentivo"){
+    const incentivo =
+      prioridade==="alta" ? "Se precisar, consigo te ajudar com um incentivo leve pra fechar hoje." :
+      "Se fizer sentido pra você, eu te ajudo a concluir rapidinho.";
+    return [
+      `Oi ${nome}!`,
+      "Só passando pra lembrar do seu carrinho que ficou pendente.",
+      produtosTxt ? `Carrinho: ${produtosTxt}` : "",
+      valorTxt ? `Total: ${valorTxt}` : "",
+      incentivo,
+      link ? `Link: ${link}` : ""
+    ].filter(Boolean).join(" ");
+  }
+  return [
+    `Oi ${nome}!`,
+    "Vi que você iniciou um pedido no nosso site mas não finalizou.",
+    produtosTxt ? `Seu carrinho: ${produtosTxt}` : "",
+    valorTxt ? `Total: ${valorTxt}` : "",
+    "Posso te ajudar a concluir agora?"
+  ].filter(Boolean).join(" ");
+}
+
+async function ensureCustomerForCarrinho(c){
+  if(!supaConnected || !supaClient) return null;
+  const email = String(c?.email||"").trim().toLowerCase();
+  const phone = rawPhone(c?.telefone||"");
+  const docKey = email || phone || "";
+  if(!docKey) return null;
+  try{
+    await supaClient.from("v2_clientes").upsert({
+      doc: docKey,
+      nome: c?.cliente_nome || null,
+      email: email || null,
+      telefone: phone || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "doc" });
+  }catch(_e){}
+  try{
+    return await resolveCustomerUuid(docKey);
+  }catch(_e){}
+  return null;
+}
+
+async function openWhatsAppCarrinho(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c){ toast("⚠ Carrinho não encontrado"); return; }
+  const digits = rawPhone(c.telefone||"");
+  if(!digits){ toast("⚠ Carrinho sem telefone"); return; }
+  const phone = digits.startsWith("55") ? digits : ("55"+digits);
+  const lookup = buildClienteLookupParaCarrinhos();
+  const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+  const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+  const prioridade = prioridadePorScore(c.score_recuperacao == null ? calc.score : c.score_recuperacao);
+  const text = buildCarrinhoWaMessage(c, {etapa, prioridade, score: c.score_recuperacao == null ? calc.score : c.score_recuperacao});
+  const url = "https://wa.me/" + phone + "?text=" + encodeURIComponent(text);
+  window.open(url, "_blank");
+
+  if(etapa && (etapa.id==="ajuda" || etapa.id==="link" || etapa.id==="incentivo")){
+    const nowIso = new Date().toISOString();
+    const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+    if(idx >= 0){
+      carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), {
+        last_etapa_enviada: etapa.id,
+        last_mensagem_at: nowIso
+      });
+      localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+      if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
+      if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
+    }
+  }
+
+  const customerKey = String(c.email||"").trim().toLowerCase() || rawPhone(c.telefone||"") || "";
+  if(customerKey){
+    try{
+      await ensureCustomerForCarrinho(c);
+      await logInteraction(customerKey, "mensagem_enviada", "Recuperação carrinho abandonado ("+etapa.id+")", {
+        checkout_id: c.checkout_id,
+        etapa: etapa.id,
+        score_recuperacao: c.score_recuperacao == null ? calc.score : c.score_recuperacao,
+        valor: Number(c.valor||0)||0,
+        prioridade: prioridade.id
+      });
+    }catch(_e){}
+  }
+}
+
+async function reconcileCarrinhosRecuperados(){
+  try{
+    carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
+  }catch(_e){}
+  if(!Array.isArray(carrinhosAbandonados) || !carrinhosAbandonados.length) return;
+  const orders = Array.isArray(allOrders) ? allOrders : [];
+  if(!orders.length) return;
+  const bestByEmail = {};
+  const bestByPhone = {};
+  orders.forEach(o=>{
+    const email = String(o?.contato?.email || "").trim().toLowerCase();
+    const phone = rawPhone(o?.contato?.telefone || o?.contato?.celular || "");
+    const dtRaw = o?.data || o?.data_pedido || o?.created_at || o?.updated_at || "";
+    const ts = dtRaw ? new Date(dtRaw).getTime() : NaN;
+    if(!isFinite(ts)) return;
+    if(email){
+      const cur = bestByEmail[email];
+      if(!cur || ts > cur.ts) bestByEmail[email] = {ts, id:String(o?.id||o?.numero||""), data: dtRaw};
+    }
+    if(phone){
+      const cur2 = bestByPhone[phone];
+      if(!cur2 || ts > cur2.ts) bestByPhone[phone] = {ts, id:String(o?.id||o?.numero||""), data: dtRaw};
+    }
+  });
+
+  let changed = false;
+  const updated = carrinhosAbandonados.map(c=>{
+    if(!c || c.recuperado) return c;
+    const createdTs = c.criado_em ? new Date(c.criado_em).getTime() : NaN;
+    const email = String(c.email||"").trim().toLowerCase();
+    const phone = rawPhone(c.telefone||"");
+    const hit = (email && bestByEmail[email]) || (phone && bestByPhone[phone]) || null;
+    if(!hit) return c;
+    if(isFinite(createdTs) && hit.ts <= createdTs) return c;
+    changed = true;
+    return {...c, recuperado:true, recuperado_em:new Date(hit.ts).toISOString(), recuperado_pedido_id: hit.id || null};
+  });
+  if(!changed) return;
+  carrinhosAbandonados = updated;
+  localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) await upsertCarrinhosAbandonadosToSupabase(carrinhosAbandonados);
+  if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
+  await recomputeCarrinhosScoresAndPersist();
 }
 
 // ═══════════════════════════════════════════════════
@@ -959,14 +1578,15 @@ function showPage(id){
 
   // Update sidebar nav active state
   document.querySelectorAll(".nav-item").forEach(t=>t.classList.remove("active"));
-  const navEl = document.getElementById("nav-"+id);
+  const navId = id === "cliente" ? "clientes" : id;
+  const navEl = document.getElementById("nav-"+navId);
   if(navEl) navEl.classList.add("active");
 
   // Update topbar title
-  const titles = {dashboard:"Dashboard",clientes:"Clientes",pedidos:"Pedidos",
+  const titles = {dashboard:"Dashboard",clientes:"Clientes",inteligencia:"Inteligência",pedidos:"Pedidos",
     "pedidos-page":"Pedidos",cidades:"Cidades",produtos:"Produtos",tarefas:"Tarefas",
     oportunidades:"Oportunidades",alertas:"Alertas",ia:"IA & Insights",segmentos:"Segmentos",
-    comercial:"Comercial",producao:"Produção",marca:"Marca",config:"Configurações"};
+    comercial:"Comercial",producao:"Produção",marca:"Marca",config:"Configurações",cliente:"Cliente"};
   const titleEl = document.getElementById("topbar-title");
   if(titleEl) titleEl.textContent = titles[id] || id;
 
@@ -981,6 +1601,8 @@ function showPage(id){
   if(id==="marca"){ safeInvokeName("renderMarcaKpis"); safeInvokeName("renderCalendario"); }
   if(id==="pedidos-page") setTimeout(()=>safeInvokeName("renderPedidosPage"),50);
   if(id==="clientes") setTimeout(()=>safeInvokeName("renderClientes"),50);
+  if(id==="cliente") setTimeout(()=>safeInvokeName("renderClientePage"),0);
+  if(id==="inteligencia") setTimeout(()=>safeInvokeName("renderInteligencia"),0);
   if(id==="cidades") setTimeout(()=>safeInvokeName("renderCidades"),50);
   if(id==="ia") setTimeout(()=>safeInvokeName("renderIADashboard"),50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
@@ -1026,7 +1648,7 @@ function handleTopbarSearch(q){
   ).slice(0,8);
   if(matches.length>0){
     const body = matches.map(c=>
-      `<div class="drawer-order-row" onclick="openClienteDrawer('${c.id}')">
+      `<div class="drawer-order-row" onclick="openClientePage('${c.id}')">
         <div><div class="drawer-order-num">${escapeHTML(c.nome||"—")}</div><div class="drawer-order-date">${escapeHTML(c.cidade||"")} ${escapeHTML(c.uf||"")} · ${escapeHTML(c.status||"")}</div></div>
         <div class="drawer-order-val">R$ ${(c.total_gasto||0).toLocaleString("pt-BR",{minimumFractionDigits:0})}</div>
        </div>`
@@ -1109,12 +1731,13 @@ function deleteTask(id){
   toast("🗑️ Tarefa removida");
 }
 
-function openTaskModal(id, cliente){
+function openTaskModal(id, cliente, customerId){
   const t = id ? allTasks.find(t=>t.id===id) : null;
   const html=`
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px" id="task-modal-overlay">
       <div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:400px;border:1px solid var(--border)">
         <div style="font-size:14px;font-weight:800;margin-bottom:14px">${t?"✏️ Editar":"➕ Nova"} Tarefa</div>
+        <input type="hidden" id="tm-customer-id" value="${escapeHTML(String(customerId||""))}"/>
         <input id="tm-titulo" placeholder="Título da tarefa *" value="${escapeHTML(t?.titulo||"")}" 
           style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box"/>
         <textarea id="tm-desc" placeholder="Descrição (opcional)" rows="2"
@@ -1149,6 +1772,7 @@ function openTaskModal(id, cliente){
 function saveTask(id){
   const titulo=document.getElementById("tm-titulo")?.value.trim();
   if(!titulo){toast("⚠️ Título obrigatório");return;}
+  const prev = id ? allTasks.find(t=>t.id===id) : null;
   const task={
     id: id||taskIdSeq++,
     titulo,
@@ -1187,6 +1811,19 @@ function saveTask(id){
   }
   document.getElementById("task-modal-overlay")?.remove();
   renderTarefas();
+  if(task.cliente){
+    const cid = document.getElementById("tm-customer-id")?.value || "";
+    const q = task.cliente.toLowerCase();
+    const cust = cid ? allCustomers.find(c=>String(c.id||"")===String(cid)) : (allCustomers.find(c=>(c.nome||"").toLowerCase()===q) || allCustomers.find(c=>(c.nome||"").toLowerCase().includes(q)));
+    const custId = cust?.id || cid || "";
+    if(custId){
+      if(!prev){
+        logInteraction(custId, "tarefa_criada", `Tarefa: ${task.titulo}`.slice(0,240), { task_id: String(task._supaId||task.id) }).catch(()=>{});
+      }else if(prev.status !== task.status && task.status === "concluida"){
+        logInteraction(custId, "tarefa_concluida", `Tarefa concluída: ${task.titulo}`.slice(0,240), { task_id: String(task._supaId||task.id) }).catch(()=>{});
+      }
+    }
+  }
   toast("✅ Tarefa salva!");
 }
 
@@ -1250,6 +1887,7 @@ function openWhatsAppForCustomer(clienteId){
 function renderAll(){
   safeInvokeName("renderDash");
   safeInvokeName("renderClientes");
+  safeInvokeName("renderInteligencia");
   safeInvokeName("renderProdutos");
   safeInvokeName("renderCidades");
   safeInvokeName("renderAlertas");
@@ -1417,8 +2055,83 @@ function renderDash(){
   // Source row
   document.getElementById("source-row").innerHTML=
     (blingOrders.length?`<span style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:3px 9px">🔵 Bling: ${blingOrders.length}</span>`:"")
+    +(yampiOrders.length?`<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`:"")
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
     +(!allOrders.length?`<span style="color:var(--text-3)">Nenhum dado — vá em ⚙️ Config</span>`:"");
+
+  const autoEl = document.getElementById("auto-insights");
+  if(autoEl){
+    const weekMs = 7*86400000;
+    const nowTs = Date.now();
+    const inLast = (days)=>allOrders.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
+    const w1 = inLast(7);
+    const w2 = allOrders.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
+    const t1 = w1.reduce((s,o)=>s+val(o),0);
+    const t2 = w2.reduce((s,o)=>s+val(o),0);
+    const ticket1 = w1.length ? t1/w1.length : 0;
+    const ticket2 = w2.length ? t2/w2.length : 0;
+    const ticketDelta = ticket2 > 0 ? ((ticket1-ticket2)/ticket2*100) : 0;
+
+    const vips45 = cliList
+      .filter(c=>calcCliScores(c).status==="vip" && daysSince(c.last) >= 45)
+      .sort((a,b)=>daysSince(b.last)-daysSince(a.last))
+      .slice(0,6);
+
+    const prod7 = {};
+    w1.forEach(o=>(o.itens||[]).forEach(it=>{
+      const k = String(it.codigo||it.descricao||"—");
+      prod7[k] = (prod7[k]||0) + (Number(it.quantidade||1)||1);
+    }));
+    const prod14 = {};
+    w2.forEach(o=>(o.itens||[]).forEach(it=>{
+      const k = String(it.codigo||it.descricao||"—");
+      prod14[k] = (prod14[k]||0) + (Number(it.quantidade||1)||1);
+    }));
+    const stopped = Object.entries(prod14)
+      .filter(([k,q])=>q>=6 && !prod7[k])
+      .slice(0,1)
+      .map(([k])=>k)[0];
+
+    const insights = [];
+    if(vips45.length){
+      insights.push({
+        title:`⚠ ${vips45.length} VIP sem comprar há 45+ dias`,
+        desc:`Priorize reativação com oferta VIP e WhatsApp.`,
+        cta:`Ver VIPs`,
+        action:`showPage('segmentos');selectSegment('vip')`
+      });
+    }
+    if(ticket2 > 0 && Math.abs(ticketDelta) >= 8){
+      const dir = ticketDelta >= 0 ? "subiu" : "caiu";
+      insights.push({
+        title:`📉 Ticket médio ${dir} ${Math.abs(ticketDelta).toFixed(0)}% na semana`,
+        desc:`Compare últimos 7 dias vs semana anterior para ajustar oferta/kit.`,
+        cta:`Comparar`,
+        action:`document.getElementById('cmp-a')?.focus();showPage('dashboard')`
+      });
+    }
+    if(stopped){
+      insights.push({
+        title:`📦 Produto com queda forte: ${stopped}`,
+        desc:`Vendeu na semana anterior e zerou nos últimos 7 dias.`,
+        cta:`Ver Produtos`,
+        action:`showPage('produtos');document.getElementById('search-prod').value='${escapeJsSingleQuote(stopped)}';renderProdutos()`
+      });
+    }
+    if(!insights.length){
+      autoEl.innerHTML = "";
+    }else{
+      autoEl.innerHTML = `<div class="auto-insights">${insights.slice(0,3).map(i=>`
+        <div class="insight">
+          <div>
+            <div class="insight-title">${escapeHTML(i.title)}</div>
+            <div class="insight-desc">${escapeHTML(i.desc)}</div>
+          </div>
+          <button class="insight-cta" onclick="${i.action}">${escapeHTML(i.cta)}</button>
+        </div>
+      `).join("")}</div>`;
+    }
+  }
 
   document.getElementById("dash-stats").innerHTML=[
     {l:"Volume Total",v:fmtBRL(total),s:"consolidado"},
@@ -1426,7 +2139,7 @@ function renderDash(){
     {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
     {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
     {l:"Ticket Médio",v:fmtBRL(allOrders.length?total/allOrders.length:0),s:"por pedido"},
-    {l:"Pedidos Total",v:allOrders.length,s:`${blingOrders.length}+${shopifyOrders.length}`},
+    {l:"Pedidos Total",v:allOrders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
   ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
 
   renderMeta(tMo); renderCompare(); renderAlertBanner();
@@ -1738,6 +2451,151 @@ function renderSegmentClients(id){
     <div class="client-list">${clis.map((c,i)=>renderCliCard(c,"sg"+i)).join("")}</div>`;
 }
 
+function intelRow(customer, subtitle, rightHtml){
+  const cid = escapeJsSingleQuote(String(customer?.id||""));
+  const name = escapeHTML(String(customer?.nome||"Cliente"));
+  const sub = escapeHTML(String(subtitle||""));
+  const loc = escapeHTML([customer?.cidade, customer?.uf].filter(Boolean).join(" — "));
+  const phone = rawPhone(customer?.telefone||"");
+  return `
+    <div class="drawer-order-row" style="cursor:default" onclick="openClientePage('${cid}')">
+      <div>
+        <div class="drawer-order-num">${name}</div>
+        <div class="drawer-order-date">${sub}${loc?` · ${loc}`:""}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${rightHtml||""}
+        ${phone?`<button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${cid}')">WA</button>`:""}
+        <button class="opp-mini-btn" onclick="event.stopPropagation();openClientePage('${cid}')">Abrir</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderInteligencia(){
+  const sumEl = document.getElementById("intel-summary");
+  const topEl = document.getElementById("intel-top");
+  const riskEl = document.getElementById("intel-risk");
+  const newEl = document.getElementById("intel-new");
+  const recEl = document.getElementById("intel-rec");
+  const actEl = document.getElementById("intel-actions");
+  if(!sumEl || !topEl || !riskEl || !newEl || !recEl || !actEl) return;
+
+  if(!allOrders.length){
+    sumEl.innerHTML = `<div class="modern-empty-state"><div class="mes-icon">🧠</div><div class="mes-title">Sem dados ainda</div><div class="mes-desc">Conecte o Supabase e carregue pedidos reais.</div></div>`;
+    [topEl,riskEl,newEl,recEl,actEl].forEach(el=>{ el.innerHTML=""; });
+    return;
+  }
+
+  const clis = Object.values(buildCli(allOrders));
+  const ad = parseInt(localStorage.getItem("crm_alertdays")||"60");
+  const total = allOrders.reduce((s,o)=>s+val(o),0);
+  const recorrentes = clis.filter(c=>c.orders.length>=2);
+  const inativos = clis.filter(c=>daysSince(c.last)>ad && !isCNPJ(c.doc));
+  const vips = clis.filter(c=>{ const sc=calcCliScores(c); return sc.status==="vip" && !sc.isCnpj; });
+  const ticket = allOrders.length ? total/allOrders.length : 0;
+
+  sumEl.innerHTML = `
+    <div class="profile-h2">Resumo</div>
+    <div class="profile-kpi-grid">
+      <div class="profile-kpi"><div class="profile-kpi-label">Clientes</div><div class="profile-kpi-val">${escapeHTML(String(clis.length))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">VIPs</div><div class="profile-kpi-val">${escapeHTML(String(vips.length))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Inativos</div><div class="profile-kpi-val">${escapeHTML(String(inativos.length))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Recompra</div><div class="profile-kpi-val">${escapeHTML(String(clis.length?Math.round(recorrentes.length/clis.length*100):0))}%</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Ticket médio</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(ticket))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Receita total</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(total))}</div></div>
+    </div>
+  `;
+
+  const top = clis
+    .map(c=>({ c, s: calcCliScores(c), ltv: c.orders.reduce((x,o)=>x+val(o),0) }))
+    .filter(x=>!x.s.isCnpj)
+    .sort((a,b)=>b.ltv-a.ltv)
+    .slice(0,10);
+
+  const risk = clis
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>!x.s.isCnpj)
+    .sort((a,b)=>b.s.churnRisk-a.s.churnRisk)
+    .slice(0,10);
+
+  const nov = clis
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>x.s.status==="novo")
+    .sort((a,b)=>a.s.ds-b.s.ds)
+    .slice(0,10);
+
+  const rec = clis
+    .filter(c=>c.orders.length>=2)
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>!x.s.isCnpj)
+    .sort((a,b)=>(b.c.orders.length-a.c.orders.length))
+    .slice(0,10);
+
+  topEl.innerHTML = `
+    <div class="profile-h2">Top clientes (LTV)</div>
+    ${top.length ? top.map(x=>{
+      const sub = `${x.c.orders.length} pedidos · ${fmtBRL(x.ltv)}`;
+      return intelRow(x.c, sub, `<span class="pill pill-soft">${escapeHTML(x.s.status||"")}</span>`);
+    }).join("") : `<div class="empty">Nenhum cliente.</div>`}
+  `;
+
+  riskEl.innerHTML = `
+    <div class="profile-h2">Clientes em risco</div>
+    ${risk.length ? risk.map(x=>{
+      const sub = `${x.s.ds}d sem comprar · risco ${x.s.churnRisk}%`;
+      return intelRow(x.c, sub, `<span class="pill" style="background:var(--red-bg);color:var(--red)">${escapeHTML(String(x.s.churnRisk))}%</span>`);
+    }).join("") : `<div class="empty">Sem riscos críticos.</div>`}
+  `;
+
+  newEl.innerHTML = `
+    <div class="profile-h2">Clientes novos</div>
+    ${nov.length ? nov.map(x=>{
+      const last = x.c.last ? fmtDate(x.c.last) : "—";
+      const sub = `${x.c.orders.length} pedido · última ${last}`;
+      return intelRow(x.c, sub, `<span class="pill pill-soft">novo</span>`);
+    }).join("") : `<div class="empty">Sem novos clientes no período.</div>`}
+  `;
+
+  recEl.innerHTML = `
+    <div class="profile-h2">Recorrentes</div>
+    ${rec.length ? rec.map(x=>{
+      const sub = `${x.c.orders.length} pedidos · intervalo ${x.s.avgInterval?x.s.avgInterval+"d":"—"}`;
+      return intelRow(x.c, sub, `<span class="pill" style="background:var(--green-bg);color:var(--green)">${escapeHTML(String(x.c.orders.length))}×</span>`);
+    }).join("") : `<div class="empty">Sem recorrentes ainda.</div>`}
+  `;
+
+  const vipDorm = clis
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>x.s.status==="vip" && x.s.ds>=45)
+    .sort((a,b)=>b.s.ds-a.s.ds)
+    .slice(0,10);
+  const inactive = inativos
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .sort((a,b)=>b.s.ds-a.s.ds)
+    .slice(0,10);
+
+  actEl.innerHTML = `
+    <div class="profile-h2">Ações rápidas</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+      <div class="profile-card" style="padding:12px">
+        <div class="profile-h2" style="margin-bottom:8px">VIPs inativos (45+ dias)</div>
+        ${vipDorm.length ? vipDorm.map(x=>{
+          const sub = `${x.s.ds}d sem comprar · ${fmtBRL(x.s.ltv)}`;
+          return intelRow(x.c, sub, `<button class="opp-mini-btn" onclick="event.stopPropagation();openTaskModal(null,'${escapeJsSingleQuote(String(x.c.nome||"Cliente"))}')">+ Tarefa</button>`);
+        }).join("") : `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhum VIP inativo agora.</div>`}
+      </div>
+      <div class="profile-card" style="padding:12px">
+        <div class="profile-h2" style="margin-bottom:8px">Inativos (>${escapeHTML(String(ad))} dias)</div>
+        ${inactive.length ? inactive.map(x=>{
+          const sub = `${x.s.ds}d sem comprar · ${x.c.orders.length} pedidos`;
+          return intelRow(x.c, sub, `<button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${escapeJsSingleQuote(String(x.c.id||""))}')">WA</button>`);
+        }).join("") : `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhum inativo acima do limite.</div>`}
+      </div>
+    </div>
+  `;
+}
+
 // ═══════════════════════════════════════════════════
 //  CLIENTES
 // ═══════════════════════════════════════════════════
@@ -1767,6 +2625,320 @@ function renderClientes(){
   document.getElementById("cli-label").textContent=`${clis.length} cliente${clis.length!==1?"s":""}`;
   if(!clis.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
+}
+
+function openClientePage(clienteId){
+  currentClienteId = clienteId;
+  showPage("cliente");
+}
+
+function backToClientes(){
+  currentClienteId = null;
+  showPage("clientes");
+}
+
+function clienteWhatsApp(){
+  if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
+  openWaModal(currentClienteId);
+}
+
+function clienteAddTask(){
+  const c = allCustomers.find(x=>x.id===currentClienteId);
+  if(!c){ toast("⚠ Cliente não encontrado"); return; }
+  openTaskModal(null, c.nome||"Cliente", currentClienteId);
+}
+
+function clienteAddNote(){
+  if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
+  openInteractionModal(currentClienteId, "nota");
+}
+
+function clienteAddCall(){
+  if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
+  openInteractionModal(currentClienteId, "ligacao");
+}
+
+function clienteAddNegotiation(){
+  if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
+  openInteractionModal(currentClienteId, "negociacao_registrada");
+}
+
+function summarizeOrderItemsMini(o){
+  const itens = Array.isArray(o?.itens) ? o.itens : [];
+  if(!itens.length) return "—";
+  const parts = itens
+    .map(it=>{
+      const name = String(it?.descricao || it?.name || it?.produto || "").trim();
+      const qty = Number(it?.quantidade ?? it?.quantity ?? 0) || 0;
+      if(!name) return "";
+      return qty > 1 ? `${name} x${qty}` : name;
+    })
+    .filter(Boolean);
+  if(!parts.length) return "—";
+  const head = parts.slice(0,2).join(", ");
+  return parts.length > 2 ? `${head} +${parts.length-2}` : head;
+}
+
+function openCRMOrderDrawer(orderKey){
+  const o = allOrders.find(x=>String(x.id||x.numero||"")===String(orderKey)) || allOrders.find(x=>String(x.numero||"")===String(orderKey));
+  if(!o) return;
+  const st = normSt(o.situacao);
+  const ch = detectCh(o);
+  const items = Array.isArray(o.itens) ? o.itens : [];
+  const total = fmtBRL(val(o));
+  const bodyHTML = `
+    <div class="drawer-section">
+      <div class="drawer-section-title">Pedido</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Número</span><span class="chiva-table-mono">#${escapeHTML(String(o.numero||o.id||"—"))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Data</span><span>${escapeHTML(fmtDate(o.data))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Canal</span><span>${escapeHTML(CH[ch]||ch)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Status</span><span><span class="sp ${ST_CLASS[st]||"s-outros"}">${escapeHTML(ST_LABEL[st]||st)}</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Total</span><span style="font-size:15px;font-weight:800;color:var(--green)">${escapeHTML(total)}</span></div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">Itens</div>
+      ${items.length ? items.map(it=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span>${escapeHTML(it.descricao||it.codigo||"—")}</span><span style="font-family:var(--mono)">${escapeHTML(String(it.quantidade||1))}×</span></div>`).join("") : `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhum item disponível.</div>`}
+    </div>
+  `;
+  openDrawer(`Pedido #${String(o.numero||o.id||"—")}`, fmtDate(o.data), bodyHTML, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+}
+
+function renderClientePage(){
+  const c = allCustomers.find(x=>x.id===currentClienteId);
+  const infoEl = document.getElementById("cliente-info");
+  const metricsEl = document.getElementById("cliente-metrics");
+  const histEl = document.getElementById("cliente-history");
+  if(!infoEl || !metricsEl || !histEl) return;
+  if(!c){
+    infoEl.innerHTML = `<div class="modern-empty-state"><div class="mes-icon">👤</div><div class="mes-title">Cliente não encontrado</div><div class="mes-desc">Volte para a lista e selecione novamente.</div></div>`;
+    metricsEl.innerHTML = "";
+    histEl.innerHTML = "";
+    return;
+  }
+
+  const orders = allOrders
+    .filter(o=>cliKey(o)===c.id)
+    .slice()
+    .sort((a,b)=>new Date(b.data||0)-new Date(a.data||0));
+
+  const total = orders.reduce((s,o)=>s+val(o),0);
+  const n = orders.length;
+  const ticket = n ? total/n : 0;
+  const last = orders[0]?.data || c.last || null;
+  const first = orders[orders.length-1]?.data || c.first || null;
+  const ds = daysSince(last);
+  const avgInterval = calcCliScores(c).avgInterval;
+  const loc = [c.cidade,c.uf].filter(Boolean).join(" — ");
+
+  const titleEl = document.getElementById("cliente-title");
+  const subEl = document.getElementById("cliente-sub");
+  if(titleEl) titleEl.textContent = c.nome || "Cliente";
+  const meta = cliMetaCache?.[c.id] || {};
+  const stageLabel = {
+    novo_lead: "Novo lead",
+    contato_iniciado: "Contato iniciado",
+    negociacao: "Negociação",
+    pedido_criado: "Pedido criado",
+    fechado: "Fechado"
+  }[meta.pipeline_stage] || null;
+  const lastInt = meta.last_interaction_at ? fmtDate(String(meta.last_interaction_at).slice(0,10)) : null;
+  const subParts = [
+    c.status || "",
+    stageLabel ? `Pipeline: ${stageLabel}` : "",
+    loc || "—",
+    lastInt ? `Última interação: ${lastInt}` : ""
+  ].filter(Boolean);
+  if(subEl) subEl.textContent = subParts.join(" · ");
+
+  infoEl.innerHTML = `
+    <div class="profile-h2">Informações</div>
+    <div class="profile-row"><span style="color:var(--text-3)">Nome</span><span>${escapeHTML(c.nome||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(c.telefone ? fmtPhone(c.telefone) : "—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(c.email||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Cidade</span><span>${escapeHTML(loc||"—")}</span></div>
+    <div class="profile-row"><span style="color:var(--text-3)">Primeiro pedido</span><span>${escapeHTML(fmtDate(first))}</span></div>
+  `;
+
+  metricsEl.innerHTML = `
+    <div class="profile-h2">Métricas</div>
+    <div class="profile-kpi-grid">
+      <div class="profile-kpi"><div class="profile-kpi-label">Total gasto</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(total))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Pedidos</div><div class="profile-kpi-val">${escapeHTML(String(n))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Ticket médio</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(ticket))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Última compra</div><div class="profile-kpi-val">${escapeHTML(fmtDate(last))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Dias sem comprar</div><div class="profile-kpi-val">${escapeHTML(String(ds))}</div></div>
+      <div class="profile-kpi"><div class="profile-kpi-label">Intervalo médio</div><div class="profile-kpi-val">${escapeHTML(avgInterval ? (avgInterval+"d") : "—")}</div></div>
+    </div>
+  `;
+
+  const chAgg = {};
+  const prodAgg = {};
+  orders.forEach(o=>{
+    const ch = detectCh(o);
+    chAgg[ch] = chAgg[ch] || { total:0, n:0 };
+    chAgg[ch].n += 1;
+    chAgg[ch].total += val(o);
+    (o.itens||[]).forEach(it=>{
+      const key = String(it.codigo||it.descricao||"—");
+      if(!prodAgg[key]) prodAgg[key] = { nome: it.descricao||key, qty:0, total:0 };
+      const qty = Number(it.quantidade||1) || 1;
+      const price = Number(it.valor||0) || 0;
+      prodAgg[key].qty += qty;
+      prodAgg[key].total += qty*price;
+    });
+  });
+  const topCh = Object.entries(chAgg).sort((a,b)=>b[1].total-a[1].total).slice(0,3).map(([ch,v])=>`${CH[ch]||ch} (${v.n})`).join(" · ");
+  const topProd = Object.values(prodAgg).sort((a,b)=>b.total-a.total).slice(0,5).map(p=>p.nome).join(", ");
+
+  histEl.innerHTML = `
+    <div class="profile-h2">Histórico</div>
+    <div style="font-size:11px;color:var(--text-3);margin-bottom:12px">${escapeHTML(topCh||"—")}<span>${topProd ? " · " + escapeHTML(topProd) : ""}</span></div>
+    <div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--card)">
+      <div class="profile-h2" style="margin-bottom:8px">Timeline de interações</div>
+      <div id="cliente-timeline">
+        <div style="font-size:12px;color:var(--text-3);padding:8px 0">Carregando...</div>
+      </div>
+    </div>
+    ${orders.length ? `<div class="profile-orders">${orders.map(o=>{
+      const st = normSt(o.situacao);
+      const ch = detectCh(o);
+      const items = summarizeOrderItemsMini(o);
+      return `<div class="profile-order" onclick="openCRMOrderDrawer('${escapeJsSingleQuote(String(o.id||o.numero||""))}')">
+        <div class="profile-order-top">
+          <div>
+            <div class="profile-order-num">#${escapeHTML(String(o.numero||o.id||"—"))}</div>
+            <div class="profile-order-sub">${escapeHTML(fmtDate(o.data))} · ${escapeHTML(CH[ch]||ch)} · <span class="sp ${ST_CLASS[st]||"s-outros"}">${escapeHTML(ST_LABEL[st]||st)}</span></div>
+          </div>
+          <div class="profile-order-num" style="color:var(--green)">${escapeHTML(fmtBRL(val(o)))}</div>
+        </div>
+        <div class="profile-order-items">${escapeHTML(items)}</div>
+      </div>`;
+    }).join("")}</div>` : `<div class="empty">Nenhum pedido para este cliente.</div>`}
+  `;
+  renderClienteTimeline(currentClienteId).catch(()=>{});
+}
+
+async function renderClienteTimeline(customerKey){
+  const host = document.getElementById("cliente-timeline");
+  if(!host) return;
+  if(!supaConnected || !supaClient){
+    host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Conecte o Supabase para ver interações.</div>`;
+    return;
+  }
+  const uuid = await resolveCustomerUuid(customerKey);
+  if(!uuid){
+    host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Cliente ainda não vinculado no Supabase.</div>`;
+    return;
+  }
+  try{
+    const {data, error} = await supaClient
+      .from("interactions")
+      .select("id,type,description,created_at,user_responsible,source")
+      .eq("customer_id", uuid)
+      .order("created_at",{ascending:false})
+      .limit(80);
+    if(error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    if(!rows.length){
+      host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhuma interação registrada ainda.</div>`;
+      return;
+    }
+    const typeBucket = (t)=>{
+      const tt = String(t||"");
+      if(tt==="mensagem_enviada" || tt==="mensagem_recebida") return "whatsapp";
+      if(tt==="tarefa_criada" || tt==="tarefa_concluida") return "tarefa";
+      if(tt==="ligacao") return "ligação";
+      if(tt==="negociacao_registrada") return "negociação";
+      if(tt==="pedido_criado" || tt==="pagamento_confirmado" || tt==="status_pedido_atualizado") return "pedido";
+      if(tt==="nota") return "nota";
+      return tt || "interação";
+    };
+    const bucketLabel = {
+      whatsapp: "WhatsApp",
+      tarefa: "Tarefa",
+      "ligação": "Ligação",
+      "negociação": "Negociação",
+      pedido: "Pedido",
+      nota: "Nota"
+    };
+    const typeLabel = (t)=>{
+      const tt = String(t||"");
+      if(tt==="mensagem_enviada") return "WhatsApp (enviado)";
+      if(tt==="mensagem_recebida") return "WhatsApp (recebido)";
+      if(tt==="tarefa_criada") return "Tarefa criada";
+      if(tt==="tarefa_concluida") return "Tarefa concluída";
+      if(tt==="ligacao") return "Ligação";
+      if(tt==="negociacao_registrada") return "Negociação";
+      if(tt==="pedido_criado") return "Pedido criado";
+      if(tt==="pagamento_confirmado") return "Pagamento confirmado";
+      if(tt==="status_pedido_atualizado") return "Status do pedido";
+      if(tt==="nota") return "Nota";
+      return tt || "Interação";
+    };
+    host.innerHTML = `<div class="timeline">${rows.map(r=>{
+      const d = new Date(r.created_at);
+      const time = isNaN(d) ? "—" : d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      const tl = typeLabel(r.type);
+      const bucket = typeBucket(r.type);
+      const bucketTitle = bucketLabel[bucket] || bucket || "Interação";
+      const who = r.user_responsible ? `${escapeHTML(String(r.user_responsible))}` : "—";
+      const desc = r.description ? escapeHTML(String(r.description)) : "";
+      return `
+        <div class="timeline-item">
+          <div class="timeline-time">${escapeHTML(time)}</div>
+          <div class="timeline-body">
+            <div class="timeline-title">${escapeHTML(bucketTitle)}</div>
+            <div class="timeline-sub">${escapeHTML(tl)} · ${who}</div>
+            ${desc ? `<div class="timeline-desc">${desc}</div>` : ``}
+          </div>
+        </div>
+      `;
+    }).join("")}</div>`;
+  }catch(_e){
+    host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Timeline indisponível.</div>`;
+  }
+}
+
+function openInteractionModal(customerId, type){
+  const c = allCustomers.find(x=>x.id===customerId);
+  const nm = c?.nome || "Cliente";
+  const t = String(type||"nota");
+  const title = t==="ligacao" ? "📞 Registrar ligação" : t==="nota" ? "📝 Adicionar nota" : t==="negociacao_registrada" ? "🤝 Registrar negociação" : "➕ Interação";
+  const html=`
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px" id="int-modal-overlay">
+      <div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:420px;border:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:800;margin-bottom:6px">${escapeHTML(title)}</div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:12px">${escapeHTML(nm)}</div>
+        <input type="hidden" id="im-customer" value="${escapeHTML(String(customerId))}"/>
+        <select id="im-type" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px">
+          <option value="nota" ${t==="nota"?"selected":""}>📝 Nota</option>
+          <option value="ligacao" ${t==="ligacao"?"selected":""}>📞 Ligação</option>
+          <option value="negociacao_registrada" ${t==="negociacao_registrada"?"selected":""}>🤝 Negociação</option>
+        </select>
+        <textarea id="im-desc" placeholder="Descrição" rows="3"
+          style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:14px;box-sizing:border-box;resize:none;font-family:inherit"></textarea>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('int-modal-overlay').remove()"
+            style="flex:1;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:inherit">Cancelar</button>
+          <button onclick="saveInteraction()"
+            style="flex:1;padding:10px;background:linear-gradient(135deg,var(--chiva-primary),var(--chiva-primary-light));border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit">Salvar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+async function saveInteraction(){
+  const overlay = document.getElementById("int-modal-overlay");
+  const customerId = document.getElementById("im-customer")?.value || "";
+  const type = document.getElementById("im-type")?.value || "nota";
+  const desc = document.getElementById("im-desc")?.value?.trim() || "";
+  if(!desc){ toast("⚠ Descrição obrigatória"); return; }
+  await logInteraction(customerId, type, desc, { manual: true });
+  overlay?.remove();
+  if(document.getElementById("page-cliente")?.classList.contains("active")) renderClienteTimeline(customerId).catch(()=>{});
+  if(document.getElementById("page-oportunidades")?.classList.contains("active")) renderOportunidades();
+  toast("✅ Interação salva!");
 }
 
 function renderCliCard(c,eid){
@@ -1808,7 +2980,7 @@ function renderCliCard(c,eid){
   const avgInt=scores.avgInterval?`cada ${scores.avgInterval}d`:"";
 
   return`<div class="client-card" id="${eid}">
-    <div class="client-head" onclick="document.getElementById('${eid}').classList.toggle('open')">
+    <div class="client-head" onclick="openClientePage('${safeId}')">
       <div>
         <div class="client-name-row">
           <span class="client-name client-name-hero">${nameHtml}</span>
@@ -1862,6 +3034,276 @@ function renderCliCard(c,eid){
   </div>`;
 }
 
+const OPP_STAGES = [
+  { id: "novo_lead", label: "Novo lead" },
+  { id: "contato_iniciado", label: "Contato iniciado" },
+  { id: "negociacao", label: "Negociação" },
+  { id: "pedido_criado", label: "Pedido criado" },
+  { id: "fechado", label: "Fechado" }
+];
+
+function saveOppPipeline(){
+  localStorage.setItem("crm_opp_pipeline", JSON.stringify(oppPipeline || []));
+}
+
+function seedOppPipeline(){
+  if(!Array.isArray(oppPipeline)) oppPipeline = [];
+  const byKey = new Set(oppPipeline.map(o=>`${o.cliente_id}::${o.title}`));
+
+  const clis = Object.values(buildCli(allOrders))
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>x.c && x.c.id);
+
+  const vipDorm = clis
+    .filter(x=>x.s.status==="vip" && x.s.ds>=45)
+    .sort((a,b)=>b.s.ds-a.s.ds)
+    .slice(0,8)
+    .map(x=>({
+      cliente_id: x.c.id,
+      title: "Reativação VIP",
+      value: x.s.ltv,
+      hint: `${x.s.ds}d sem comprar`
+    }));
+
+  const churnHigh = clis
+    .filter(x=>x.s.status!=="cnpj" && x.s.churnRisk>=70)
+    .sort((a,b)=>b.s.churnRisk-a.s.churnRisk)
+    .slice(0,10)
+    .map(x=>({
+      cliente_id: x.c.id,
+      title: "Risco de churn",
+      value: x.s.ltv,
+      hint: `risco ${x.s.churnRisk}%`
+    }));
+
+  const rebuySoon = clis
+    .filter(x=>x.s.status!=="cnpj" && x.s.recompraScore>=70 && x.s.avgInterval && x.s.ds >= Math.max(7, x.s.avgInterval-3))
+    .sort((a,b)=>(b.s.recompraScore*100-b.s.ds)-(a.s.recompraScore*100-a.s.ds))
+    .slice(0,10)
+    .map(x=>({
+      cliente_id: x.c.id,
+      title: "Recompra provável",
+      value: x.s.ltv,
+      hint: `${x.s.ds}d · intervalo ${x.s.avgInterval}d`
+    }));
+
+  const pick = [...vipDorm, ...churnHigh, ...rebuySoon].slice(0,18);
+  pick.forEach(p=>{
+    const key = `${p.cliente_id}::${p.title}`;
+    if(byKey.has(key)) return;
+    byKey.add(key);
+    oppPipeline.push({
+      id: "opp_"+Date.now()+"_"+Math.random().toString(16).slice(2),
+      stage: "novo_lead",
+      cliente_id: p.cliente_id,
+      title: p.title,
+      value: p.value || 0,
+      hint: p.hint || "",
+      created_at: new Date().toISOString(),
+      last_interaction: ""
+    });
+  });
+  saveOppPipeline();
+}
+
+function addOpportunity(){
+  const name = prompt("Cliente (nome ou email):","");
+  if(name === null) return;
+  const title = prompt("Oportunidade (ex: Kit, Assinatura, Reativação):","Oportunidade");
+  if(title === null) return;
+  const valStr = prompt("Valor potencial (R$):","0");
+  if(valStr === null) return;
+  const value = Number(String(valStr).replace(/[^\d,.-]/g,"").replace(",", ".")) || 0;
+
+  const q = String(name||"").trim().toLowerCase();
+  const c = allCustomers.find(x=>(x.nome||"").toLowerCase().includes(q) || (x.email||"").toLowerCase().includes(q));
+  if(!c){ toast("⚠ Cliente não encontrado"); return; }
+
+  if(!Array.isArray(oppPipeline)) oppPipeline = [];
+  oppPipeline.unshift({
+    id: "opp_"+Date.now()+"_"+Math.random().toString(16).slice(2),
+    stage: "novo_lead",
+    cliente_id: c.id,
+    title: String(title||"Oportunidade").trim() || "Oportunidade",
+    value,
+    hint: "",
+    created_at: new Date().toISOString(),
+    last_interaction: ""
+  });
+  saveOppPipeline();
+  renderOportunidades();
+}
+
+async function renderOportunidadesFromSupabase(){
+  const host = document.getElementById("opp-kanban");
+  if(!host) return;
+  if(!supaConnected || !supaClient){
+    host.innerHTML = `<div class="empty">Conecte o Supabase para ver o pipeline real.</div>`;
+    return;
+  }
+  const respSel = document.getElementById("opp-resp-filter");
+  const slaDays = Math.max(0, parseInt(document.getElementById("opp-sla-days")?.value||"0")||0);
+  const onlySla = !!document.getElementById("opp-only-sla")?.checked;
+  try{
+    const {data, error} = await supaClient
+      .from("v2_clientes")
+      .select("id,doc,nome,cidade,uf,pipeline_stage,last_interaction_at,last_interaction_type,last_interaction_desc,last_contact_at,responsible_user")
+      .limit(2000);
+    if(error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    if(respSel){
+      const current = respSel.value || "";
+      const users = Array.from(new Set(rows.map(r=>String(r.responsible_user||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+      respSel.innerHTML = `<option value="">Todos responsáveis</option>` + users.map(u=>`<option value="${escapeHTML(u)}">${escapeHTML(u)}</option>`).join("");
+      respSel.value = users.includes(current) ? current : "";
+    }
+    const respFilter = String(respSel?.value || "").trim();
+    const byStage = {};
+    OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
+    rows.forEach(r=>{
+      const st = byStage[r.pipeline_stage] ? r.pipeline_stage : "novo_lead";
+      const resp = String(r.responsible_user||"").trim();
+      if(respFilter && resp !== respFilter) return;
+      const dsContact = daysSince(r.last_contact_at || r.last_interaction_at);
+      const slaHit = slaDays>0 && dsContact<9999 && dsContact>slaDays && (st==="contato_iniciado" || st==="negociacao");
+      if(onlySla && !slaHit) return;
+      r.__dsContact = dsContact;
+      r.__slaHit = slaHit;
+      byStage[st].push(r);
+    });
+    OPP_STAGES.forEach(s=>{
+      byStage[s.id].sort((a,b)=>{
+        const ad = a.last_interaction_at ? new Date(a.last_interaction_at).getTime() : 0;
+        const bd = b.last_interaction_at ? new Date(b.last_interaction_at).getTime() : 0;
+        return bd - ad;
+      });
+    });
+
+    const stageLabel = Object.fromEntries(OPP_STAGES.map(s=>[s.id,s.label]));
+    const typeLabel = {
+      mensagem_enviada: "Mensagem enviada",
+      mensagem_recebida: "Mensagem recebida",
+      ligacao: "Ligação",
+      tarefa_criada: "Tarefa criada",
+      tarefa_concluida: "Tarefa concluída",
+      negociacao_registrada: "Negociação",
+      pedido_criado: "Pedido criado",
+      pagamento_confirmado: "Pagamento confirmado",
+      status_pedido_atualizado: "Status do pedido",
+      nota: "Nota"
+    };
+
+    host.innerHTML = OPP_STAGES.map(s=>{
+      const list = byStage[s.id] || [];
+      return `
+        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
+          <div class="kanban-col-title">
+            <span>${escapeHTML(s.label)}</span>
+            <span class="kanban-col-count">${list.length}</span>
+          </div>
+          <div class="kanban-drop">
+            ${list.map(r=>{
+              const key = String(r.doc || r.id || "");
+              const safeKey = escapeJsSingleQuote(key);
+              const nm = String(r.nome || "Cliente");
+              const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
+              const lastAt = r.last_interaction_at ? new Date(r.last_interaction_at) : null;
+              const lastLabel = typeLabel[r.last_interaction_type] || r.last_interaction_type || "—";
+              const lastTime = lastAt && !isNaN(lastAt) ? lastAt.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+              const dsContact = typeof r.__dsContact === "number" ? r.__dsContact : daysSince(r.last_contact_at || r.last_interaction_at);
+              const dsText = dsContact>=9999 ? "—" : `${dsContact}d sem contato`;
+              const resp = r.responsible_user ? String(r.responsible_user) : "—";
+              const desc = r.last_interaction_desc ? String(r.last_interaction_desc) : "";
+              const descMini = desc.length > 90 ? desc.slice(0,90)+"…" : desc;
+              const localCust = allCustomers.find(c=>String(c.id||"")===key);
+              const phone = rawPhone(localCust?.telefone||"");
+              const slaHit = !!r.__slaHit;
+              return `
+                <div class="opp-card ${slaHit?"opp-sla":""}" onclick="openClientePage('${safeKey}')">
+                  <div class="opp-title">${escapeHTML(nm)}</div>
+                  <div class="opp-meta">Estágio: ${escapeHTML(stageLabel[r.pipeline_stage]||stageLabel[s.id]||"—")}</div>
+                  <div class="opp-meta">Última: ${escapeHTML(lastLabel)} · ${escapeHTML(lastTime)}${descMini?` · ${escapeHTML(descMini)}`:""}</div>
+                  <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}${slaHit?` · <span class="opp-sla-tag">SLA</span>`:""}</div>
+                  <div class="opp-actions" onclick="event.stopPropagation()">
+                    ${phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WA</button>`:""}
+                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','ligacao')">Lig</button>
+                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','nota')">Nota</button>
+                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','negociacao_registrada')">Neg</button>
+                    <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }catch(_e){
+    host.innerHTML = `<div class="empty">Pipeline indisponível no momento.</div>`;
+  }
+}
+
+function renderOportunidades(){
+  if(supaConnected && supaClient){
+    renderOportunidadesFromSupabase();
+    return;
+  }
+  seedOppPipeline();
+  const host = document.getElementById("opp-kanban");
+  if(!host) return;
+  const byStage = {};
+  OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
+  (oppPipeline||[]).forEach(o=>{
+    const st = byStage[o.stage] ? o.stage : "novo_lead";
+    byStage[st].push(o);
+  });
+  OPP_STAGES.forEach(s=>{
+    byStage[s.id].sort((a,b)=>(Number(b.value)||0)-(Number(a.value)||0));
+  });
+
+  host.innerHTML = OPP_STAGES.map(s=>{
+    const list = byStage[s.id] || [];
+    return `
+      <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
+        <div class="kanban-col-title">
+          <span>${escapeHTML(s.label)}</span>
+          <span class="kanban-col-count">${list.length}</span>
+        </div>
+        <div class="kanban-drop" data-stage="${escapeHTML(s.id)}">
+          ${list.map(o=>{
+            const c = allCustomers.find(x=>x.id===o.cliente_id);
+            const nm = c?.nome || "Cliente";
+            const loc = [c?.cidade,c?.uf].filter(Boolean).join(" — ");
+            const hint = [o.hint, loc].filter(Boolean).join(" · ");
+            return `
+              <div class="opp-card" data-opp-id="${escapeHTML(String(o.id))}">
+                <div class="opp-title">${escapeHTML(nm)}</div>
+                <div class="opp-meta">${escapeHTML(o.title)}${hint?` · ${escapeHTML(hint)}`:""}</div>
+                <div class="opp-val">${escapeHTML(fmtBRL(o.value||0))}</div>
+                <div class="opp-actions">
+                  <button class="opp-mini-btn" onclick="openClientePage('${escapeJsSingleQuote(String(o.cliente_id||""))}')">Cliente</button>
+                  <button class="opp-mini-btn" onclick="openWaModal('${escapeJsSingleQuote(String(o.cliente_id||""))}')">WA</button>
+                  ${s.id!=="fechado" ? `<button class="opp-mini-btn" onclick="moveOppStage('${escapeJsSingleQuote(String(o.id))}','fechado')">✓</button>` : ``}
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function moveOppStage(oppId, stage){
+  if(!Array.isArray(oppPipeline)) oppPipeline = [];
+  const idx = oppPipeline.findIndex(o=>String(o.id)===String(oppId));
+  if(idx<0) return;
+  oppPipeline[idx].stage = stage;
+  oppPipeline[idx].updated_at = new Date().toISOString();
+  saveOppPipeline();
+  renderOportunidades();
+}
+
 async function saveCliStatus(id,status){
   if(!cliMeta[id])cliMeta[id]={};
   if(status) cliMeta[id].status=status; else delete cliMeta[id].status;
@@ -1894,6 +3336,7 @@ function openWaModal(clienteId){
   if(!c){ toast("⚠ Cliente não encontrado"); return; }
   const phone = rawPhone(c.telefone||"");
   if(!phone){ toast("⚠ Cliente sem telefone"); return; }
+  waCustomerId = clienteId;
   const perfil = c.status || "default";
   openWa(phone, c.nome||"Cliente", perfil);
 }
@@ -1922,6 +3365,9 @@ function sendWa(){
   const phone=waPhone.replace(/\D/g,"");
   const url=`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`;
   window.open(url,"_blank"); 
+  if(waCustomerId){
+    logInteraction(waCustomerId, "mensagem_enviada", msg.slice(0,240), { channel: "whatsapp" }).catch(()=>{});
+  }
   closeWa(); 
 }
 function loadTemplatesUI(){ WA_TPLS.forEach((t,i)=>{ const el=document.getElementById("tpl"+(i+1)); if(el)el.value=t; }); }
@@ -2117,26 +3563,293 @@ cliMetaCache = {};
 tarefasCache = [];
 canaisLookup = {}; // slug → uuid, carregado em loadSupabaseData()
 
+async function loadClienteMetaCache(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data} = await supaClient
+      .from('v2_clientes')
+      .select('id,doc,status_manual,notas,pipeline_stage,last_interaction_at,last_interaction_type,last_contact_at,responsible_user')
+      .limit(5000);
+    const next = {};
+    (data||[]).forEach(c=>{
+      const key = c.doc || c.id;
+      next[key] = {
+        uuid: c.id,
+        status: c.status_manual || null,
+        notes: c.notas || '',
+        pipeline_stage: c.pipeline_stage || null,
+        last_interaction_at: c.last_interaction_at || null,
+        last_interaction_type: c.last_interaction_type || null,
+        last_contact_at: c.last_contact_at || null,
+        responsible_user: c.responsible_user || null
+      };
+    });
+    cliMetaCache = next;
+  }catch(_e){}
+}
+
+async function resolveCustomerUuid(customerKey){
+  const key = String(customerKey||"");
+  if(cliMetaCache?.[key]?.uuid) return cliMetaCache[key].uuid;
+  if(!supaConnected || !supaClient) return null;
+
+  const digits = key.replace(/\D/g,"");
+  const isEmail = key.includes("@");
+  try{
+    if(digits.length===11 || digits.length===14){
+      const {data} = await supaClient.from("v2_clientes").select("id,doc").eq("doc", digits).maybeSingle();
+      if(data?.id){
+        cliMetaCache[key] = cliMetaCache[key] || {};
+        cliMetaCache[key].uuid = data.id;
+        return data.id;
+      }
+    }
+    if(isEmail){
+      const em = key.trim().toLowerCase();
+      const {data} = await supaClient.from("v2_clientes").select("id,email").ilike("email", em).maybeSingle();
+      if(data?.id) return data.id;
+    }
+    if(digits.length>=10){
+      const {data} = await supaClient.from("v2_clientes").select("id,telefone").eq("telefone", digits).maybeSingle();
+      if(data?.id) return data.id;
+    }
+  }catch(_e){}
+  return null;
+}
+
+async function logInteraction(customerKey, type, description, metadata){
+  if(!supaConnected || !supaClient) return;
+  const uuid = await resolveCustomerUuid(customerKey);
+  if(!uuid) return;
+  const payload = {
+    customer_id: uuid,
+    type: String(type||"").trim(),
+    description: description ? String(description).trim().slice(0,500) : null,
+    created_at: new Date().toISOString(),
+    user_responsible: selectedUser || null,
+    source: "crm",
+    metadata: metadata && typeof metadata === "object" ? metadata : {}
+  };
+  try{
+    await supaClient.from("interactions").insert(payload);
+  }catch(_e){}
+}
+
+async function loadInsumosFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data, error} = await supaClient
+      .from("insumos")
+      .select("id,nome,unidade,estoque_atual,estoque_minimo,custo_unitario,fornecedor,lead_time_dias,updated_at")
+      .limit(5000);
+    if(error || !Array.isArray(data)) return;
+    if(!data.length) return;
+    allInsumos.length = 0;
+    data.forEach(r=>{
+      const obj = {
+        id: String(r.id),
+        nome: r.nome || "",
+        unidade: r.unidade || "kg",
+        estoque_atual: Number(r.estoque_atual||0) || 0,
+        estoque_minimo: Number(r.estoque_minimo||0) || 0,
+        custo_unitario: Number(r.custo_unitario||0) || 0,
+        fornecedor: r.fornecedor || "",
+        lead_time_dias: Number(r.lead_time_dias||0) || 0,
+        updated_at: r.updated_at || null
+      };
+      obj.estoque = obj.estoque_atual;
+      obj.minimo = obj.estoque_minimo;
+      obj.custo = obj.custo_unitario;
+      obj.cat = "Insumo";
+      allInsumos.push(obj);
+    });
+    localStorage.setItem("crm_insumos", JSON.stringify(allInsumos));
+    if(document.getElementById("page-producao")?.classList.contains("active")) {
+      if(typeof window.renderInsumos === "function") window.renderInsumos();
+      if(typeof window.renderProdKpis === "function") window.renderProdKpis();
+    }
+  }catch(_e){}
+}
+
+async function syncInsumosToSupabase(list){
+  if(!supaConnected || !supaClient) return;
+  if(!Array.isArray(list) || !list.length) return;
+  try{
+    const rows = list.map(i=>({
+      id: String(i.id),
+      nome: i.nome || null,
+      unidade: i.unidade || null,
+      estoque_atual: Number(i.estoque_atual ?? i.estoque ?? 0) || 0,
+      estoque_minimo: Number(i.estoque_minimo ?? i.minimo ?? 0) || 0,
+      custo_unitario: Number(i.custo_unitario ?? i.custo ?? 0) || 0,
+      fornecedor: i.fornecedor || null,
+      lead_time_dias: Number(i.lead_time_dias||0) || 0,
+      updated_at: new Date().toISOString()
+    }));
+    for(let i=0;i<rows.length;i+=200){
+      await supaClient.from("insumos").upsert(rows.slice(i,i+200), { onConflict: "id" });
+    }
+  }catch(_e){}
+}
+
+async function loadReceitasProdutosFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data, error} = await supaClient
+      .from("receitas_produtos")
+      .select("id,produto_id,insumo_id,quantidade_por_unidade,unidade,updated_at")
+      .limit(10000);
+    if(error || !Array.isArray(data)) return;
+    localStorage.setItem("crm_receitas_produtos", JSON.stringify(data));
+    const prods = Array.from(new Set((data||[]).map(r=>String(r.produto_id||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+    if(prods.length) localStorage.setItem("crm_receitas_produtos_produtos", JSON.stringify(prods));
+    if(document.getElementById("page-producao")?.classList.contains("active")) {
+      if(typeof window.renderReceitaDetalhe === "function") window.renderReceitaDetalhe();
+    }
+  }catch(_e){}
+}
+
+async function syncReceitasToSupabase(list){
+  if(!supaConnected || !supaClient) return;
+  if(!Array.isArray(list) || !list.length) return;
+  try{
+    const rows = list.map(r=>({
+      id: String(r.id),
+      produto_id: r.produto_id || null,
+      insumo_id: String(r.insumo_id||""),
+      quantidade_por_unidade: Number(r.quantidade_por_unidade||0) || 0,
+      unidade: r.unidade || "g",
+      updated_at: new Date().toISOString()
+    }));
+    for(let i=0;i<rows.length;i+=500){
+      await supaClient.from("receitas_produtos").upsert(rows.slice(i,i+500), { onConflict: "id" });
+    }
+  }catch(_e){}
+}
+
+async function loadOrdensProducaoFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data, error} = await supaClient
+      .from("ordens_producao")
+      .select("id,lote,produto_id,quantidade_planejada,quantidade_produzida,data_producao,status,observacoes,created_at")
+      .limit(5000);
+    if(error || !Array.isArray(data)) return;
+    const rows = data.map(o=>({
+      id: String(o.id),
+      lote: o.lote || null,
+      produto_id: o.produto_id || null,
+      quantidade_planejada: Number(o.quantidade_planejada||0) || 0,
+      quantidade_produzida: Number(o.quantidade_produzida||0) || 0,
+      data_producao: o.data_producao ? String(o.data_producao).slice(0,10) : null,
+      status: o.status || "planejada",
+      observacoes: o.observacoes || "",
+      created_at: o.created_at || null
+    }));
+    allOrdens.length = 0;
+    rows.sort((a,b)=>{
+      const ad = a.data_producao ? new Date(a.data_producao).getTime() : 0;
+      const bd = b.data_producao ? new Date(b.data_producao).getTime() : 0;
+      return bd - ad;
+    }).forEach(r=>allOrdens.push(r));
+    localStorage.setItem("crm_ordens_producao", JSON.stringify(allOrdens));
+    if(document.getElementById("page-producao")?.classList.contains("active")) {
+      if(typeof window.renderOrdens === "function") window.renderOrdens();
+      if(typeof window.renderProdKpis === "function") window.renderProdKpis();
+      if(typeof window.renderInsumos === "function") window.renderInsumos();
+    }
+  }catch(_e){}
+}
+
+async function loadMovimentosEstoqueFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    let data=null;
+    let error=null;
+    ({data, error} = await supaClient
+      .from("movimentos_estoque")
+      .select("id,insumo_id,ordem_id,lote,produto_id,tipo,quantidade,unidade,created_at,metadata")
+      .order("created_at", { ascending: false })
+      .limit(10000));
+    if(error){
+      ({data, error} = await supaClient
+        .from("movimentos_estoque")
+        .select("id,insumo_id,ordem_id,tipo,quantidade,unidade,created_at,metadata")
+        .order("created_at", { ascending: false })
+        .limit(10000));
+    }
+    if(error || !Array.isArray(data)) return;
+    localStorage.setItem("crm_movimentos_estoque", JSON.stringify(data));
+    if(document.getElementById("page-producao")?.classList.contains("active")) {
+      if(typeof window.renderMovimentosEstoque === "function") window.renderMovimentosEstoque();
+    }
+  }catch(_e){}
+}
+
+async function syncOrdensProducaoToSupabase(list){
+  if(!supaConnected || !supaClient) return;
+  if(!Array.isArray(list) || !list.length) return;
+  try{
+    const rowsWithCost = list.map(o=>({
+      id: String(o.id),
+      lote: o.lote || null,
+      produto_id: o.produto_id || null,
+      quantidade_planejada: Number(o.quantidade_planejada||0) || 0,
+      quantidade_produzida: Number(o.quantidade_produzida||0) || 0,
+      data_producao: o.data_producao || null,
+      status: o.status || "planejada",
+      observacoes: o.observacoes || null,
+      custo_total_lote: o.custo_total_lote != null ? Number(o.custo_total_lote||0) || 0 : null,
+      created_at: o.created_at || new Date().toISOString()
+    }));
+    for(let i=0;i<rowsWithCost.length;i+=200){
+      const chunk = rowsWithCost.slice(i,i+200);
+      const {error} = await supaClient.from("ordens_producao").upsert(chunk, { onConflict: "id" });
+      if(error){
+        const fallback = chunk.map(({custo_total_lote, ...rest})=>rest);
+        await supaClient.from("ordens_producao").upsert(fallback, { onConflict: "id" });
+      }
+    }
+  }catch(_e){}
+}
+
+async function logMovimentoEstoque(mov){
+  if(!supaConnected || !supaClient) return;
+  if(!mov || !mov.insumo_id || !mov.tipo) return;
+  try{
+    const payloadWithColumns = {
+      id: mov.id || null,
+      insumo_id: String(mov.insumo_id),
+      ordem_id: mov.ordem_id ? String(mov.ordem_id) : null,
+      lote: mov.lote || null,
+      produto_id: mov.produto_id || null,
+      tipo: String(mov.tipo),
+      quantidade: Number(mov.quantidade||0) || 0,
+      unidade: String(mov.unidade||""),
+      created_at: mov.created_at || new Date().toISOString(),
+      metadata: mov.metadata && typeof mov.metadata === "object" ? mov.metadata : {}
+    };
+    const {error} = await supaClient
+      .from("movimentos_estoque")
+      .upsert(payloadWithColumns, { onConflict: "ordem_id,insumo_id,tipo" });
+    if(error){
+      const {lote, produto_id, ...fallback} = payloadWithColumns;
+      await supaClient.from("movimentos_estoque").upsert(fallback, { onConflict: "ordem_id,insumo_id,tipo" });
+    }
+  }catch(_e){}
+}
+
 async function initSupabase(){
   try{
     if(supaConnected && supaClient) return true;
-    const savedUrl =
-      localStorage.getItem("supa_url") ||
-      localStorage.getItem("crm_supa_url") ||
-      localStorage.getItem("supabase_url") ||
-      "";
-
-    const savedKey =
-      localStorage.getItem("supa_key") ||
-      localStorage.getItem("crm_supa_key") ||
-      localStorage.getItem("supabase_key") ||
-      "";
-
     const inputUrl = document.getElementById("inp-supa-url")?.value?.trim() || "";
     const inputKey = document.getElementById("inp-supa-key")?.value?.trim() || "";
 
-    const supabaseUrl = savedUrl || inputUrl;
-    const supabaseKey = savedKey || inputKey;
+    const savedUrl = getSupabaseProjectUrl();
+    const savedKey = getSupabaseAnonKey();
+
+    const supabaseUrl = (savedUrl || inputUrl).trim().replace(/\/+$/,"");
+    const supabaseKey = (savedKey || inputKey).trim();
 
     if(typeof supabase === 'undefined'){
       console.warn('Supabase SDK not loaded');
@@ -2258,95 +3971,278 @@ async function loadSupabaseData(){
       saveTasks();
     }
 
-    let loadedV2 = false;
-    try{
-      const {data:canais} = await supaClient.from('v2_canais').select('id,slug').limit(200);
-      canaisLookup = {};
-      const canalById = {};
-      (canais||[]).forEach(r=>{
-        const slug = String(r?.slug||"").trim();
-        const id = r?.id;
-        if(slug && id){
-          canaisLookup[slug] = id;
-          canalById[id] = slug;
-        }
-      });
-
-      const {data:clientes} = await supaClient
-        .from('v2_clientes')
-        .select('id,doc,nome,email,telefone,cidade,uf,status_manual,notas')
-        .limit(5000);
-      const cliById = {};
-      cliMetaCache = {};
-      (clientes||[]).forEach(c=>{
-        if(c?.id) cliById[c.id] = c;
-        const key = c?.doc || c?.id;
-        if(key){
-          cliMetaCache[key] = {uuid: c.id, status: c.status_manual || null, notes: c.notas || ""};
-        }
-      });
-
-      const {data:pedidos} = await supaClient
-        .from('v2_pedidos')
-        .select('id,numero_pedido,cliente_id,canal_id,data_pedido,total,status,source')
-        .order('data_pedido',{ascending:false})
-        .limit(10000);
-
-      if(Array.isArray(pedidos) && pedidos.length){
-        const nextOrders = pedidos.map(p=>{
-          const c = p?.cliente_id ? cliById[p.cliente_id] : null;
-          const canalSlug =
-            (p?.canal_id && canalById[p.canal_id]) ||
-            (typeof p?.canal === "string" ? p.canal : "") ||
-            "outros";
-
-          const nome = String(
-            c?.nome ||
-            p?.cliente_nome ||
-            p?.nome_cliente ||
-            ""
-          ).trim();
-
-          const doc = String(c?.doc || "").trim();
-          const email = String(c?.email || "").trim();
-          const telefone = String(c?.telefone || "").trim();
-          const cidade = String(c?.cidade || "").trim();
-          const uf = String(c?.uf || "").trim();
-
-          return {
-            _source: p?.source || "supabase",
-            _canal: canalSlug,
-            id: p?.id,
-            numero: p?.numero_pedido || p?.id,
-            data: p?.data_pedido || null,
-            total: p?.total,
-            totalProdutos: p?.total,
-            situacao: {nome: p?.status || "outros"},
-            contato: {
-              nome: nome || "Desconhecido",
-              cpfCnpj: doc,
-              email,
-              telefone,
-              endereco: {municipio: cidade, uf}
-            }
-          };
-        });
-
-        blingOrders.length = 0;
-        blingOrders.push(...nextOrders);
-        localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
-        mergeOrders();
-        populateUFs();
-        renderAll();
-        loadedV2 = true;
-      }
-    }catch(e){
-      console.warn('loadSupabaseData v2:', e.message);
-    }
+    await loadClienteMetaCache();
+    await loadInsumosFromSupabase();
+    await loadReceitasProdutosFromSupabase();
+    await loadOrdensProducaoFromSupabase();
+    await loadMovimentosEstoqueFromSupabase();
+    await loadCarrinhosAbandonadosFromSupabase();
+    await loadCanalLookup();
+    await loadOrdersFromSupabaseForCRM();
 
     updateBadge();
-    if(!loadedV2) renderDash();
+    renderDash();
   }catch(e){ console.warn('loadSupabaseData:', e.message); }
+}
+
+async function auditSupabaseSchema(){
+  const outEl = document.getElementById("supa-audit");
+  if(outEl){ outEl.textContent = "Auditando..."; outEl.className = "setup-status"; }
+  try{
+    const connected = await initSupabase();
+    if(!connected){
+      if(outEl){ outEl.textContent = "⚠ Conecte o Supabase primeiro."; outEl.className = "setup-status s-err"; }
+      return;
+    }
+    const checks = [
+      { table:"insumos", cols:"id,nome,unidade,estoque_atual,estoque_minimo,custo_unitario,fornecedor,lead_time_dias,updated_at" },
+      { table:"receitas_produtos", cols:"id,produto_id,insumo_id,quantidade_por_unidade,unidade,updated_at" },
+      { table:"ordens_producao", cols:"id,lote,produto_id,quantidade_planejada,quantidade_produzida,data_producao,status,observacoes,created_at" },
+      { table:"movimentos_estoque", cols:"id,insumo_id,ordem_id,tipo,quantidade,unidade,created_at,metadata" },
+      { table:"interactions", cols:"id,customer_id,type,description,created_at,user_responsible,source,metadata" },
+      { table:"v2_clientes", cols:"id,doc,nome,email,telefone,cidade,uf" },
+      { table:"v2_pedidos", cols:"id,numero_pedido,bling_id,cliente_id,canal_id,data_pedido,total,status,source,created_at" },
+      { table:"customer_intelligence", cols:"cliente_id,score_final,next_best_action,updated_at" },
+      { table:"carrinhos_abandonados", cols:"checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id,score_recuperacao,link_finalizacao,last_etapa_enviada,last_mensagem_at" },
+      { table:"configuracoes", cols:"chave,valor_texto,updated_at" },
+      { table:"v2_tarefas", cols:"id,titulo,descricao,vencimento,prioridade,status,created_at" },
+      { table:"v2_insights", cols:"id,tipo,conteudo,gerado_por,created_at" }
+    ];
+
+    const results = [];
+    for(let i=0;i<checks.length;i++){
+      const c = checks[i];
+      try{
+        const {error} = await supaClient.from(c.table).select(c.cols).limit(1);
+        if(error){
+          results.push({ok:false, table:c.table, error:error.message || String(error)});
+        }else{
+          results.push({ok:true, table:c.table});
+        }
+      }catch(e){
+        results.push({ok:false, table:c.table, error:e?.message || String(e)});
+      }
+    }
+
+    let canaisStatus = "⚠ não encontrado";
+    try{
+      const candidates = [
+        { table: "v2_canais", slug: "slug", id: "id" },
+        { table: "canais", slug: "slug", id: "id" },
+        { table: "canais", slug: "chave", id: "id" },
+        { table: "canais_venda", slug: "slug", id: "id" },
+        { table: "canais_venda", slug: "chave", id: "id" }
+      ];
+      for(let i=0;i<candidates.length;i++){
+        const cand = candidates[i];
+        const {data, error} = await supaClient.from(cand.table).select(`${cand.id},${cand.slug}`).limit(1);
+        if(!error && Array.isArray(data)){
+          canaisStatus = "✓ " + cand.table;
+          break;
+        }
+      }
+    }catch(_e){}
+
+    const okCount = results.filter(r=>r.ok).length;
+    const lines = [];
+    lines.push(`Tabelas OK: ${okCount}/${results.length}`);
+    results.forEach(r=>{
+      if(r.ok) lines.push(`✓ ${r.table}`);
+      else lines.push(`⚠ ${r.table}: ${r.error}`);
+    });
+    lines.push(`Canais (lookup): ${canaisStatus}`);
+    if(outEl){
+      outEl.textContent = lines.join("\n");
+      outEl.className = results.some(r=>!r.ok) ? "setup-status s-err" : "setup-status s-ok";
+    }
+  }catch(e){
+    if(outEl){
+      outEl.textContent = "⚠ " + (e?.message || String(e));
+      outEl.className = "setup-status s-err";
+    }
+  }
+}
+
+async function loadCanalLookup(){
+  if(!supaConnected || !supaClient) return;
+  const candidates = [
+    { table: "v2_canais", slug: "slug", id: "id" },
+    { table: "canais", slug: "slug", id: "id" },
+    { table: "canais", slug: "chave", id: "id" },
+    { table: "canais_venda", slug: "slug", id: "id" },
+    { table: "canais_venda", slug: "chave", id: "id" }
+  ];
+  for(let i=0;i<candidates.length;i++){
+    const c = candidates[i];
+    try{
+      const {data, error} = await supaClient.from(c.table).select(`${c.id},${c.slug}`).limit(500);
+      if(error || !Array.isArray(data) || !data.length) continue;
+      const next = {};
+      data.forEach(r=>{
+        const slug = String(r?.[c.slug] || "").trim().toLowerCase();
+        const id = r?.[c.id];
+        if(slug && id) next[slug] = id;
+      });
+      if(Object.keys(next).length){
+        canaisLookup = next;
+        return;
+      }
+    }catch(_e){}
+  }
+}
+
+function normalizeOrderForCRM(o, sourceHint){
+  const next = o || {};
+  const src = String(next._source || next.source || sourceHint || "").toLowerCase();
+  next._source = src || sourceHint || "bling";
+
+  const numeroRaw =
+    next.numero ||
+    next.numero_pedido ||
+    next.numeroPedido ||
+    next.numeroPedidoEcommerce ||
+    next.order_number ||
+    next.name ||
+    next.id;
+  if(numeroRaw != null) next.numero = String(numeroRaw);
+
+  const dataRaw =
+    next.data ||
+    next.data_pedido ||
+    next.dataPedido ||
+    next.created_at ||
+    next.updated_at ||
+    next.dataCriacao;
+  if(dataRaw) next.data = String(dataRaw).slice(0,10);
+
+  const totalRaw =
+    next.totalProdutos ??
+    next.total ??
+    next.valor_total ??
+    next.total_price ??
+    next.amount_total ??
+    next.valor ??
+    0;
+  const total = Number(totalRaw) || 0;
+  next.total = total;
+  next.totalProdutos = total;
+
+  const contato = next.contato || next.cliente || next.customer || next.buyer || {};
+  const endereco = contato.endereco || next.endereco_entrega || next.shipping_address || next.billing_address || contato.address || {};
+  const nome =
+    contato.nome ||
+    contato.name ||
+    [contato.first_name, contato.last_name].filter(Boolean).join(" ").trim() ||
+    next.nome_cliente ||
+    next.customer_name ||
+    "";
+  const cpfCnpj = contato.cpfCnpj || contato.numeroDocumento || contato.cpf || contato.cnpj || contato.document || next.document || "";
+  const email = contato.email || next.email || "";
+  const telefone = contato.telefone || contato.celular || next.phone || "";
+  const municipio = endereco.municipio || endereco.cidade || endereco.city || endereco.localidade || "";
+  const uf = (endereco.uf || endereco.estado || endereco.state || endereco.province || endereco.province_code || "").toString().toUpperCase().slice(0,2);
+  const logradouro = endereco.logradouro || endereco.endereco || endereco.address1 || "";
+
+  next.contato = {
+    id: contato.id || next.cliente_id || next.customer_id || next.contato_id || undefined,
+    nome: nome || "Desconhecido",
+    cpfCnpj: String(cpfCnpj || ""),
+    email: String(email || ""),
+    telefone: String(telefone || ""),
+    celular: String(contato.celular || ""),
+    endereco: {
+      municipio: String(municipio || ""),
+      uf: String(uf || ""),
+      logradouro: String(logradouro || "")
+    }
+  };
+
+  const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
+  if(Array.isArray(itens)){
+    next.itens = itens.map(it=>({
+      descricao: it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "",
+      codigo: it?.codigo || it?.sku || it?.id || "",
+      quantidade: Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1,
+      valor: Number(it?.valor ?? it?.price ?? it?.preco ?? 0) || 0
+    })).filter(it=>it.descricao || it.codigo);
+  }else{
+    next.itens = [];
+  }
+
+  next._canal = next._canal || String(next.canal || next.channel || "").toLowerCase();
+  if(!next._canal){
+    const d = detectCh(next);
+    next._canal = d;
+  }
+  return next;
+}
+
+async function loadOrdersFromSupabaseForCRM(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data:cliRows, error:cliErr} = await supaClient
+      .from("v2_clientes")
+      .select("id,nome,doc,email,telefone,cidade,uf")
+      .limit(5000);
+    if(cliErr) throw cliErr;
+    const cliById = {};
+    (cliRows||[]).forEach(c=>{ if(c?.id) cliById[c.id] = c; });
+
+    const {data:pedRows, error:pedErr} = await supaClient
+      .from("v2_pedidos")
+      .select("*")
+      .order("data_pedido",{ascending:false})
+      .limit(5000);
+    if(pedErr) throw pedErr;
+    if(!Array.isArray(pedRows) || !pedRows.length) return;
+
+    const nextBling = [];
+    const nextYampi = [];
+
+    pedRows.forEach(p=>{
+      const cli = cliById[p.cliente_id] || null;
+      const o = {
+        id: String(p.bling_id || p.id || p.numero_pedido || ""),
+        numero: String(p.numero_pedido || p.id || ""),
+        data: String(p.data_pedido || p.created_at || "").slice(0,10),
+        total: Number(p.total || 0) || 0,
+        totalProdutos: Number(p.total || 0) || 0,
+        situacao: { nome: p.status || "" },
+        _source: String(p.source || "").toLowerCase() || "bling",
+        _canal: (()=>{
+          const inv = Object.entries(canaisLookup||{}).find(([,id])=>String(id)===String(p.canal_id));
+          return inv ? inv[0] : "";
+        })(),
+        contato: {
+          id: p.cliente_id || undefined,
+          nome: cli?.nome || "Desconhecido",
+          cpfCnpj: cli?.doc || "",
+          email: cli?.email || "",
+          telefone: cli?.telefone || "",
+          endereco: { municipio: cli?.cidade || "", uf: cli?.uf || "" }
+        },
+        itens: Array.isArray(p.itens) ? p.itens : Array.isArray(p.items) ? p.items : []
+      };
+      const normalized = normalizeOrderForCRM(o, o._source);
+      if(normalized._source === "yampi") nextYampi.push(normalized);
+      else nextBling.push(normalized);
+    });
+
+    if(nextBling.length){
+      blingOrders.length = 0;
+      blingOrders.push(...nextBling);
+      localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
+    }
+    if(nextYampi.length){
+      yampiOrders.length = 0;
+      yampiOrders.push(...nextYampi);
+      localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
+    }
+
+    mergeOrders();
+    populateUFs();
+    renderAll();
+  }catch(_e){}
 }
 
 async function sbSetConfig(chave, valor){
@@ -2360,7 +4256,14 @@ async function upsertOrdersToSupabase(orders){
     const cliMap = buildCli(orders);
     const cliRows = Object.values(cliMap).map(c => {
       const sc = calcCliScores(c);
-      return { nome:c.nome, doc:c.doc, email:c.email, telefone:c.telefone,
+      const docDigits = String(c.doc||"").replace(/\D/g,"");
+      const docKey = docDigits.length===11 || docDigits.length===14 ? docDigits : "";
+      const fallbackKey =
+        (c.email && String(c.email).trim().toLowerCase()) ||
+        (c.telefone && String(c.telefone).replace(/\D/g,"")) ||
+        String(c.id||"");
+      const telDigits = (c.telefone && String(c.telefone).replace(/\D/g,"")) || "";
+      return { nome:c.nome, doc:c.doc, email: c.email ? String(c.email).trim().toLowerCase() : "", telefone: telDigits,
         cidade:c.cidade, uf:c.uf, primeiro_pedido:c.first, ultimo_pedido:c.last,
         total_pedidos:c.orders.length, total_gasto:sc.ltv, ltv:sc.ltv,
         ticket_medio: c.orders.length ? sc.ltv/c.orders.length : 0,
@@ -2369,9 +4272,22 @@ async function upsertOrdersToSupabase(orders){
         canal_principal:[...c.channels][0]||'outros',
         updated_at: new Date().toISOString() };
     });
+    cliRows.forEach(r=>{
+      const digits = String(r.doc||"").replace(/\D/g,"");
+      if(!(digits.length===11 || digits.length===14)){
+        const key =
+          (r.email && String(r.email).trim().toLowerCase()) ||
+          (r.telefone && String(r.telefone).replace(/\D/g,"")) ||
+          "";
+        r.doc = key || r.doc || "";
+      }else{
+        r.doc = digits;
+      }
+    });
+    const filteredCliRows = cliRows.filter(r=>String(r.doc||"").trim());
     // upsert por doc (chave natural) — preserva UUID existente
-    for(let i=0; i<cliRows.length; i+=50)
-      await supaClient.from('v2_clientes').upsert(cliRows.slice(i,i+50), {onConflict:'doc'});
+    for(let i=0; i<filteredCliRows.length; i+=50)
+      await supaClient.from('v2_clientes').upsert(filteredCliRows.slice(i,i+50), {onConflict:'doc'});
 
     // Recarregar mapa doc→uuid após upsert de clientes
     const {data:cliRefresh} = await supaClient.from('v2_clientes').select('id,doc').limit(5000);
@@ -2379,13 +4295,19 @@ async function upsertOrdersToSupabase(orders){
     (cliRefresh||[]).forEach(c => { if(c.doc) docToUuid[c.doc] = c.id; });
 
     const pedRows = orders.map(o => {
-      const doc = o.contato?.cpfCnpj||o.contato?.email||o.contato?.telefone||o.contato?.nome||'';
+      const docDigits = String(o.contato?.cpfCnpj||o.contato?.numeroDocumento||"").replace(/\D/g,"");
+      const doc =
+        (docDigits.length===11 || docDigits.length===14) ? docDigits :
+        (o.contato?.email ? String(o.contato.email).trim().toLowerCase() : "") ||
+        (o.contato?.telefone ? String(o.contato.telefone).replace(/\D/g,"") : "") ||
+        String(o.contato?.nome||"");
       const canalSlug = detectCh(o);
+      const canalId = canaisLookup[canalSlug] || canaisLookup["outros"] || null;
       return {
         bling_id: String(o.id||o.numero),
         numero_pedido: String(o.numero||o.id),
         cliente_id: docToUuid[doc] || null,
-        canal_id: canaisLookup[canalSlug] || null,
+        canal_id: canalId,
         data_pedido: o.data,
         total: val(o),
         status: normSt(o.situacao),
@@ -2416,14 +4338,39 @@ function setupRealtimeSync(){
         pushNotif('🔄 Tarefas atualizadas');
       }).subscribe();
     supaClient.channel('clientes-rt')
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'v2_clientes'}, async()=>{
-        const {data} = await supaClient.from('v2_clientes').select('id,doc,status_manual,notas').limit(5000);
-        cliMetaCache = {};
-        (data||[]).forEach(c=>{
-          const key = c.doc || c.id;
-          cliMetaCache[key]={uuid:c.id,status:c.status_manual||null,notes:c.notas||''};
-        });
+      .on('postgres_changes',{event:'*',schema:'public',table:'v2_clientes'}, async()=>{
+        await loadClienteMetaCache();
+        if(document.getElementById("page-oportunidades")?.classList.contains("active")) renderOportunidades();
+        if(document.getElementById("page-cliente")?.classList.contains("active") && currentClienteId) renderClienteTimeline(currentClienteId).catch(()=>{});
+        if(document.getElementById("page-inteligencia")?.classList.contains("active")) renderInteligencia();
         toast('🔄 Dados sincronizados!');
+      }).subscribe();
+    supaClient.channel('interactions-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'interactions'}, async()=>{
+        await loadClienteMetaCache();
+        if(document.getElementById("page-oportunidades")?.classList.contains("active")) renderOportunidades();
+        if(document.getElementById("page-cliente")?.classList.contains("active") && currentClienteId) renderClienteTimeline(currentClienteId).catch(()=>{});
+        if(document.getElementById("page-inteligencia")?.classList.contains("active")) renderInteligencia();
+      }).subscribe();
+    supaClient.channel('insumos-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'insumos'}, async()=>{
+        await loadInsumosFromSupabase();
+      }).subscribe();
+    supaClient.channel('receitas-produtos-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'receitas_produtos'}, async()=>{
+        await loadReceitasProdutosFromSupabase();
+      }).subscribe();
+    supaClient.channel('ordens-producao-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'ordens_producao'}, async()=>{
+        await loadOrdensProducaoFromSupabase();
+      }).subscribe();
+    supaClient.channel('movimentos-estoque-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'movimentos_estoque'}, async()=>{
+        await loadMovimentosEstoqueFromSupabase();
+      }).subscribe();
+    supaClient.channel('carrinhos-abandonados-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'carrinhos_abandonados'}, async()=>{
+        await loadCarrinhosAbandonadosFromSupabase();
       }).subscribe();
     supaClient.channel('config-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'configuracoes'}, async(payload)=>{
@@ -2450,21 +4397,69 @@ let allCampanhas = safeJsonParse('crm_campanhas', null) || [
   {id:2,nome:'Frete Grátis Fim de Semana',canal:'site',tipo:'frete',inicio:'2025-03-29',fim:'2025-03-30',oferta:'Frete grátis acima de R$89',budget:200,meta:5000,status:'planejada',desc:''},
   {id:3,nome:'Lançamento Sabor Açaí',canal:'todos',tipo:'lancamento',inicio:'2025-04-07',fim:'2025-04-14',oferta:'R$10 off no primeiro pedido',budget:1200,meta:15000,status:'planejada',desc:''},
 ];
-let allComPedidos = safeJsonParse('crm_com_pedidos', null) || [
-  {id:1,num:'#SPE-8821',cliente:'Maria Silva',canal:'shopee',produto:'Shake Chocolate 500g x2',valor:167.80,status:'enviado',data:'2025-03-22'},
-  {id:2,num:'#SITE-0341',cliente:'João Ferreira',canal:'site',produto:'Shake Neutro 1kg',valor:219.90,status:'entregue',data:'2025-03-21'},
-  {id:3,num:'#WPP-0092',cliente:'Ana Costa',canal:'whatsapp',produto:'Kit Shake Variedades x4',valor:335.60,status:'separando',data:'2025-03-23'},
-  {id:4,num:'#SPE-8834',cliente:'Carlos Rocha',canal:'shopee',produto:'Shake Baunilha 500g',valor:89.90,status:'novo',data:'2025-03-23'},
-  {id:5,num:'#ML-5521',cliente:'Lúcia Mendes',canal:'ml',produto:'Shake Morango 500g x2',valor:167.80,status:'enviado',data:'2025-03-22'},
-];
 function saveCampanhas(){ localStorage.setItem('crm_campanhas',JSON.stringify(allCampanhas)); }
+
+function mapComStatusFromOrder(o){
+  const raw = String(o?.status || o?.situacao?.nome || o?.financial_status || "").toLowerCase();
+  if(/cancel|cance|void|refun/.test(raw)) return "cancelado";
+  if(/entreg|delivered|conclu/.test(raw)) return "entregue";
+  if(/envi|shipp|dispatch/.test(raw)) return "enviado";
+  if(/separ|prepar|paid|aprov|pago|processing/.test(raw)) return "separando";
+  return "novo";
+}
+
+function summarizeOrderItems(o){
+  const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : null;
+  if(!itens || !itens.length) return "—";
+  const getName = (it)=>String(it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "").trim();
+  const getQty = (it)=>Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
+  const parts = itens
+    .map(it=>{
+      const name = getName(it);
+      const qty = getQty(it);
+      if(!name) return "";
+      return qty > 1 ? `${name} x${qty}` : name;
+    })
+    .filter(Boolean);
+  if(!parts.length) return "—";
+  const head = parts.slice(0,2).join(", ");
+  return parts.length > 2 ? `${head} +${parts.length-2}` : head;
+}
+
+function getComPedidosBase(){
+  const baseOrders = Array.isArray(yampiOrders) && yampiOrders.length ? yampiOrders : [];
+  const orders = baseOrders.slice().sort((a,b)=>new Date(b.data || b.data_pedido || b.created_at || 0)-new Date(a.data || a.data_pedido || a.created_at || 0));
+  return orders.map(o=>{
+    const numRaw = o?.numero_pedido || o?.numero || o?.name || o?.order_number || o?.id || "";
+    const num = numRaw ? (String(numRaw).startsWith("#") ? String(numRaw) : "#"+String(numRaw)) : "#—";
+    const cliente = String(o?.contato?.nome || o?.customer?.name || o?.cliente?.nome || "—");
+    const canal = String(o?._canal || o?.canal || o?.channel || detectCh(o) || "yampi").toLowerCase();
+    const produto = summarizeOrderItems(o);
+    const valor = Number(val(o) || o?.total || o?.total_price || 0) || 0;
+    const data = String(o?.data_pedido || o?.data || o?.created_at || "").slice(0,10) || "—";
+    const status = mapComStatusFromOrder(o);
+    return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal, produto, valor, status, data };
+  });
+}
+
+function cryptoRandomId(){
+  try{
+    if(globalThis.crypto?.getRandomValues){
+      const b = new Uint8Array(8);
+      crypto.getRandomValues(b);
+      return Array.from(b).map(x=>x.toString(16).padStart(2,"0")).join("");
+    }
+  }catch(_e){}
+  return String(Date.now()) + String(Math.random()).slice(2);
+}
 
 function renderComKpis(){
   var el=document.getElementById('com-kpis'); if(!el) return;
-  var receita=allComPedidos.reduce(function(s,p){return s+p.valor;},0);
+  var pedidos=getComPedidosBase();
+  var receita=pedidos.reduce(function(s,p){return s+p.valor;},0);
   var ativas=allCampanhas.filter(function(c){return c.status==='ativa';}).length;
-  var canais=[...new Set(allComPedidos.map(function(p){return p.canal;}))].length;
-  el.innerHTML=kpiCard('Pedidos',allComPedidos.length,'no período','var(--text)')+kpiCard('Receita','R$'+receita.toLocaleString('pt-BR',{minimumFractionDigits:0}),'total','var(--green)')+kpiCard('Campanhas Ativas',ativas,'rodando','var(--indigo-hi)')+kpiCard('Canais',canais,'ativos','var(--amber)');
+  var canais=[...new Set(pedidos.map(function(p){return p.canal;}))].length;
+  el.innerHTML=kpiCard('Pedidos',pedidos.length,'no período','var(--text)')+kpiCard('Receita','R$'+receita.toLocaleString('pt-BR',{minimumFractionDigits:0}),'total','var(--green)')+kpiCard('Campanhas Ativas',ativas,'rodando','var(--indigo-hi)')+kpiCard('Canais',canais,'ativos','var(--amber)');
 }
 
 function renderComPedidos(){
@@ -2472,7 +4467,8 @@ function renderComPedidos(){
   var q=((document.getElementById('search-com')||{}).value||'').toLowerCase();
   var canal=(document.getElementById('fil-com-canal')||{}).value||'';
   var status=(document.getElementById('fil-com-status')||{}).value||'';
-  var list=allComPedidos.filter(function(p){
+  var base=getComPedidosBase();
+  var list=base.filter(function(p){
     if(q && !p.num.toLowerCase().includes(q) && !p.cliente.toLowerCase().includes(q)) return false;
     if(canal && p.canal!==canal) return false;
     if(status && p.status!==status) return false;
@@ -2483,9 +4479,15 @@ function renderComPedidos(){
   var stC={novo:'var(--blue)',separando:'var(--amber)',enviado:'var(--indigo-hi)',entregue:'var(--green)',cancelado:'var(--red)'};
   var stB={novo:'var(--blue-bg)',separando:'var(--amber-bg)',enviado:'var(--indigo-bg)',entregue:'var(--green-bg)',cancelado:'var(--red-bg)'};
   var cC={shopee:'var(--shopee)',site:'var(--indigo-hi)',ml:'var(--ml)',whatsapp:'#25d366',instagram:'#e040fb'};
-  var header='<div style="display:grid;grid-template-columns:100px 1fr 90px 90px 100px;gap:12px;padding:8px 12px;font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px"><span>Pedido</span><span>Cliente / Produto</span><span>Canal</span><span style="text-align:right">Valor</span><span style="text-align:right">Status</span></div>';
+  var header='<div class="table-head table-head-com"><span>Pedido</span><span>Cliente / Produto</span><span>Canal</span><span class="ta-r">Valor</span><span class="ta-r">Status</span></div>';
   el.innerHTML=header+list.map(function(p){
-    return '<div class="com-pedido-row"><div><div style="font-size:10px;font-family:var(--mono);color:var(--indigo-hi);font-weight:600">'+escapeHTML(p.num)+'</div><div style="font-size:9px;color:var(--text-3);margin-top:1px">'+escapeHTML(p.data)+'</div></div><div><div style="font-size:12px;font-weight:600">'+escapeHTML(p.cliente)+'</div><div style="font-size:10px;color:var(--text-3);margin-top:1px">'+escapeHTML(p.produto)+'</div></div><div><span style="font-size:10px;font-weight:700;color:'+(cC[p.canal]||'var(--text-2)')+'">'+escapeHTML(String(p.canal||"").toUpperCase())+'</span></div><div style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--green)">R$'+p.valor.toFixed(2)+'</div><div style="text-align:right"><span style="padding:3px 8px;border-radius:9999px;font-size:9px;font-weight:800;background:'+stB[p.status]+';color:'+stC[p.status]+'">'+escapeHTML(stL[p.status]||p.status)+'</span></div></div>';
+    return '<div class="table-row table-row-com">'+
+      '<div><div class="mono-link">'+escapeHTML(p.num)+'</div><div class="muted-xs">'+escapeHTML(p.data)+'</div></div>'+
+      '<div><div class="row-title">'+escapeHTML(p.cliente)+'</div><div class="muted-sm">'+escapeHTML(p.produto)+'</div></div>'+
+      '<div><span class="pill pill-soft" style="color:'+(cC[p.canal]||'var(--text-2)')+'">'+escapeHTML(String(p.canal||"").toUpperCase())+'</span></div>'+
+      '<div class="ta-r mono-strong">R$'+p.valor.toFixed(2)+'</div>'+
+      '<div class="ta-r"><span class="pill" style="background:'+stB[p.status]+';color:'+stC[p.status]+'">'+escapeHTML(stL[p.status]||p.status)+'</span></div>'+
+    '</div>';
   }).join('');
 }
 
@@ -2493,7 +4495,7 @@ function renderCanaisGrid(){
   var el=document.getElementById('canais-grid'); if(!el) return;
   var cI={shopee:{nome:'Shopee',emoji:'🟠',color:'var(--shopee)'},site:{nome:'Site Próprio',emoji:'🌐',color:'var(--indigo-hi)'},ml:{nome:'Mercado Livre',emoji:'🟡',color:'var(--ml)'},whatsapp:{nome:'WhatsApp',emoji:'💬',color:'#25d366'}};
   var por={};
-  allComPedidos.forEach(function(p){ if(!por[p.canal]) por[p.canal]={qtd:0,receita:0}; por[p.canal].qtd++; por[p.canal].receita+=p.valor; });
+  getComPedidosBase().forEach(function(p){ if(!por[p.canal]) por[p.canal]={qtd:0,receita:0}; por[p.canal].qtd++; por[p.canal].receita+=p.valor; });
   el.innerHTML=Object.entries(por).map(function(e){
     var canal=e[0],dados=e[1],info=cI[canal]||{nome:canal,emoji:'🔹',color:'var(--text-2)'};
     var ticket=dados.receita/dados.qtd;
@@ -2512,8 +4514,115 @@ function renderCampanhas(){
   }).join('');
 }
 
+function renderCarrinhosAbandonados(){
+  var el=document.getElementById('carrinhos-list'); if(!el) return;
+  try{
+    carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
+  }catch(_e){}
+  var q=String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
+  var st=String((document.getElementById('car-status')||{}).value||'');
+
+  var lookup = buildClienteLookupParaCarrinhos();
+  var list=[].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){
+    if(!c.checkout_id) return false;
+    if(st==='abertos' && c.recuperado) return false;
+    if(st==='recuperados' && !c.recuperado) return false;
+    if(q){
+      var hit = String(c.cliente_nome||'').toLowerCase().includes(q) ||
+        String(c.email||'').toLowerCase().includes(q) ||
+        rawPhone(c.telefone||'').includes(rawPhone(q));
+      if(!hit) return false;
+    }
+    return true;
+  }).map(function(c){
+    var calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+    var score = c.score_recuperacao == null ? calc.score : (Number(c.score_recuperacao||0)||0);
+    var mins = calc.mins;
+    var tempo = fmtTempoDesde(mins);
+    var etapa = sugerirEtapaParaCarrinho(c, mins);
+    var prioridade = prioridadePorScore(score);
+    var lastMins = minutosDesdeIso(c.last_mensagem_at);
+    var lastLabel = lastMins == null ? "" : fmtTempoDesde(lastMins);
+    return Object.assign({}, c, {score_calc: score, tempo_min: mins, tempo_label: tempo, etapa_id: etapa.id, etapa_label: etapa.label, prioridade_id: prioridade.id, prioridade_label: prioridade.label, cli_status: calc.cli ? calc.cli.status : "", last_tempo_label: lastLabel});
+  }).sort(function(a,b){
+    if(a.recuperado !== b.recuperado) return a.recuperado ? 1 : -1;
+    if((b.score_calc||0) !== (a.score_calc||0)) return (b.score_calc||0) - (a.score_calc||0);
+    return new Date(b.criado_em||0) - new Date(a.criado_em||0);
+  });
+
+  if(!list.length){
+    el.innerHTML='<div class="empty" style="padding:40px 0">Nenhum carrinho encontrado.</div>';
+    return;
+  }
+
+  el.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+      '<table class="chiva-table">'+
+        '<thead><tr>'+
+          '<th>Tempo</th>'+
+          '<th>Cliente</th>'+
+          '<th>Prioridade</th>'+
+          '<th style="text-align:right">Score</th>'+
+          '<th style="text-align:right">Valor</th>'+
+          '<th>Mensagem</th>'+
+          '<th></th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          list.map(function(c){
+            var safeId = escapeJsSingleQuote(String(c.checkout_id||''));
+            var name = escapeHTML(c.cliente_nome||'—');
+            var contato = [c.telefone?fmtPhone(c.telefone):'', c.email?escapeHTML(c.email):''].filter(Boolean).join(' · ') || '—';
+            var dt = c.tempo_label || '—';
+            var prioridadeLabel = c.prioridade_label || '—';
+            var prioridadeIcon = c.prioridade_id==='alta' ? '🔥' : (c.prioridade_id==='media' ? '⚡' : '🧊');
+            var prioridadeTxt = prioridadeIcon+' '+prioridadeLabel;
+            var scoreTxt = String(Math.round(c.score_calc||0));
+            var msgLabel = c.recuperado ? '—' : (c.etapa_label || '—');
+            var lastStageLabel = (function(id){
+              if(id==='ajuda') return 'Ajuda';
+              if(id==='link') return 'Link';
+              if(id==='incentivo') return 'Incentivo';
+              return id || '';
+            })(String(c.last_etapa_enviada||''));
+            var lastInfo = (!c.recuperado && c.last_etapa_enviada) ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(lastStageLabel)+(c.last_tempo_label?(' · '+escapeHTML(c.last_tempo_label)):'')+'</div>') : '';
+            var btnLabel = (function(id){
+              if(id==='ajuda') return 'WhatsApp (ajuda)';
+              if(id==='link') return 'WhatsApp (link)';
+              if(id==='incentivo') return 'WhatsApp (24h)';
+              if(id==='aguardar') return 'WhatsApp';
+              return 'WhatsApp';
+            })(String(c.etapa_id||''));
+            var btn = c.recuperado ? '' : ('<button class="opp-mini-btn" onclick="openWhatsAppCarrinho(\''+safeId+'\')">'+escapeHTML(btnLabel)+'</button> ');
+            var itens = Array.isArray(c.produtos) ? c.produtos : [];
+            var resumo = itens.slice(0,3).map(function(it){ return String(it.nome||it.title||it.descricao||it.name||'').trim(); }).filter(Boolean).join(', ');
+            var subtitle = resumo ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>') : '';
+            return '<tr>'+
+              '<td class="chiva-table-mono">'+escapeHTML(dt)+'</td>'+
+              '<td><div style="font-weight:800;color:var(--text)">'+name+'</div>'+subtitle+'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(contato)+'</div></td>'+
+              '<td>'+escapeHTML(prioridadeTxt)+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(scoreTxt)+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
+              '<td>'+escapeHTML(msgLabel)+lastInfo+'</td>'+
+              '<td style="text-align:right;white-space:nowrap">'+
+                btn+
+                '<button class="opp-mini-btn" onclick="copyCarrinhoId(\''+safeId+'\')">Copiar ID</button>'+
+              '</td>'+
+            '</tr>';
+          }).join('')+
+        '</tbody>'+
+      '</table>'+
+    '</div>';
+}
+
+function copyCarrinhoId(checkoutId){
+  const id = String(checkoutId||"");
+  try{
+    navigator.clipboard.writeText(id).then(()=>toast("Checkout copiado")).catch(()=>{});
+  }catch(_e){}
+}
+
 function setComTab(tab){
-  ['pedidos','canais','campanhas'].forEach(function(t){
+  ['pedidos','canais','campanhas','carrinhos'].forEach(function(t){
     var el=document.getElementById('com-tab-'+t);
     var btn=document.getElementById('ctab-'+t);
     if(el) el.style.display=t===tab?'':'none';
@@ -2522,6 +4631,7 @@ function setComTab(tab){
   if(tab==='pedidos'){ renderComPedidos(); setTimeout(renderChartsCom,100); }
   if(tab==='canais') renderCanaisGrid();
   if(tab==='campanhas') renderCampanhas();
+  if(tab==='carrinhos') renderCarrinhosAbandonados();
 }
 
 function abrirModalCampanha(id){
@@ -2745,7 +4855,7 @@ function renderChartsCom(){
   if(cCtx){
     if(window._chartComCanal) window._chartComCanal.destroy();
     var cData={};
-    allComPedidos.forEach(function(p){ cData[p.canal]=(cData[p.canal]||0)+p.valor; });
+    getComPedidosBase().forEach(function(p){ cData[p.canal]=(cData[p.canal]||0)+p.valor; });
     var sorted=Object.entries(cData).sort(function(a,b){return b[1]-a[1];});
     var cColors={shopee:"#f97316",site:"#6bbf3a",ml:"#f59e0b",whatsapp:"#25d366",instagram:"#e040fb"};
     window._chartComCanal=new Chart(cCtx,{
@@ -2764,7 +4874,7 @@ function renderChartsCom(){
   if(sCtx){
     if(window._chartComStatus) window._chartComStatus.destroy();
     var sData={};
-    allComPedidos.forEach(function(p){ sData[p.status]=(sData[p.status]||0)+1; });
+    getComPedidosBase().forEach(function(p){ sData[p.status]=(sData[p.status]||0)+1; });
     var sColors={novo:"#60a5fa",separando:"#fbbf24",enviado:"#818cf8",entregue:"#22c55e",cancelado:"#f87171"};
     var sLabels={novo:"Novo",separando:"Separando",enviado:"Enviado",entregue:"Entregue",cancelado:"Cancelado"};
     var sorted2=Object.entries(sData).sort(function(a,b){return b[1]-a[1];});
@@ -2796,6 +4906,17 @@ Object.assign(window,{
   removeAccessUser,
   renderAccessUsers,
   openClienteDrawer,
+  openClientePage,
+  renderClientePage,
+  backToClientes,
+  clienteWhatsApp,
+  clienteAddTask,
+  clienteAddCall,
+  clienteAddNote,
+  clienteAddNegotiation,
+  openInteractionModal,
+  saveInteraction,
+  openCRMOrderDrawer,
   openPedidoDrawer,
   filterClientesByCity,
   handleTopbarSearch,
@@ -2815,9 +4936,14 @@ Object.assign(window,{
   deleteTask,
   runAI,
   renderIADashboard,
+  computeCustomerIntelligence,
+  renderInteligencia,
   renderClientes,
   selectSegment,
   setChCli,
+  renderOportunidades,
+  addOpportunity,
+  moveOppStage,
   renderProdutos,
   renderCidades,
   renderPedidosPage,
@@ -2825,7 +4951,16 @@ Object.assign(window,{
   saveAlertDays,
   renderAlertas,
   saveSupabaseConfig,
+  auditSupabaseSchema,
+  syncInsumosToSupabase,
+  syncReceitasToSupabase,
+  syncOrdensProducaoToSupabase,
+  logMovimentoEstoque,
   syncBling,
+  syncYampi,
+  syncCarrinhosAbandonadosYampi,
+  renderCarrinhosAbandonados,
+  openWhatsAppCarrinho,
   saveAIKey,
   saveTemplates,
   closeDrawer,

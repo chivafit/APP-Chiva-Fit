@@ -268,24 +268,88 @@ function scheduleCustomerIntelligenceSync(ctx){
 
 async function upsertCustomerIntelligenceToSupabase(ctx, intel){
   if(!ctx.supaConnected || !ctx.supaClient || !Array.isArray(intel) || !intel.length) return;
-  const rows = intel.map(c=>({
-    cliente_id: c.cliente_id,
-    nome: c.nome,
-    total_pedidos: c.total_pedidos,
-    valor_total: c.valor_total,
-    ticket_medio: c.ticket_medio,
-    dias_desde_ultima_compra: c.dias_desde_ultima_compra,
-    intervalo_medio_recompra: c.intervalo_medio_recompra,
-    score_final: c.score_final,
-    next_best_action: c.next_best_action,
-    action_priority: c.action_priority,
-    last_order_at: c.last_order_at,
-    last_whatsapp_at: c.last_whatsapp_at || null,
-    updated_at: new Date().toISOString(),
-    suggested_whatsapp_message: c.suggested_whatsapp_message || null
-  }));
-  for(let i=0;i<rows.length;i+=100){
-    await ctx.supaClient.from("customer_intelligence").upsert(rows.slice(i,i+100),{onConflict:"cliente_id"});
+  const isUuid = (v)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v||"").trim());
+  const isEmail = (v)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||"").trim());
+  const onlyDigits = (v)=>String(v||"").replace(/\D/g,"");
+
+  let cliRows = [];
+  try{
+    const {data, error} = await ctx.supaClient.from("v2_clientes").select("id,doc,email,telefone").limit(10000);
+    if(!error && Array.isArray(data)) cliRows = data;
+  }catch(_e){}
+  const byDoc = {};
+  const byEmail = {};
+  const byPhone = {};
+  (cliRows||[]).forEach(r=>{
+    const id = r?.id;
+    const doc = String(r?.doc||"").trim().toLowerCase();
+    const email = String(r?.email||"").trim().toLowerCase();
+    const phone = onlyDigits(r?.telefone||"");
+    if(id && doc) byDoc[doc] = id;
+    if(id && email) byEmail[email] = id;
+    if(id && phone) byPhone[phone] = id;
+  });
+
+  const rows = intel.map(c=>{
+    const rawId = String(c?.cliente_id||"").trim();
+    let customerId = null;
+    if(isUuid(rawId)) customerId = rawId;
+    if(!customerId){
+      const docDigits = onlyDigits(rawId);
+      if(docDigits.length===11 || docDigits.length===14) customerId = byDoc[docDigits] || null;
+    }
+    if(!customerId && isEmail(rawId)) customerId = byEmail[rawId.toLowerCase()] || null;
+    if(!customerId){
+      const phoneDigits = onlyDigits(c?.telefone||"");
+      if(phoneDigits.length>=10) customerId = byPhone[phoneDigits] || null;
+    }
+    if(!customerId) return null;
+    return {
+      cliente_id: customerId,
+      nome: c.nome,
+      total_pedidos: c.total_pedidos,
+      valor_total: c.valor_total,
+      ticket_medio: c.ticket_medio,
+      dias_desde_ultima_compra: c.dias_desde_ultima_compra,
+      intervalo_medio_recompra: c.intervalo_medio_recompra,
+      score_final: c.score_final,
+      next_best_action: c.next_best_action,
+      action_priority: c.action_priority,
+      last_order_at: c.last_order_at,
+      last_whatsapp_at: c.last_whatsapp_at || null,
+      updated_at: new Date().toISOString(),
+      suggested_whatsapp_message: c.suggested_whatsapp_message || null
+    };
+  }).filter(Boolean);
+  let mustFallback = false;
+  if(rows.length){
+    for(let i=0;i<rows.length;i+=100){
+      const {error} = await ctx.supaClient.from("customer_intelligence").upsert(rows.slice(i,i+100),{onConflict:"cliente_id"});
+      if(error){ mustFallback = true; break; }
+    }
+  }else{
+    mustFallback = true;
+  }
+  if(mustFallback){
+    const legacyRows = intel.map(c=>({
+      cliente_id: c.cliente_id,
+      nome: c.nome,
+      total_pedidos: c.total_pedidos,
+      valor_total: c.valor_total,
+      ticket_medio: c.ticket_medio,
+      dias_desde_ultima_compra: c.dias_desde_ultima_compra,
+      intervalo_medio_recompra: c.intervalo_medio_recompra,
+      score_final: c.score_final,
+      next_best_action: c.next_best_action,
+      action_priority: c.action_priority,
+      last_order_at: c.last_order_at,
+      last_whatsapp_at: c.last_whatsapp_at || null,
+      updated_at: new Date().toISOString(),
+      suggested_whatsapp_message: c.suggested_whatsapp_message || null
+    }));
+    for(let i=0;i<legacyRows.length;i+=100){
+      await ctx.supaClient.from("customer_intelligence").upsert(legacyRows.slice(i,i+100),{onConflict:"cliente_id"});
+    }
   }
 }
 
@@ -1203,7 +1267,8 @@ export async function runAI(ctx, type){
       }
     }catch(_e){}
   }catch(e){
-    if(resultEl) resultEl.innerHTML=`<div style="color:var(--red);font-size:12px">⚠ ${e.message}</div>`;
+    const safeErr = ctx.escapeHTML(e?.message || "Erro na função IA");
+    if(resultEl) resultEl.innerHTML=`<div style="color:var(--red);font-size:12px">⚠ ${safeErr}</div>`;
   } finally {
     if(btn){ btn.disabled=false; btn.innerHTML="✨ Analisar novamente"; }
   }

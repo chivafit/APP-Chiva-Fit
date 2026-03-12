@@ -8,6 +8,25 @@ function fecharModal(id){
   if(typeof globalThis.fecharModal === "function") globalThis.fecharModal(id);
 }
 
+function escapeJsSingleQuote(s){
+  return String(s||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g,"\\n");
+}
+
+function randomUUIDCompat(){
+  try{
+    if(globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") return globalThis.crypto.randomUUID();
+    if(globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function"){
+      const b = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      const hex = Array.from(b).map(x=>x.toString(16).padStart(2,"0")).join("");
+      return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    }
+  }catch(_e){}
+  return String(Date.now()) + String(Math.random()).slice(2);
+}
+
 function kpiCard(title, value, subtitle, color){
   if(typeof globalThis.kpiCard === "function") return globalThis.kpiCard(title, value, subtitle, color);
   return "";
@@ -66,15 +85,109 @@ const CAT_EMOJI = {cranberry:'🍒',tradicional:'🌾',lowcarb:'🥜',energy:'�
 const CAT_COLOR = {cranberry:'#e11d48',tradicional:'#d97706',lowcarb:'#16a34a',energy:'#7c3aed',protein:'#0284c7'};
 
 let allInsumos = safeJsonParse('crm_insumos', null) || Object.keys(PRECO_KG).map(function(nome,i){
-  return {id:i+1,nome:nome,estoque:0,minimo:2,critico:0.5,unidade:'kg',custo:PRECO_KG[nome],fornecedor:'',previsao:'',cat:'Insumo'};
+  var base = {
+    id: String(i+1),
+    nome: nome,
+    unidade: 'kg',
+    estoque_atual: 0,
+    estoque_minimo: 2,
+    custo_unitario: PRECO_KG[nome],
+    fornecedor: '',
+    lead_time_dias: 0,
+    updated_at: new Date().toISOString()
+  };
+  base.estoque = base.estoque_atual;
+  base.minimo = base.estoque_minimo;
+  base.custo = base.custo_unitario;
+  base.cat = 'Insumo';
+  return base;
 });
-let allOrdens = safeJsonParse('crm_ordens', null) || [];
+function migrateLegacyOrdensToProducao(){
+  var legacy = safeJsonParse('crm_ordens', null) || [];
+  var hasLegacy = Array.isArray(legacy) && legacy.some(function(o){ return o && Array.isArray(o.itens) && o.itens.length; });
+  if(!hasLegacy) return [];
+  var next = [];
+  legacy.forEach(function(o){
+    var st = String(o.status||'planejada');
+    var status = st==='producao' ? 'em_producao' : st==='concluida' ? 'concluida' : 'planejada';
+    var d = String(o.data || new Date().toISOString().slice(0,10));
+    (o.itens||[]).forEach(function(it){
+      if(!it || !it.produto) return;
+      next.push({
+        id: randomUUIDCompat(),
+        lote: null,
+        produto_id: String(it.produto),
+        quantidade_planejada: Number(it.qty)||0,
+        quantidade_produzida: 0,
+        data_producao: d,
+        status: status,
+        observacoes: 'Migrado do simulador antigo',
+        created_at: new Date().toISOString()
+      });
+    });
+  });
+  return next;
+}
 
-function saveInsumos(){ localStorage.setItem('crm_insumos',JSON.stringify(allInsumos)); }
-function saveOrdens(){ localStorage.setItem('crm_ordens',JSON.stringify(allOrdens)); }
+let allOrdens = safeJsonParse('crm_ordens_producao', null);
+if(!Array.isArray(allOrdens) || !allOrdens.length){
+  var migrated = migrateLegacyOrdensToProducao();
+  allOrdens = Array.isArray(migrated) && migrated.length ? migrated : [];
+  localStorage.setItem('crm_ordens_producao', JSON.stringify(allOrdens));
+}
+let allMovInsumos = safeJsonParse('crm_insumo_movs', null) || [];
+let allMovimentosEstoque = safeJsonParse('crm_movimentos_estoque', null) || [];
+let allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || [];
+let allProdutosReceitas = safeJsonParse('crm_receitas_produtos_produtos', null) || Object.keys(RECEITAS_REAIS);
 
-function getEstStatus(i){ if(!i.estoque||i.estoque<=0)return 'zerado'; if(i.estoque<=i.critico)return 'critico'; if(i.estoque<=i.minimo)return 'baixo'; return 'ok'; }
-function getEstPct(i){ var ref=Math.max(i.minimo*1.5,1); return Math.min(100,(i.estoque/ref)*100); }
+let movFilters = { q:'', tipo:'', from:'', to:'' };
+
+function normalizeInsumo(i){
+  if(!i) return i;
+  if(i.estoque_atual == null) i.estoque_atual = Number(i.estoque)||0;
+  if(i.estoque_minimo == null) i.estoque_minimo = Number(i.minimo)||0;
+  if(i.custo_unitario == null) i.custo_unitario = Number(i.custo)||0;
+  if(i.unidade == null) i.unidade = i.un || 'kg';
+  if(i.fornecedor == null) i.fornecedor = '';
+  if(i.lead_time_dias == null) i.lead_time_dias = 0;
+  if(i.updated_at == null) i.updated_at = new Date().toISOString();
+  i.estoque = Number(i.estoque_atual)||0;
+  i.minimo = Number(i.estoque_minimo)||0;
+  i.custo = Number(i.custo_unitario)||0;
+  return i;
+}
+
+function saveInsumos(){
+  allInsumos.forEach(normalizeInsumo);
+  localStorage.setItem('crm_insumos',JSON.stringify(allInsumos));
+  if(typeof globalThis.syncInsumosToSupabase === "function") globalThis.syncInsumosToSupabase(allInsumos);
+}
+function saveOrdens(){
+  localStorage.setItem('crm_ordens_producao', JSON.stringify(allOrdens));
+  if(typeof globalThis.syncOrdensProducaoToSupabase === "function") globalThis.syncOrdensProducaoToSupabase(allOrdens);
+}
+function saveMovInsumos(){ localStorage.setItem('crm_insumo_movs', JSON.stringify(allMovInsumos)); }
+function saveMovimentosEstoque(){ localStorage.setItem('crm_movimentos_estoque', JSON.stringify(allMovimentosEstoque)); }
+function saveReceitasProdutos(){
+  localStorage.setItem('crm_receitas_produtos', JSON.stringify(allReceitasProdutos));
+  if(typeof globalThis.syncReceitasToSupabase === "function") globalThis.syncReceitasToSupabase(allReceitasProdutos);
+}
+function saveProdutosReceitas(){
+  localStorage.setItem('crm_receitas_produtos_produtos', JSON.stringify(allProdutosReceitas));
+}
+
+function getEstStatus(i){
+  normalizeInsumo(i);
+  var est = Number(i.estoque_atual)||0;
+  var min = Number(i.estoque_minimo)||0;
+  if(est < min) return 'baixo';
+  return 'ok';
+}
+function getEstPct(i){
+  normalizeInsumo(i);
+  var ref = Math.max((Number(i.estoque_minimo)||0)*1.5, 1);
+  return Math.min(100, ((Number(i.estoque_atual)||0)/ref)*100);
+}
 
 function fmtBRL(v){
   var n=Number(v)||0;
@@ -103,23 +216,69 @@ function daysBetween(a,b){
 }
 
 function isOrderOpen(o){
-  return o && (o.status==='planejada' || o.status==='producao');
+  var st = String(o && o.status || '');
+  return st === 'planejada' || st === 'em_producao';
+}
+
+function convertQty(qty, fromUnit, toUnit){
+  var q = Number(qty)||0;
+  var f = String(fromUnit||'').toLowerCase();
+  var t = String(toUnit||'').toLowerCase();
+  if(!f || !t || f===t) return q;
+  if(f==='g' && t==='kg') return q/1000;
+  if(f==='kg' && t==='g') return q*1000;
+  return q;
+}
+
+function getRecipeLinesForProduct(produtoId){
+  try{
+    allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || allReceitasProdutos || [];
+  }catch(_e){}
+  var pid = String(produtoId||"");
+  var lines = (allReceitasProdutos||[]).filter(function(r){ return r && String(r.produto_id||"")===pid; });
+  if(lines.length) return lines;
+  var fallback = RECEITAS_REAIS[pid];
+  if(!fallback || !fallback.insumos) return [];
+  var byName = {};
+  (allInsumos||[]).forEach(function(i){ normalizeInsumo(i); byName[String(i.nome||"").toLowerCase()] = i; });
+  return Object.entries(fallback.insumos).map(function(e){
+    var nome = String(e[0]||"");
+    var g = Number(e[1]||0) || 0;
+    var ins = byName[nome.toLowerCase()] || null;
+    return {
+      id: null,
+      produto_id: pid,
+      insumo_id: ins ? String(ins.id) : nome,
+      quantidade_por_unidade: g,
+      unidade: 'g'
+    };
+  });
+}
+
+function computeNeedsForOrderUnits(o, qtyUnits){
+  var nec={};
+  if(!o) return nec;
+  var prod = String(o.produto_id||"");
+  var units = Number(qtyUnits||0) || 0;
+  if(!prod || units<=0) return nec;
+  var lines = getRecipeLinesForProduct(prod);
+  if(!lines.length) return nec;
+  var byId = {};
+  (allInsumos||[]).forEach(function(i){ normalizeInsumo(i); byId[String(i.id)] = i; });
+  lines.forEach(function(l){
+    var insId = String(l.insumo_id||"");
+    var ins = byId[insId];
+    var insUnit = (ins && ins.unidade) ? String(ins.unidade) : String(l.unidade||'g');
+    var needPer = Number(l.quantidade_por_unidade||0) || 0;
+    var need = needPer * units;
+    var needInStockUnit = convertQty(need, l.unidade||'g', insUnit);
+    nec[insId] = (nec[insId]||0) + needInStockUnit;
+  });
+  return nec;
 }
 
 function computeNeedsForOrder(o){
-  var nec={};
-  if(!o||!o.itens||!o.itens.length) return nec;
-  o.itens.forEach(function(it){
-    var r=RECEITAS_REAIS[it.produto];
-    if(!r) return;
-    Object.entries(r.insumos).forEach(function(e){
-      var nome=e[0];
-      var g=e[1];
-      var kg=(g*(it.qty||0))/1000;
-      nec[nome]=(nec[nome]||0)+kg;
-    });
-  });
-  return nec;
+  return computeNeedsForOrderUnits(o, Number(o && o.quantidade_planejada || 0) || 0);
 }
 
 function computeNeedsForOrders(list){
@@ -164,12 +323,12 @@ function computeProductCoverage(prod, stockByName){
 
 function buildAvailableStockMap(){
   var byName={};
-  allInsumos.forEach(function(i){ byName[i.nome]=Number(i.estoque)||0; });
+  allInsumos.forEach(function(i){ normalizeInsumo(i); byName[String(i.id)]=Number(i.estoque_atual)||0; });
   var reserved=computeNeedsForOrders(allOrdens.filter(isOrderOpen));
   Object.entries(reserved).forEach(function(e){
-    var nome=e[0];
-    var kg=e[1];
-    byName[nome]=Math.max(0,(Number(byName[nome])||0)-kg);
+    var insumoId=e[0];
+    var q=e[1];
+    byName[insumoId]=Math.max(0,(Number(byName[insumoId])||0)-q);
   });
   return {available:byName,reserved:reserved};
 }
@@ -258,26 +417,46 @@ function computeInsumoOperationalTable(){
 function renderProdKpis(){
   var el=document.getElementById('prod-kpis'); if(!el) return;
   var ok=allInsumos.filter(function(i){return getEstStatus(i)==='ok';}).length;
-  var atencao=allInsumos.filter(function(i){return ['baixo','critico','zerado'].includes(getEstStatus(i));}).length;
+  var atencao=allInsumos.filter(function(i){return getEstStatus(i)==='baixo';}).length;
   var valorTotal=allInsumos.reduce(function(s,i){return s+(i.estoque||0)*i.custo;},0);
-  var ordsAtivas=allOrdens.filter(function(o){return o.status==='producao';}).length;
+  var ordsAtivas=allOrdens.filter(function(o){return String(o.status||'')==='em_producao';}).length;
   var open=allOrdens.filter(isOrderOpen);
   var nec=computeNeedsForOrders(open);
+  var idxById={};
+  allInsumos.forEach(function(i){ normalizeInsumo(i); idxById[String(i.id)] = i; });
   var faltaCusto=Object.entries(nec).reduce(function(s,e){
-    var nome=e[0],kg=e[1];
-    var ins=allInsumos.find(function(x){return x.nome===nome;});
-    var disp=ins?(Number(ins.estoque)||0):0;
-    var falta=Math.max(0, kg-disp);
-    return s + falta*(Number((ins && ins.custo)||PRECO_KG[nome]||0)||0);
+    var insId=e[0],need=Number(e[1]||0)||0;
+    var ins=idxById[String(insId)];
+    var disp=ins?(Number(ins.estoque_atual)||0):0;
+    var falta=Math.max(0, need-disp);
+    var unitCost=Number((ins && ins.custo_unitario)||0)||0;
+    return s + falta*unitCost;
   },0);
   var stock=buildAvailableStockMap();
-  var blockedProducts=Object.keys(RECEITAS_REAIS).filter(function(p){
-    return computeProductCoverage(p, stock.available).max_units<=0;
+  var products=[].concat(allProdutosReceitas||[]);
+  (allReceitasProdutos||[]).forEach(function(rp){
+    var p=String(rp && rp.produto_id || '').trim();
+    if(p && products.indexOf(p)<0) products.push(p);
+  });
+  var blockedProducts=products.filter(function(p){
+    var lines=getRecipeLinesForProduct(p);
+    if(!lines.length) return false;
+    var best=Infinity;
+    lines.forEach(function(l){
+      var ins=idxById[String(l.insumo_id||"")];
+      var insUnit=(ins && ins.unidade) ? String(ins.unidade) : String(l.unidade||'g');
+      var need=convertQty(Number(l.quantidade_por_unidade||0)||0, l.unidade||'g', insUnit);
+      if(!need || need<=0){ best = 0; return; }
+      var avail=Number(stock.available[String(l.insumo_id||"")]||0)||0;
+      var units=Math.floor(avail/need);
+      if(units<best) best=units;
+    });
+    if(best===Infinity) best=0;
+    return best<=0;
   }).length;
   el.innerHTML=
     kpiCard('Insumos',allInsumos.length,'cadastrados','var(--text)')+
-    kpiCard('Críticos',allInsumos.filter(function(i){return ['critico','zerado'].includes(getEstStatus(i));}).length,'prioridade alta','var(--red)')+
-    kpiCard('Atenção',atencao,atencao>0?'repor estoque':'tudo ok',atencao>0?'var(--amber)':'var(--green)')+
+    kpiCard('Baixo estoque',atencao,atencao>0?'repor estoque':'tudo ok',atencao>0?'var(--red)':'var(--green)')+
     kpiCard('Falta p/ OPs',fmtBRL(faltaCusto),open.length?'ordens abertas':'—','var(--red)')+
     kpiCard('Valor em Estoque',fmtBRL(valorTotal),'custo total','var(--indigo-hi)')+
     kpiCard('Ordens Ativas',ordsAtivas,'em produção','var(--amber)')+
@@ -289,270 +468,251 @@ function renderInsumos(){
   var q=((document.getElementById('search-insumo')||{}).value||'').toLowerCase();
   var sf=(document.getElementById('fil-insumo-status')||{}).value||'';
   renderChartEstoque();
-  var opTable=computeInsumoOperationalTable();
-  var filtered=opTable.filter(function(r){
-    if(q && !String(r.nome||'').toLowerCase().includes(q)) return false;
-    if(sf && r.status!==sf) return false;
+  var list=[].concat(allInsumos).map(normalizeInsumo);
+  list = list.filter(function(i){
+    if(q && !String(i.nome||'').toLowerCase().includes(q)) return false;
+    var st=getEstStatus(i);
+    if(sf && st!==sf) return false;
     return true;
-  });
-  if(!filtered.length){el.innerHTML='<div class="empty">Nenhum insumo encontrado</div>';return;}
+  }).sort(function(a,b){ return String(a.nome||"").localeCompare(String(b.nome||"")); });
 
-  var statusLabel={ok:'OK',baixo:'Baixo',critico:'Crítico',zerado:'Zerado'};
-  var statusTone={ok:'tone-ok',baixo:'tone-warn',critico:'tone-crit',zerado:'tone-off'};
+  if(!list.length){el.innerHTML='<div class="empty">Nenhum insumo encontrado</div>';return;}
 
-  var alerts=opTable.filter(function(r){
-    return r.falta_op>0 || ['zerado','critico','baixo'].includes(r.status);
-  }).slice(0,8);
-
-  var restock=opTable.filter(function(r){
-    return r.comprar>0 || r.falta_op>0;
-  }).slice(0,10);
-
-  var stock=buildAvailableStockMap();
-  var prodCoverage=Object.keys(RECEITAS_REAIS).map(function(p){
-    var cov=computeProductCoverage(p, stock.available);
-    return {produto:p, max_units:cov.max_units, limiting:cov.limiting};
-  }).sort(function(a,b){return a.max_units-b.max_units;});
-  var lowCoverage=prodCoverage.filter(function(x){return x.max_units<=80;}).slice(0,12);
-
-  el.innerHTML=
-    '<div class="prod-cc">'+
-      '<div class="prod-cc-grid">'+
-        '<div class="prod-panel">'+
-          '<div class="prod-panel-hdr"><div><div class="prod-panel-title">Alertas críticos</div><div class="prod-panel-sub">Prioridade por risco, impacto em OPs e cobertura.</div></div></div>'+
-          (alerts.length?(
-            '<div class="prod-alert-list">'+alerts.map(function(r){
-              var i=r.insumo;
-              var buy=r.comprar>0?('Comprar '+fmtNum(r.comprar,2)+' '+escapeHTML(i.unidade||'kg')):'—';
-              var need=r.falta_op>0?('Falta p/ OPs '+fmtNum(r.falta_op,2)+' kg'):(r.reservado>0?('Reservado '+fmtNum(r.reservado,2)+' kg'):'Sem OPs pendentes');
-              return '<div class="prod-alert-row '+statusTone[r.status]+'">'+
-                '<div class="prod-alert-main">'+
-                  '<div class="prod-alert-name">'+escapeHTML(r.nome)+'</div>'+
-                  '<div class="prod-alert-meta">'+
-                    '<span class="prod-chip '+statusTone[r.status]+'">'+statusLabel[r.status]+'</span>'+
-                    '<span class="prod-chip">Estoque '+fmtNum(r.estoque,2)+' kg</span>'+
-                    '<span class="prod-chip">'+escapeHTML(need)+'</span>'+
-                    '<span class="prod-chip">Impacta '+r.impacto_produtos+' receitas</span>'+
-                  '</div>'+
-                '</div>'+
-                '<div class="prod-alert-side">'+
-                  '<div class="prod-alert-buy">'+escapeHTML(buy)+'</div>'+
-                  '<button type="button" class="prod-btn" onclick="abrirModalInsumo('+i.id+')">Editar</button>'+
-                '</div>'+
-              '</div>';
-            }).join('')+'</div>'
-          ):('<div class="empty" style="padding:18px 0">Sem alertas críticos agora.</div>'))+
-        '</div>'+
-
-        '<div class="prod-panel">'+
-          '<div class="prod-panel-hdr"><div><div class="prod-panel-title">Reposição recomendada</div><div class="prod-panel-sub">Sugestão = mínimo + reserva de OPs.</div></div></div>'+
-          (restock.length?(
-            '<div class="prod-restock-list">'+
-              '<div class="prod-restock-head">'+
-                '<div>Insumo</div><div>Status</div><div style="text-align:right">Comprar</div><div style="text-align:right">Previsão</div>'+
-              '</div>'+
-              restock.map(function(r){
-                var previsao=r.previsao_str?new Date(r.previsao_str).toLocaleDateString('pt-BR'):'—';
-                var buyKg=r.comprar>0?fmtNum(r.comprar,2)+' kg':'—';
-                var warn=r.dias_previsao!=null && r.dias_previsao<=3 ? 'warn' : '';
-                return '<div class="prod-restock-row '+warn+'">'+
-                  '<div class="prod-restock-name">'+escapeHTML(r.nome)+'</div>'+
-                  '<div><span class="prod-chip '+statusTone[r.status]+'">'+statusLabel[r.status]+'</span></div>'+
-                  '<div class="prod-restock-num">'+escapeHTML(buyKg)+'</div>'+
-                  '<div class="prod-restock-num">'+escapeHTML(previsao)+'</div>'+
-                '</div>';
-              }).join('')+
-            '</div>'
-          ):('<div class="empty" style="padding:18px 0">Sem itens para repor agora.</div>'))+
-        '</div>'+
-      '</div>'+
-
-      '<div class="prod-panel">'+
-        '<div class="prod-panel-hdr"><div><div class="prod-panel-title">Cobertura estimada por produto</div><div class="prod-panel-sub">Considera o estoque disponível após reservar ordens abertas.</div></div></div>'+
-        (lowCoverage.length?(
-          '<div class="prod-cov-list">'+
-            '<div class="prod-cov-head"><div>Produto</div><div style="text-align:right">Cobertura (un)</div><div>Gargalo</div></div>'+
-            lowCoverage.map(function(p){
-              var units=p.max_units;
-              var tone=units<=0?'tone-off':units<=20?'tone-crit':units<=50?'tone-warn':'tone-ok';
-              return '<div class="prod-cov-row">'+
-                '<div class="prod-cov-prod">'+escapeHTML(p.produto)+'</div>'+
-                '<div style="text-align:right"><span class="prod-chip '+tone+'">'+escapeHTML(String(units))+'</span></div>'+
-                '<div class="prod-cov-lim">'+escapeHTML(p.limiting||'—')+'</div>'+
-              '</div>';
-            }).join('')+
-          '</div>'
-        ):('<div class="empty" style="padding:18px 0">Nenhum produto com baixa cobertura.</div>'))+
-      '</div>'+
-
-      '<div class="prod-panel">'+
-        '<div class="prod-panel-hdr"><div><div class="prod-panel-title">Estoque detalhado</div><div class="prod-panel-sub">Estoque, reserva para OPs, disponibilidade e valor.</div></div></div>'+
-        '<div class="prod-stock-list">'+
-          filtered.map(function(r){
-            var i=r.insumo;
-            var st=r.status;
-            var pct=getEstPct(i);
-            var ve=r.valor_estoque;
-            var barTone=st==='ok'?'tone-ok':st==='baixo'?'tone-warn':st==='critico'?'tone-crit':'tone-off';
-            var cover=r.dias_cobertura==null?'—':(r.dias_cobertura+'d');
-            return '<div class="prod-stock-card '+barTone+'">'+
-              '<div class="prod-stock-main">'+
-                '<div class="prod-stock-top">'+
-                  '<div class="prod-stock-name">'+escapeHTML(r.nome)+'</div>'+
-                  '<div class="prod-stock-badges">'+
-                    '<span class="prod-chip '+statusTone[st]+'">'+statusLabel[st]+'</span>'+
-                    '<span class="prod-chip">Cobertura '+escapeHTML(String(cover))+'</span>'+
-                    (r.reservado>0?('<span class="prod-chip">Reservado '+fmtNum(r.reservado,2)+' kg</span>'):'')+
-                  '</div>'+
-                '</div>'+
-                '<div class="prod-stock-meta">'+
-                  '<span>Disponível <b>'+fmtNum(r.disponivel,2)+' kg</b></span>'+
-                  '<span>Estoque '+fmtNum(r.estoque,2)+' kg</span>'+
-                  '<span>Mín. '+fmtNum(i.minimo||0,2)+' kg</span>'+
-                  '<span>Valor '+escapeHTML(fmtBRL(ve))+'</span>'+
-                '</div>'+
-                '<div class="prod-stock-bar"><div class="prod-stock-fill" style="width:'+pct+'%"></div></div>'+
-              '</div>'+
-              '<div class="prod-stock-actions">'+
-                (r.comprar>0?('<div class="prod-stock-cta">Sugestão: <b>'+fmtNum(r.comprar,2)+' kg</b></div>'):'<div class="prod-stock-cta">OK</div>')+
-                '<button type="button" class="prod-btn" onclick="abrirModalInsumo('+i.id+')">Editar</button>'+
-              '</div>'+
-            '</div>';
+  el.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+      '<table class="chiva-table">'+
+        '<thead><tr>'+
+          '<th>Insumo</th>'+
+          '<th style="text-align:right">Estoque atual</th>'+
+          '<th style="text-align:right">Mínimo</th>'+
+          '<th style="text-align:right">Custo</th>'+
+          '<th>Status</th>'+
+          '<th></th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          list.map(function(i){
+            var est=fmtNum(i.estoque_atual,2)+' '+escapeHTML(i.unidade||'');
+            var min=fmtNum(i.estoque_minimo,2)+' '+escapeHTML(i.unidade||'');
+            var custo=fmtBRL(i.custo_unitario||0);
+            var st=getEstStatus(i);
+            var badge = st==='baixo'
+              ? '<span class="chiva-badge chiva-badge-red">baixo</span>'
+              : '<span class="chiva-badge chiva-badge-green">ok</span>';
+            var rowClass = st==='baixo' ? 'insumo-row-low' : '';
+            var safeId = escapeJsSingleQuote(String(i.id||""));
+            return '<tr class="'+rowClass+'">'+
+              '<td><span style="font-weight:800;color:var(--text)">'+escapeHTML(i.nome||'—')+'</span></td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(est)+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(min)+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(custo)+'</td>'+
+              '<td>'+badge+'</td>'+
+              '<td style="text-align:right;white-space:nowrap">'+
+                '<button class="opp-mini-btn" onclick="abrirModalEntradaInsumo(\''+safeId+'\')">Entrada</button> '+
+                '<button class="opp-mini-btn" onclick="abrirModalInsumo(\''+safeId+'\')">Editar</button>'+
+              '</td>'+
+            '</tr>';
           }).join('')+
-        '</div>'+
-      '</div>'+
+        '</tbody>'+
+      '</table>'+
     '</div>';
 }
 
 function renderOrdens(){
   var el=document.getElementById('ordens-prod-list'); if(!el) return;
-  if(!allOrdens.length){el.innerHTML='<div class="empty" style="padding:40px 0">Nenhuma ordem. Use o Simulador para criar.</div>';return;}
   var q=((document.getElementById('search-ordem')||{}).value||'').toLowerCase();
   var sf=(document.getElementById('fil-ordem-status')||{}).value||'';
-  var rf=(document.getElementById('fil-ordem-ready')||{}).value||'';
-  var stL={planejada:'Planejada',producao:'Em Produção',concluida:'Concluída',cancelada:'Cancelada'};
-  var stC={planejada:'os-planejada',producao:'os-producao',concluida:'os-concluida',cancelada:'os-cancelada'};
-  var idx=buildInsumoIndex();
-  var list=[].concat(allOrdens).reverse().map(function(o){
-    var itStr=o.itens?o.itens.map(function(it){return escapeHTML(it.qty+'x '+it.produto);}).join(', '):'';
-    var nec=computeNeedsForOrder(o);
-    var faltaCusto=Object.entries(nec).reduce(function(s,e){
-      var nome=e[0],kg=e[1];
-      var ins=idx[nome];
-      var disp=ins?(Number(ins.estoque)||0):0;
-      var falta=Math.max(0, kg-disp);
-      var custo=falta*(Number((ins && ins.custo)||PRECO_KG[nome]||0)||0);
-      return s+custo;
-    },0);
-    var isBlocked=faltaCusto>0.001 && (o.status==='planejada' || o.status==='producao');
-    var readyLabel=isBlocked?('Bloqueada • '+fmtBRL(faltaCusto)):'Pronta';
-    if(q && !(String(o.nome||'').toLowerCase().includes(q) || itStr.toLowerCase().includes(q))) return null;
-    if(sf && o.status!==sf) return null;
-    if(rf){
-      if(rf==='pronta' && isBlocked) return null;
-      if(rf==='bloqueada' && !isBlocked) return null;
+  var stLabel={planejada:'Planejada',em_producao:'Em produção',concluida:'Concluída'};
+  var stBadge=function(st){
+    var s=String(st||'planejada');
+    if(s==='concluida') return '<span class="chiva-badge chiva-badge-green">concluída</span>';
+    if(s==='em_producao') return '<span class="chiva-badge chiva-badge-amber">em produção</span>';
+    return '<span class="chiva-badge chiva-badge-blue">planejada</span>';
+  };
+
+  var list=[].concat(allOrdens||[]).map(function(o){
+    var obj=o||{};
+    obj.lote = obj.lote || '';
+    obj.produto_id = obj.produto_id || '';
+    obj.quantidade_planejada = Number(obj.quantidade_planejada||0)||0;
+    obj.quantidade_produzida = Number(obj.quantidade_produzida||0)||0;
+    obj.custo_total_lote = obj.custo_total_lote == null ? null : (Number(obj.custo_total_lote||0) || 0);
+    obj.data_producao = obj.data_producao || '';
+    obj.status = obj.status || 'planejada';
+    return obj;
+  }).sort(function(a,b){
+    var ad = a.data_producao ? new Date(a.data_producao).getTime() : 0;
+    var bd = b.data_producao ? new Date(b.data_producao).getTime() : 0;
+    return bd-ad;
+  }).filter(function(o){
+    if(q){
+      var hit = String(o.lote||'').toLowerCase().includes(q) || String(o.produto_id||'').toLowerCase().includes(q);
+      if(!hit) return false;
     }
-    var quick='';
-    if(o.status==='planejada'){
-      quick='<button type="button" class="prod-btn '+(isBlocked?'disabled':'')+'" onclick="setOrdemStatusQuick('+o.id+',\'producao\')" '+(isBlocked?'disabled':'')+'>Iniciar</button>';
-    }else if(o.status==='producao'){
-      quick='<button type="button" class="prod-btn" onclick="setOrdemStatusQuick('+o.id+',\'concluida\')">Concluir</button>'+
-        '<button type="button" class="prod-btn" onclick="baixarEstoqueDaOrdem('+o.id+')">Baixar estoque</button>';
-    }
-    return '<div class="ordem-card prod-ordem">'+
-      '<div class="ordem-head">'+
-        '<div>'+
-          '<div class="prod-ordem-title">'+escapeHTML(o.nome)+'</div>'+
-          '<div class="prod-ordem-items">'+itStr+'</div>'+
-          '<div class="prod-ordem-meta">'+escapeHTML(o.data||'')+(o.responsavel?' · '+escapeHTML(o.responsavel):'')+'</div>'+
-          '<div class="prod-ordem-tags">'+
-            '<span class="prod-chip '+(isBlocked?'tone-crit':'tone-ok')+'">'+escapeHTML(readyLabel)+'</span>'+
-            (o.custo_total?'<span class="prod-chip">Custo est. '+escapeHTML(fmtBRL(o.custo_total))+'</span>':'')+
-          '</div>'+
-        '</div>'+
-        '<div class="prod-ordem-actions">'+
-          '<span class="ordem-status '+stC[o.status]+'">'+stL[o.status]+'</span>'+
-          '<div class="prod-ordem-btns">'+
-            quick+
-            '<button type="button" class="prod-btn" onclick="verDetalheOrdem('+o.id+')">Impacto</button>'+
-            '<button type="button" class="prod-btn" onclick="abrirModalPedidoProd('+o.id+')">Editar</button>'+
-          '</div>'+
-        '</div>'+
-      '</div>'+
-      '<div id="detalhe-ordem-'+o.id+'" class="prod-ordem-detail" style="display:none"></div>'+
-    '</div>';
-  }).filter(Boolean);
+    if(sf && String(o.status||'')!==sf) return false;
+    return true;
+  });
 
   var toolbar=
     '<div class="prod-ordem-toolbar">'+
-      '<input id="search-ordem" class="filter-inp" placeholder="🔍 Buscar ordem..." value="'+escapeHTML(q)+'" oninput="renderOrdens()" style="flex:1;min-width:180px"/>'+
+      '<input id="search-ordem" class="filter-inp" placeholder="🔍 Buscar por lote/produto..." value="'+escapeHTML(q)+'" oninput="renderOrdens()" style="flex:1;min-width:180px"/>'+
       '<select id="fil-ordem-status" class="filter-sel" onchange="renderOrdens()">'+
         '<option value="">Todos status</option>'+
         '<option value="planejada" '+(sf==='planejada'?'selected':'')+'>Planejada</option>'+
-        '<option value="producao" '+(sf==='producao'?'selected':'')+'>Em produção</option>'+
+        '<option value="em_producao" '+(sf==='em_producao'?'selected':'')+'>Em produção</option>'+
         '<option value="concluida" '+(sf==='concluida'?'selected':'')+'>Concluída</option>'+
-        '<option value="cancelada" '+(sf==='cancelada'?'selected':'')+'>Cancelada</option>'+
-      '</select>'+
-      '<select id="fil-ordem-ready" class="filter-sel" onchange="renderOrdens()">'+
-        '<option value="">Prontas + bloqueadas</option>'+
-        '<option value="pronta" '+(rf==='pronta'?'selected':'')+'>Só prontas</option>'+
-        '<option value="bloqueada" '+(rf==='bloqueada'?'selected':'')+'>Só bloqueadas</option>'+
       '</select>'+
     '</div>';
 
-  el.innerHTML=toolbar + (list.length?list.join(''):'<div class="empty" style="padding:40px 0">Nenhuma ordem com esses filtros.</div>');
-}
-
-function verDetalheOrdem(id){
-  var o=allOrdens.find(function(x){return x.id===id;});
-  var el=document.getElementById('detalhe-ordem-'+id);
-  if(!el||!o||!o.itens)return;
-  if(el.style.display!=='none'){el.style.display='none';return;}
-  var nec=computeNeedsForOrder(o);
-  var idx=buildInsumoIndex();
-  var totalFalta=0;
-  var rows=Object.entries(nec).sort(function(a,b){return b[1]-a[1];}).map(function(e){
-    var nome=e[0],nKg=e[1];
-    var ins=idx[nome];
-    var disp=ins?(Number(ins.estoque)||0):0;
-    var falta=Math.max(0, nKg-disp);
-    var custo=falta*(Number((ins && ins.custo)||PRECO_KG[nome]||0)||0);
-    totalFalta+=custo;
-    var ok=falta<0.001;
-    return '<div class="prod-nec-row">'+
-      '<div class="prod-nec-name">'+escapeHTML(nome)+'</div>'+
-      '<div class="prod-nec-num">'+fmtNum(nKg,3)+'</div>'+
-      '<div class="prod-nec-num '+(disp>0?'ok':'bad')+'">'+fmtNum(disp,3)+'</div>'+
-      '<div class="prod-nec-num '+(ok?'ok':'bad')+'">'+(ok?'—':fmtNum(falta,3))+'</div>'+
-      '<div class="prod-nec-num '+(ok?'muted':'bad')+'">'+(ok?'—':fmtBRL(custo))+'</div>'+
-      '<div class="prod-nec-tag"><span class="prod-chip '+(ok?'tone-ok':'tone-crit')+'">'+(ok?'OK':'Comprar')+'</span></div>'+
-    '</div>';
-  });
-
-  var canStart=(o.status==='planejada' && totalFalta<0.01);
-  var canFinish=(o.status==='producao');
-  var btns='';
-  if(canStart) btns+='<button type="button" class="prod-btn" onclick="setOrdemStatusQuick('+o.id+',\'producao\')">Iniciar</button>';
-  if(canFinish){
-    btns+='<button type="button" class="prod-btn" onclick="baixarEstoqueDaOrdem('+o.id+')">Baixar estoque</button>';
-    btns+='<button type="button" class="prod-btn" onclick="setOrdemStatusQuick('+o.id+',\'concluida\')">Concluir</button>';
+  if(!list.length){
+    el.innerHTML = toolbar + '<div class="empty" style="padding:40px 0">Nenhuma ordem de produção.</div>';
+    return;
   }
 
-  el.innerHTML=
-    '<div class="prod-nec">'+
-      '<div class="prod-nec-top">'+
-        '<div>'+
-          '<div class="prod-nec-title">Impacto da ordem</div>'+
-          '<div class="prod-nec-sub">'+(totalFalta>0.01?('Bloqueada: falta '+fmtBRL(totalFalta)+' em insumos'):'Estoque suficiente para produzir')+'</div>'+
-        '</div>'+
-        (btns?'<div class="prod-nec-actions">'+btns+'</div>':'')+
-      '</div>'+
-      '<div class="prod-nec-head">'+
-        '<div>Insumo</div><div style="text-align:right">Precisa (kg)</div><div style="text-align:right">Estoque (kg)</div><div style="text-align:right">Falta (kg)</div><div style="text-align:right">Custo</div><div style="text-align:right">Status</div>'+
-      '</div>'+
-      '<div class="prod-nec-body">'+rows.join('')+'</div>'+
+  el.innerHTML =
+    toolbar +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+      '<table class="chiva-table">'+
+        '<thead><tr>'+
+          '<th>Lote</th>'+
+          '<th>Produto</th>'+
+          '<th style="text-align:right">Planejada</th>'+
+          '<th style="text-align:right">Produzida</th>'+
+          '<th style="text-align:right">Custo lote</th>'+
+          '<th>Data</th>'+
+          '<th>Status</th>'+
+          '<th></th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          list.map(function(o){
+            var safeId = escapeJsSingleQuote(String(o.id||""));
+            var canStart = String(o.status||'')==='planejada';
+            var canFinish = String(o.status||'')!=='concluida';
+            var custo = (o.custo_total_lote != null && Number(o.custo_total_lote||0)>0) ? fmtBRL(Number(o.custo_total_lote||0)||0) : '—';
+            return '<tr>'+
+              '<td class="chiva-table-mono">'+escapeHTML(o.lote||'—')+'</td>'+
+              '<td><span style="font-weight:800;color:var(--text)">'+escapeHTML(o.produto_id||'—')+'</span></td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtNum(o.quantidade_planejada,2))+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtNum(o.quantidade_produzida,2))+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(custo)+'</td>'+
+              '<td>'+escapeHTML(o.data_producao||'—')+'</td>'+
+              '<td>'+stBadge(o.status)+'</td>'+
+              '<td style="text-align:right;white-space:nowrap">'+
+                (canStart?('<button class="opp-mini-btn" onclick="setOrdemStatusQuick(\''+safeId+'\',\'em_producao\')">Iniciar</button> '):'')+
+                (canFinish?('<button class="opp-mini-btn" onclick="marcarOrdemConcluida(\''+safeId+'\')">Concluir</button> '):'')+
+                '<button class="opp-mini-btn" onclick="abrirModalPedidoProd(\''+safeId+'\')">Editar</button>'+
+              '</td>'+
+            '</tr>';
+          }).join('')+
+        '</tbody>'+
+      '</table>'+
     '</div>';
-  el.style.display='block';
+}
+
+function renderMovimentosEstoque(){
+  var el=document.getElementById('movimentos-estoque-list'); if(!el) return;
+  try{
+    allMovimentosEstoque = safeJsonParse('crm_movimentos_estoque', null) || allMovimentosEstoque || [];
+  }catch(_e){}
+  var qEl=document.getElementById('mov-search');
+  var tEl=document.getElementById('mov-tipo');
+  var dfEl=document.getElementById('mov-date-from');
+  var dtEl=document.getElementById('mov-date-to');
+  var q = (qEl ? qEl.value : movFilters.q) || '';
+  var tf = (tEl ? tEl.value : movFilters.tipo) || '';
+  var df = (dfEl ? dfEl.value : movFilters.from) || '';
+  var dt = (dtEl ? dtEl.value : movFilters.to) || '';
+  movFilters.q = String(q||'');
+  movFilters.tipo = String(tf||'');
+  movFilters.from = String(df||'');
+  movFilters.to = String(dt||'');
+  q = String(q||'').toLowerCase();
+
+  var idx={};
+  allInsumos.forEach(function(i){ normalizeInsumo(i); idx[String(i.id)] = i; });
+
+  var list=[].concat(allMovimentosEstoque||[]).map(function(m){
+    var created = String(m.created_at||'');
+    var date = created ? created.slice(0,10) : '';
+    var meta = (m.metadata && typeof m.metadata==='object') ? m.metadata : {};
+    var ins = idx[String(m.insumo_id||'')] || null;
+    return {
+      id: String(m.id||''),
+      tipo: String(m.tipo||''),
+      data: date,
+      insumo_id: String(m.insumo_id||''),
+      insumo_nome: ins ? String(ins.nome||'') : String(m.insumo_id||''),
+      unidade: String(m.unidade || (ins ? ins.unidade : '') || ''),
+      quantidade: Number(m.quantidade||0)||0,
+      ordem_id: m.ordem_id ? String(m.ordem_id) : '',
+      lote: m.lote || meta.lote || '',
+      produto_id: m.produto_id || meta.produto_id || '',
+      solicitado: Number(meta.solicitado||0)||0,
+      consumido: Number(meta.consumido||0)||0,
+      falta: Number(meta.falta||0)||0
+    };
+  }).filter(function(m){
+    if(tf && m.tipo!==tf) return false;
+    if(df && m.data && m.data < df) return false;
+    if(dt && m.data && m.data > dt) return false;
+    if(q){
+      var hit = String(m.lote||'').toLowerCase().includes(q) ||
+        String(m.produto_id||'').toLowerCase().includes(q) ||
+        String(m.insumo_nome||'').toLowerCase().includes(q);
+      if(!hit) return false;
+    }
+    return true;
+  }).sort(function(a,b){
+    return String(b.data||'').localeCompare(String(a.data||''));
+  });
+
+  var tipos = Array.from(new Set((allMovimentosEstoque||[]).map(function(m){ return String(m && m.tipo || '').trim(); }).filter(Boolean))).sort(function(a,b){return a.localeCompare(b);});
+  var tipoOpts = '<option value="">Todos tipos</option>' + tipos.map(function(t){ return '<option value="'+escapeHTML(t)+'" '+(tf===t?'selected':'')+'>'+escapeHTML(t)+'</option>'; }).join('');
+
+  var toolbar=
+    '<div class="prod-ordem-toolbar">'+
+      '<input id="mov-search" class="filter-inp" placeholder="🔍 Lote, produto, insumo..." value="'+escapeHTML(movFilters.q||'')+'" oninput="renderMovimentosEstoque()" style="flex:1;min-width:180px"/>'+
+      '<select id="mov-tipo" class="filter-sel" onchange="renderMovimentosEstoque()">'+tipoOpts+'</select>'+
+      '<input id="mov-date-from" class="filter-inp" type="date" value="'+escapeHTML(movFilters.from||'')+'" onchange="renderMovimentosEstoque()" style="min-width:140px"/>'+
+      '<input id="mov-date-to" class="filter-inp" type="date" value="'+escapeHTML(movFilters.to||'')+'" onchange="renderMovimentosEstoque()" style="min-width:140px"/>'+
+    '</div>';
+
+  if(!list.length){
+    el.innerHTML = toolbar + '<div class="empty" style="padding:40px 0">Nenhuma movimentação encontrada.</div>';
+    return;
+  }
+
+  el.innerHTML =
+    toolbar +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+      '<table class="chiva-table">'+
+        '<thead><tr>'+
+          '<th>Data</th>'+
+          '<th>Tipo</th>'+
+          '<th>Lote</th>'+
+          '<th>Produto</th>'+
+          '<th>Insumo</th>'+
+          '<th style="text-align:right">Qtd</th>'+
+          '<th style="text-align:right">Solicitado</th>'+
+          '<th style="text-align:right">Consumido</th>'+
+          '<th style="text-align:right">Falta</th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          list.map(function(m){
+            return '<tr>'+
+              '<td class="chiva-table-mono">'+escapeHTML(m.data||'—')+'</td>'+
+              '<td>'+escapeHTML(m.tipo||'—')+'</td>'+
+              '<td class="chiva-table-mono">'+escapeHTML(m.lote||'—')+'</td>'+
+              '<td>'+escapeHTML(m.produto_id||'—')+'</td>'+
+              '<td><span style="font-weight:800;color:var(--text)">'+escapeHTML(m.insumo_nome||'—')+'</span></td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtNum(m.quantidade,3)+' '+(m.unidade||''))+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(m.solicitado?fmtNum(m.solicitado,3):'—')+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(m.consumido?fmtNum(m.consumido,3):'—')+'</td>'+
+              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(m.falta?fmtNum(m.falta,3):'—')+'</td>'+
+            '</tr>';
+          }).join('')+
+        '</tbody>'+
+      '</table>'+
+    '</div>';
 }
 
 function renderSimuladorInputs(){
@@ -638,216 +798,582 @@ function calcularSimulador(){
 function salvarOrdemDeSimulacao(){
   if(!window._ultimaSimulacao)return;
   var itens=Object.entries(window._ultimaSimulacao.pedido).map(function(e){return{produto:e[0],qty:e[1]};});
-  var nome='Ordem '+new Date().toLocaleDateString('pt-BR')+' — '+itens.map(function(i){return i.qty+'x '+i.produto;}).join(', ');
-  var nova={id:Date.now(),nome:nome,itens:itens,data:new Date().toISOString().split('T')[0],status:'planejada',responsavel:'',obs:'',custo_total:window._ultimaSimulacao.custo_total};
-  allOrdens.push(nova); saveOrdens(); toast('Ordem criada!'); setProdTab('ordens');
+  var today=new Date().toISOString().slice(0,10);
+  itens.forEach(function(it){
+    var qp = Number(it.qty)||0;
+    if(qp<=0) return;
+    var newId = randomUUIDCompat();
+    allOrdens.unshift({
+      id: newId,
+      lote: generateLote(today),
+      produto_id: String(it.produto),
+      quantidade_planejada: qp,
+      quantidade_produzida: 0,
+      data_producao: today,
+      status: 'planejada',
+      observacoes: 'Criada pelo simulador',
+      created_at: new Date().toISOString()
+    });
+  });
+  saveOrdens();
+  toast('OP(s) criada(s)!');
+  setProdTab('ordens');
 }
 
 function renderReceitaDetalhe(){
   var sel=document.getElementById('sel-receita-produto');
-  var sizeSel=document.getElementById('sel-receita-tamanho');
   var el=document.getElementById('receita-detalhe');
   if(!sel||!el)return;
-  var mode=sizeSel?String(sizeSel.value||'250'):'250';
-  var products=Object.keys(RECEITAS_REAIS).filter(function(p){
-    if(mode==='30') return /30g/i.test(p);
-    return /250g|200g/i.test(p);
+  try{
+    allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || [];
+    allProdutosReceitas = safeJsonParse('crm_receitas_produtos_produtos', null) || allProdutosReceitas || [];
+  }catch(_e){}
+
+  var products=[].concat(allProdutosReceitas||[]);
+  allReceitasProdutos.forEach(function(rp){
+    if(rp && rp.produto_id && products.indexOf(rp.produto_id)<0) products.push(rp.produto_id);
   });
+  products = products.filter(Boolean).sort(function(a,b){ return String(a).localeCompare(String(b)); });
+
   if(!sel.options.length || sel.options[0].value===''){
-    sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+p+'">'+p+'</option>';}).join('');
+    sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';}).join('');
   }else{
     var existing=[].slice.call(sel.options).map(function(o){return o.value;}).filter(Boolean);
     var shouldRefresh=(existing.length!==products.length) || products.some(function(p){return existing.indexOf(p)===-1;});
     if(shouldRefresh){
       var prev=sel.value;
-      sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+p+'">'+p+'</option>';}).join('');
+      sel.innerHTML='<option value="">Selecione...</option>'+products.map(function(p){return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';}).join('');
       if(prev && products.indexOf(prev)>=0) sel.value=prev;
     }
   }
+
   var prod=sel.value;
-  if(!prod){el.innerHTML='<div class="empty">Selecione um produto para ver a receita.</div>';return;}
-  var r=RECEITAS_REAIS[prod];
-  var totalG=Object.values(r.insumos).reduce(function(s,v){return s+v;},0);
-  var custoU=0;
-  var idx=buildInsumoIndex();
-  var rawStock={};
-  allInsumos.forEach(function(i){ rawStock[i.nome]=Number(i.estoque)||0; });
-  var stock=buildAvailableStockMap();
-  var covNow=computeProductCoverage(prod, stock.available);
-  var covRaw=computeProductCoverage(prod, rawStock);
-  var targetUnits=100;
-  var buyCost=0;
-  var buyLines=[];
+  if(!prod){el.innerHTML='<div class="empty">Selecione um produto para ver a ficha técnica.</div>';return;}
 
-  var rows=Object.entries(r.insumos).sort(function(a,b){return b[1]-a[1];}).map(function(e){
-    var nome=e[0],g=e[1];
-    var ins=idx[nome];
-    var preco=Number((ins && ins.custo)||PRECO_KG[nome]||0)||0;
-    var custo=(g/1000)*preco;
-    custoU+=custo;
-    var pct=Math.round(g/totalG*100);
-    var cor=CAT_COLOR[r.categoria]||'#6bbf3a';
-    var needKgUnit=g/1000;
-    var stk=Number((ins && ins.estoque)||0)||0;
-    var avail=Number(stock.available[nome]||0)||0;
-    var unitsBy=Math.floor(avail/needKgUnit);
-    var st=ins?getEstStatus(ins):'zerado';
-    var tone=st==='ok'?'tone-ok':st==='baixo'?'tone-warn':st==='critico'?'tone-crit':'tone-off';
-    var needTargetKg=needKgUnit*targetUnits;
-    var faltaTarget=Math.max(0, needTargetKg-stk);
-    if(faltaTarget>0.001){
-      var cc=faltaTarget*preco;
-      buyCost+=cc;
-      buyLines.push('<div class="prod-buy-row"><div>'+escapeHTML(nome)+'</div><div style="text-align:right">'+fmtNum(faltaTarget,2)+' kg</div><div style="text-align:right">'+escapeHTML(fmtBRL(cc))+'</div></div>');
-    }
-    return '<div class="prod-recipe-row">'+
-      '<div class="prod-recipe-name">'+escapeHTML(nome)+'</div>'+
-      '<div class="prod-recipe-num">'+fmtNum(g,0)+'g</div>'+
-      '<div class="prod-recipe-prop"><div class="prod-recipe-bar"><div class="prod-recipe-fill" style="width:'+pct+'%;background:'+cor+'"></div></div></div>'+
-      '<div class="prod-recipe-num">'+escapeHTML(fmtBRL(custo))+'</div>'+
-      '<div class="prod-recipe-num"><span class="prod-chip '+tone+'">'+unitsBy+' un</span></div>'+
-    '</div>';
+  var insumosSorted=[].concat(allInsumos).map(normalizeInsumo).slice().sort(function(a,b){
+    return String(a.nome||"").localeCompare(String(b.nome||""));
   });
-  var covTone=covNow.max_units<=0?'tone-off':covNow.max_units<=20?'tone-crit':covNow.max_units<=50?'tone-warn':'tone-ok';
-  var limiting=escapeHTML(covNow.limiting||'—');
-  el.innerHTML=
-    '<div class="prod-panel">'+
-      '<div class="prod-panel-hdr">'+
-        '<div>'+
-          '<div class="prod-panel-title">'+escapeHTML(CAT_EMOJI[r.categoria]||'📖')+' '+escapeHTML(prod)+'</div>'+
-          '<div class="prod-panel-sub">'+totalG+'g por unidade • gargalo: '+limiting+'</div>'+
-        '</div>'+
-        '<div class="prod-recipe-kpis">'+
-          '<div class="prod-recipe-kpi"><div class="k">Cobertura (disp.)</div><div class="v"><span class="prod-chip '+covTone+'">'+covNow.max_units+' un</span></div></div>'+
-          '<div class="prod-recipe-kpi"><div class="k">Cobertura (bruta)</div><div class="v"><span class="prod-chip">'+covRaw.max_units+' un</span></div></div>'+
-          '<div class="prod-recipe-kpi"><div class="k">Custo/un</div><div class="v"><span class="prod-chip">'+escapeHTML(fmtBRL(custoU))+'</span></div></div>'+
-        '</div>'+
-      '</div>'+
+  if(!insumosSorted.length){
+    el.innerHTML='<div class="empty">Cadastre insumos primeiro para montar a receita.</div>';
+    return;
+  }
 
-      '<div class="prod-recipe-table">'+
-        '<div class="prod-recipe-head">'+
-          '<div>Insumo</div><div style="text-align:right">Qtd</div><div>Proporção</div><div style="text-align:right">Custo/un</div><div style="text-align:right">Cobertura</div>'+
-        '</div>'+
-        rows.join('')+
-      '</div>'+
+  var rows = allReceitasProdutos
+    .filter(function(rp){ return rp && String(rp.produto_id||"")===String(prod); })
+    .slice()
+    .sort(function(a,b){
+      var an = String(a.insumo_nome||"");
+      var bn = String(b.insumo_nome||"");
+      return an.localeCompare(bn);
+    });
 
-      '<div class="prod-recipe-footer">'+
-        '<div class="prod-buy">'+
-          '<div class="prod-buy-top">'+
-            '<div><div class="prod-buy-title">Compra sugerida (para '+targetUnits+' unidades)</div><div class="prod-buy-sub">Baseada no estoque atual (sem reserva).</div></div>'+
-            '<div class="prod-buy-total">'+escapeHTML(fmtBRL(buyCost))+'</div>'+
-          '</div>'+
-          (buyLines.length?('<div class="prod-buy-head"><div>Insumo</div><div style="text-align:right">Falta</div><div style="text-align:right">Custo</div></div><div class="prod-buy-body">'+buyLines.join('')+'</div>'):'<div class="empty" style="padding:16px 0">Sem compras necessárias para '+targetUnits+' unidades.</div>')+
+  var idxInsumoById={};
+  insumosSorted.forEach(function(i){ idxInsumoById[String(i.id)] = i; });
+  rows.forEach(function(rp){
+    var ins=idxInsumoById[String(rp.insumo_id||"")];
+    rp.insumo_nome = ins ? ins.nome : "";
+  });
+
+  var table =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+
+        '<div style="font-size:12px;font-weight:900">Ficha técnica</div>'+
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+          '<button class="btn" onclick="adicionarIngredienteReceita()" style="padding:8px 12px;font-size:11px">+ Ingrediente</button>'+
+          '<button class="btn-primary" onclick="salvarReceitaProduto()" style="padding:8px 12px;font-size:11px">Salvar</button>'+
         '</div>'+
       '</div>'+
+      '<table class="chiva-table">'+
+        '<thead><tr>'+
+          '<th>Insumo</th>'+
+          '<th style="text-align:right">Qtd por unidade</th>'+
+          '<th>Unidade</th>'+
+          '<th></th>'+
+        '</tr></thead>'+
+        '<tbody>'+
+          (rows.length ? rows.map(function(rp){
+            var rid=String(rp.id||"");
+            var selOps = insumosSorted.map(function(ins){
+              var sid=String(ins.id);
+              var isSel = String(rp.insumo_id||"")===sid ? ' selected' : '';
+              return '<option value="'+escapeHTML(sid)+'"'+isSel+'>'+escapeHTML(ins.nome||sid)+'</option>';
+            }).join('');
+            var unit = String(rp.unidade||'g');
+            var qty = rp.quantidade_por_unidade==null ? '' : String(rp.quantidade_por_unidade);
+            return '<tr data-rp-id="'+escapeHTML(rid)+'">'+
+              '<td><select class="chiva-select" style="width:100%" data-f="insumo">'+selOps+'</select></td>'+
+              '<td style="text-align:right"><input class="chiva-input" data-f="qty" type="number" step="0.01" style="max-width:160px;display:inline-block" value="'+escapeHTML(qty)+'"/></td>'+
+              '<td><select class="chiva-select" data-f="unit">'+
+                '<option value="g"'+(unit==='g'?' selected':'')+'>g</option>'+
+                '<option value="kg"'+(unit==='kg'?' selected':'')+'>kg</option>'+
+                '<option value="unidade"'+(unit==='unidade'?' selected':'')+'>unidade</option>'+
+              '</select></td>'+
+              '<td style="text-align:right"><button class="opp-mini-btn" onclick="removerIngredienteReceita(\''+escapeJsSingleQuote(rid)+'\')">Remover</button></td>'+
+            '</tr>';
+          }).join('') : '<tr><td colspan="4" style="color:var(--text-3)">Nenhum ingrediente ainda. Clique em “+ Ingrediente”.</td></tr>')+
+        '</tbody>'+
+      '</table>'+
     '</div>';
+
+  el.innerHTML = table;
+}
+
+function novoProdutoReceita(){
+  var name = prompt('Nome do produto:','');
+  if(name===null) return;
+  var prod = String(name||'').trim();
+  if(!prod){ toast('Informe o nome'); return; }
+  if(!Array.isArray(allProdutosReceitas)) allProdutosReceitas = [];
+  if(allProdutosReceitas.indexOf(prod)<0) allProdutosReceitas.push(prod);
+  saveProdutosReceitas();
+  var sel=document.getElementById('sel-receita-produto');
+  if(sel) sel.value=prod;
+  renderReceitaDetalhe();
+}
+
+function adicionarIngredienteReceita(){
+  var sel=document.getElementById('sel-receita-produto');
+  if(!sel || !sel.value){ toast('Selecione um produto'); return; }
+  var prod=String(sel.value);
+  var first=allInsumos && allInsumos[0] ? String(allInsumos[0].id) : '';
+  if(!first){ toast('Cadastre insumos primeiro'); return; }
+  var id = randomUUIDCompat();
+  allReceitasProdutos.push({
+    id: id,
+    produto_id: prod,
+    insumo_id: first,
+    quantidade_por_unidade: 0,
+    unidade: 'g'
+  });
+  saveReceitasProdutos();
+  renderReceitaDetalhe();
+}
+
+function removerIngredienteReceita(id){
+  var rid=String(id||"");
+  allReceitasProdutos = allReceitasProdutos.filter(function(rp){ return String(rp.id||"")!==rid; });
+  saveReceitasProdutos();
+  renderReceitaDetalhe();
+}
+
+function salvarReceitaProduto(){
+  var sel=document.getElementById('sel-receita-produto');
+  var prod=sel?String(sel.value||""):"";
+  if(!prod){ toast('Selecione um produto'); return; }
+  var host=document.getElementById('receita-detalhe');
+  if(!host){ return; }
+  var trs=host.querySelectorAll('tr[data-rp-id]');
+  trs.forEach(function(tr){
+    var rid=String(tr.getAttribute('data-rp-id')||"");
+    var ins=tr.querySelector('[data-f="insumo"]');
+    var qtyEl=tr.querySelector('[data-f="qty"]');
+    var unitEl=tr.querySelector('[data-f="unit"]');
+    var rp=allReceitasProdutos.find(function(x){ return String(x.id||"")===rid; });
+    if(!rp) return;
+    rp.produto_id = prod;
+    rp.insumo_id = String(ins?ins.value:"");
+    rp.quantidade_por_unidade = parseFloat(qtyEl?qtyEl.value:"") || 0;
+    rp.unidade = String(unitEl?unitEl.value:"g");
+  });
+  allReceitasProdutos.forEach(function(rp){
+    if(String(rp.produto_id||"")===prod) rp.updated_at = new Date().toISOString();
+  });
+  saveReceitasProdutos();
+  toast('Receita salva!');
 }
 
 function abrirModalInsumo(id){
   var m=document.getElementById('modal-insumo');
   var del=document.getElementById('btn-del-insumo');
   if(id){
-    var i=allInsumos.find(function(x){return x.id===id;});
+    var i=allInsumos.find(function(x){return String(x.id)===String(id);});
     if(!i)return;
+    normalizeInsumo(i);
     document.getElementById('insumo-edit-id').value=id;
     document.getElementById('modal-insumo-title').textContent='Editar: '+i.nome;
     document.getElementById('in-nome').value=i.nome;
-    document.getElementById('in-cat').value=i.cat||'Insumo';
-    document.getElementById('in-estoque').value=i.estoque||0;
+    document.getElementById('in-estoque').value=i.estoque_atual||0;
     document.getElementById('in-unidade').value=i.unidade||'kg';
-    document.getElementById('in-minimo').value=i.minimo||0;
-    document.getElementById('in-critico').value=i.critico||0;
-    document.getElementById('in-custo').value=i.custo||0;
+    document.getElementById('in-minimo').value=i.estoque_minimo||0;
+    document.getElementById('in-custo').value=i.custo_unitario||0;
     document.getElementById('in-fornecedor').value=i.fornecedor||'';
-    document.getElementById('in-previsao').value=i.previsao||'';
+    document.getElementById('in-lead-time').value=i.lead_time_dias||0;
     del.style.display='inline-block';
   } else {
     document.getElementById('insumo-edit-id').value='';
     document.getElementById('modal-insumo-title').textContent='Novo Insumo';
-    ['in-nome','in-estoque','in-minimo','in-critico','in-custo','in-fornecedor','in-previsao'].forEach(function(x){var e=document.getElementById(x);if(e)e.value='';});
+    ['in-nome','in-estoque','in-minimo','in-custo','in-fornecedor','in-lead-time'].forEach(function(x){var e=document.getElementById(x);if(e)e.value='';});
     del.style.display='none';
   }
   m.classList.add('open');
 }
 function salvarInsumo(){
   var id=document.getElementById('insumo-edit-id').value;
-  var obj={id:id?parseInt(id):Date.now(),nome:document.getElementById('in-nome').value.trim(),cat:document.getElementById('in-cat').value,estoque:parseFloat(document.getElementById('in-estoque').value)||0,unidade:document.getElementById('in-unidade').value,minimo:parseFloat(document.getElementById('in-minimo').value)||0,critico:parseFloat(document.getElementById('in-critico').value)||0,custo:parseFloat(document.getElementById('in-custo').value)||0,fornecedor:document.getElementById('in-fornecedor').value.trim(),previsao:document.getElementById('in-previsao').value};
+  var nextId = id ? String(id) : randomUUIDCompat();
+  var obj={
+    id: nextId,
+    nome: document.getElementById('in-nome').value.trim(),
+    unidade: document.getElementById('in-unidade').value,
+    estoque_atual: parseFloat(document.getElementById('in-estoque').value)||0,
+    estoque_minimo: parseFloat(document.getElementById('in-minimo').value)||0,
+    custo_unitario: parseFloat(document.getElementById('in-custo').value)||0,
+    fornecedor: document.getElementById('in-fornecedor').value.trim(),
+    lead_time_dias: parseInt(document.getElementById('in-lead-time').value)||0,
+    updated_at: new Date().toISOString()
+  };
+  obj.estoque = obj.estoque_atual;
+  obj.minimo = obj.estoque_minimo;
+  obj.custo = obj.custo_unitario;
+  obj.cat = 'Insumo';
   if(!obj.nome){toast('Informe o nome');return;}
-  if(id){var idx=allInsumos.findIndex(function(x){return x.id===parseInt(id);});if(idx>=0)allInsumos[idx]=obj;}else allInsumos.push(obj);
+  if(id){
+    var idx=allInsumos.findIndex(function(x){return String(x.id)===String(id);});
+    if(idx>=0) allInsumos[idx]=obj;
+  }else{
+    allInsumos.push(obj);
+  }
   saveInsumos();renderInsumos();renderProdKpis();fecharModal('modal-insumo');toast('Insumo salvo!');
 }
 function deletarInsumo(){
-  var id=parseInt(document.getElementById('insumo-edit-id').value);
-  allInsumos=allInsumos.filter(function(x){return x.id!==id;});
+  var id=String(document.getElementById('insumo-edit-id').value||"");
+  var idx=allInsumos.findIndex(function(x){return String(x.id)===String(id);});
+  if(idx>=0) allInsumos.splice(idx,1);
   saveInsumos();renderInsumos();renderProdKpis();fecharModal('modal-insumo');toast('Excluido');
 }
 
-function abrirNovaOrdem(){ setProdTab('simulador'); renderSimuladorInputs(); }
-function abrirModalPedidoProd(id){
-  var m=document.getElementById('modal-ordem');
-  var o=allOrdens.find(function(x){return x.id===id;});
-  if(o){
-    document.getElementById('ordem-edit-id').value=id;
-    document.getElementById('modal-ordem-title').textContent='Editar Ordem';
-    document.getElementById('or-responsavel').value=o.responsavel||'';
-    document.getElementById('or-status').value=o.status||'planejada';
-    document.getElementById('or-obs').value=o.obs||'';
-    document.getElementById('or-inicio').value=o.data||'';
-    document.getElementById('btn-del-ordem').style.display='inline-block';
-  }
+function abrirModalEntradaInsumo(id){
+  var i=allInsumos.find(function(x){return String(x.id)===String(id);});
+  if(!i) return;
+  normalizeInsumo(i);
+  var m=document.getElementById('modal-entrada-insumo');
+  document.getElementById('entrada-insumo-id').value=String(id);
+  document.getElementById('modal-entrada-insumo-title').textContent='Registrar Entrada: '+i.nome;
+  document.getElementById('en-qty').value='';
+  document.getElementById('en-custo').value='';
+  document.getElementById('en-fornecedor').value=i.fornecedor||'';
+  var d=document.getElementById('en-data');
+  if(d) d.value=new Date().toISOString().slice(0,10);
   m.classList.add('open');
 }
+
+function registrarEntradaInsumo(){
+  var id=String(document.getElementById('entrada-insumo-id').value||"");
+  var i=allInsumos.find(function(x){return String(x.id)===String(id);});
+  if(!i){ toast('Insumo não encontrado'); return; }
+  normalizeInsumo(i);
+  var qty=parseFloat(document.getElementById('en-qty').value)||0;
+  if(qty<=0){ toast('Informe a quantidade'); return; }
+  var custoRaw=document.getElementById('en-custo').value;
+  var custo = custoRaw==='' ? null : (parseFloat(custoRaw)||0);
+  var forn=String(document.getElementById('en-fornecedor').value||'').trim();
+  var data=String(document.getElementById('en-data').value||new Date().toISOString().slice(0,10));
+
+  i.estoque_atual = (Number(i.estoque_atual)||0) + qty;
+  if(custo != null && isFinite(custo) && custo>=0) i.custo_unitario = custo;
+  if(forn) i.fornecedor = forn;
+  i.updated_at = new Date().toISOString();
+  i.estoque = Number(i.estoque_atual)||0;
+  i.custo = Number(i.custo_unitario)||0;
+
+  allMovInsumos.unshift({
+    id: randomUUIDCompat(),
+    insumo_id: String(i.id),
+    tipo: 'entrada',
+    quantidade: qty,
+    custo_unitario: custo,
+    fornecedor: forn || null,
+    created_at: data
+  });
+  saveMovInsumos();
+
+  saveInsumos();
+  renderInsumos();
+  renderProdKpis();
+  fecharModal('modal-entrada-insumo');
+  toast('Entrada registrada!');
+}
+
+function pad3(n){ var s=String(n||0); while(s.length<3) s='0'+s; return s; }
+function generateLote(dateStr){
+  var d = String(dateStr||new Date().toISOString().slice(0,10)).replace(/\D/g,'').slice(0,8);
+  if(d.length!==8) d = new Date().toISOString().slice(0,10).replace(/\D/g,'');
+  var pref = 'OP'+d+'-';
+  var max = 0;
+  (allOrdens||[]).forEach(function(o){
+    var lote = String(o && o.lote || '');
+    if(lote.indexOf(pref)!==0) return;
+    var m = lote.slice(pref.length).match(/^(\d{1,4})/);
+    if(m){ var n=parseInt(m[1],10)||0; if(n>max) max=n; }
+  });
+  return pref + pad3(max+1);
+}
+
+function abrirNovaOrdem(){ abrirModalPedidoProd(null); }
+function abrirModalPedidoProd(id){
+  var m=document.getElementById('modal-ordem');
+  var o=id ? allOrdens.find(function(x){return String(x.id)===String(id);}) : null;
+  try{
+    allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || allReceitasProdutos || [];
+    allProdutosReceitas = safeJsonParse('crm_receitas_produtos_produtos', null) || allProdutosReceitas || [];
+  }catch(_e){}
+
+  var sel=document.getElementById('or-produto');
+  if(sel){
+    var products=[].concat(allProdutosReceitas||[]);
+    (allReceitasProdutos||[]).forEach(function(rp){
+      var p=String(rp && rp.produto_id || '').trim();
+      if(p && products.indexOf(p)<0) products.push(p);
+    });
+    Object.keys(RECEITAS_REAIS||{}).forEach(function(p){
+      if(p && products.indexOf(p)<0) products.push(p);
+    });
+    products = products.filter(Boolean).sort(function(a,b){return String(a).localeCompare(String(b));});
+    sel.innerHTML = products.map(function(p){
+      return '<option value="'+escapeHTML(p)+'">'+escapeHTML(p)+'</option>';
+    }).join('');
+  }
+
+  var today=new Date().toISOString().slice(0,10);
+  document.getElementById('ordem-edit-id').value = o ? String(o.id) : '';
+  document.getElementById('modal-ordem-title').textContent = o ? 'Editar OP' : 'Nova OP';
+  document.getElementById('or-status').value = o ? String(o.status||'planejada') : 'planejada';
+  document.getElementById('or-data').value = o ? String(o.data_producao||today) : today;
+  if(sel) sel.value = o ? String(o.produto_id||'') : (sel.options[0]?.value||'');
+  document.getElementById('or-qtd-planejada').value = o ? String(o.quantidade_planejada||0) : '';
+  document.getElementById('or-qtd-produzida').value = o ? String(o.quantidade_produzida||0) : '';
+  document.getElementById('or-obs').value = o ? String(o.observacoes||'') : '';
+  document.getElementById('or-lote').value = o ? String(o.lote||'') : generateLote(today);
+  var custoEl=document.getElementById('or-custo-lote');
+  if(custoEl){
+    var custo = o && o.custo_total_lote != null ? Number(o.custo_total_lote||0)||0 : 0;
+    custoEl.value = custo>0 ? fmtBRL(custo) : '';
+    custoEl.placeholder = custo>0 ? '' : '—';
+  }
+  var estEl=document.getElementById('or-estoque-status');
+  if(estEl){
+    if(o && hasBaixaEstoqueMarker(o)){
+      estEl.value = 'Baixado';
+    }else if(o && String(o.status||'')==='concluida'){
+      estEl.value = 'Pendente baixa';
+    }else{
+      estEl.value = '';
+      estEl.placeholder = '—';
+    }
+  }
+  document.getElementById('btn-del-ordem').style.display = o ? 'inline-block' : 'none';
+  m.classList.add('open');
+}
+
+function abrirMovimentosDoLote(){
+  var lote=String((document.getElementById('or-lote')||{}).value||'').trim();
+  var produto=String((document.getElementById('or-produto')||{}).value||'').trim();
+  movFilters.q = lote || produto || '';
+  movFilters.tipo = 'saida_producao';
+  setProdTab('movimentos');
+}
 function salvarOrdem(){
-  var id=document.getElementById('ordem-edit-id').value;
-  if(id){var idx=allOrdens.findIndex(function(x){return x.id===parseInt(id);});if(idx>=0){allOrdens[idx].responsavel=document.getElementById('or-responsavel').value;allOrdens[idx].status=document.getElementById('or-status').value;allOrdens[idx].obs=document.getElementById('or-obs').value;allOrdens[idx].data=document.getElementById('or-inicio').value;}}
-  saveOrdens();renderOrdens();fecharModal('modal-ordem');toast('Ordem atualizada!');
+  var id=String(document.getElementById('ordem-edit-id').value||'');
+  var prod=String(document.getElementById('or-produto').value||'').trim();
+  var date=String(document.getElementById('or-data').value||new Date().toISOString().slice(0,10));
+  var st=String(document.getElementById('or-status').value||'planejada');
+  var lote=String(document.getElementById('or-lote').value||'').trim() || generateLote(date);
+  var qp=parseFloat(document.getElementById('or-qtd-planejada').value)||0;
+  var qdRaw=document.getElementById('or-qtd-produzida').value;
+  var qd = qdRaw==='' ? 0 : (parseFloat(qdRaw)||0);
+  var obs=String(document.getElementById('or-obs').value||'');
+  if(!prod){ toast('Selecione um produto'); return; }
+  if(qp<=0){ toast('Informe a quantidade planejada'); return; }
+  if(st==='concluida' && (!qd || qd<=0)) qd = qp;
+
+  var savedId = id;
+  if(id){
+    var idx=allOrdens.findIndex(function(x){return String(x.id)===id;});
+    if(idx>=0){
+      allOrdens[idx] = Object.assign({}, allOrdens[idx], {
+        lote: lote,
+        produto_id: prod,
+        quantidade_planejada: qp,
+        quantidade_produzida: qd,
+        data_producao: date,
+        status: st,
+        observacoes: obs
+      });
+    }
+  }else{
+    var newId = randomUUIDCompat();
+    savedId = newId;
+    allOrdens.unshift({
+      id: newId,
+      lote: lote,
+      produto_id: prod,
+      quantidade_planejada: qp,
+      quantidade_produzida: qd,
+      data_producao: date,
+      status: st,
+      observacoes: obs,
+      created_at: new Date().toISOString()
+    });
+  }
+  saveOrdens();
+  if(st==='concluida'){
+    baixarEstoqueDaOrdem(savedId, { silent: true, auto: true });
+  }
+  renderOrdens();
+  renderProdKpis();
+  renderInsumos();
+  fecharModal('modal-ordem');
+  toast('OP salva!');
 }
 function deletarOrdem(){
-  var id=parseInt(document.getElementById('ordem-edit-id').value);
-  allOrdens=allOrdens.filter(function(x){return x.id!==id;});
-  saveOrdens();renderOrdens();fecharModal('modal-ordem');toast('Ordem excluida');
+  var id=String(document.getElementById('ordem-edit-id').value||'');
+  allOrdens = (allOrdens||[]).filter(function(x){return String(x && x.id || '')!==id;});
+  saveOrdens();
+  renderOrdens();
+  renderProdKpis();
+  renderInsumos();
+  fecharModal('modal-ordem');
+  toast('OP excluída');
 }
 
 function setOrdemStatusQuick(id, status){
-  var o=allOrdens.find(function(x){return x.id===id;});
+  var o=allOrdens.find(function(x){return String(x && x.id || '')===String(id);});
   if(!o) return;
   o.status=status;
-  if((status==='producao' || status==='concluida') && !o.data){
-    o.data=new Date().toISOString().split('T')[0];
+  if((status==='em_producao' || status==='concluida') && !o.data_producao){
+    o.data_producao=new Date().toISOString().split('T')[0];
+  }
+  if(status==='concluida' && (!o.quantidade_produzida || Number(o.quantidade_produzida)<=0)){
+    o.quantidade_produzida = Number(o.quantidade_planejada)||0;
   }
   saveOrdens();
   renderOrdens();
   renderProdKpis();
   renderInsumos();
   toast('Ordem atualizada');
+  if(status==='concluida'){
+    baixarEstoqueDaOrdem(id, { silent: true, auto: true });
+  }
 }
 
-function baixarEstoqueDaOrdem(id){
-  var o=allOrdens.find(function(x){return x.id===id;});
-  if(!o) return;
-  if(!confirm('Baixar estoque desta ordem agora?')) return;
-  var nec=computeNeedsForOrder(o);
-  var idx=buildInsumoIndex();
-  var hasAny=false;
-  Object.entries(nec).forEach(function(e){
-    var nome=e[0],kg=e[1];
-    var ins=idx[nome];
+function marcarOrdemConcluida(id){
+  setOrdemStatusQuick(id, 'concluida');
+  baixarEstoqueDaOrdem(id, { silent: true, auto: true });
+}
+
+function hasBaixaEstoqueMarker(o){
+  return /#ESTOQUE_BAIXADO\b/.test(String(o && o.observacoes || ''));
+}
+
+function validarIdempotenciaBaixa(o){
+  if(!o) return {ok:false, reason:'OP não encontrada'};
+  if(hasBaixaEstoqueMarker(o)) return {ok:false, reason:'Esta OP já baixou estoque.'};
+  return {ok:true};
+}
+
+function calcularConsumoDaOP(o){
+  var units = Number(o && o.quantidade_produzida || 0) > 0 ? Number(o.quantidade_produzida||0) : (Number(o && o.quantidade_planejada || 0) || 0);
+  var nec = computeNeedsForOrderUnits(o, units);
+  var idx = {};
+  allInsumos.forEach(function(i){ normalizeInsumo(i); idx[String(i.id)] = i; });
+  var items = Object.entries(nec).map(function(e){
+    var insId = String(e[0]||"");
+    var solicitado = Number(e[1]||0)||0;
+    var ins = idx[insId] || null;
+    return {
+      insumo_id: insId,
+      insumo_nome: ins ? String(ins.nome||'') : insId,
+      unidade: ins ? String(ins.unidade||'') : '',
+      custo_unitario: ins ? (Number(ins.custo_unitario||0)||0) : 0,
+      solicitado: solicitado,
+      units: units
+    };
+  }).filter(function(x){ return x.solicitado>0; });
+  return {units: units, items: items};
+}
+
+function registrarMovimentoEstoqueSaidaProducao(o, item, consumido, falta, before){
+  var mov = {
+    id: randomUUIDCompat(),
+    tipo: 'saida_producao',
+    insumo_id: String(item.insumo_id),
+    unidade: String(item.unidade||''),
+    quantidade: Number(consumido||0)||0,
+    created_at: new Date().toISOString(),
+    ordem_id: String(o.id),
+    lote: o.lote || null,
+    produto_id: o.produto_id || null,
+    metadata: {
+      solicitado: Number(item.solicitado||0)||0,
+      consumido: Number(consumido||0)||0,
+      falta: Number(falta||0)||0,
+      estoque_antes: Number(before||0)||0,
+      quantidade_produzida: Number(item.units||0)||0
+    }
+  };
+  allMovimentosEstoque.unshift(mov);
+  saveMovimentosEstoque();
+  if(typeof globalThis.logMovimentoEstoque === "function") globalThis.logMovimentoEstoque(mov);
+}
+
+function aplicarBaixaDeEstoque(o, consumo){
+  var idx = {};
+  allInsumos.forEach(function(i){ normalizeInsumo(i); idx[String(i.id)] = i; });
+  var insuficientes = [];
+  var custoTotal = 0;
+  consumo.items.forEach(function(item){
+    var ins = idx[String(item.insumo_id)];
     if(!ins) return;
-    hasAny=true;
-    ins.estoque=Math.max(0,(Number(ins.estoque)||0)-kg);
+    var before = Number(ins.estoque_atual)||0;
+    var solicitado = Number(item.solicitado||0)||0;
+    var consumido = Math.max(0, Math.min(before, solicitado));
+    var falta = Math.max(0, solicitado-consumido);
+    if(falta>0) insuficientes.push(ins.nome || String(item.insumo_id));
+    ins.estoque_atual = Math.max(0, before-consumido);
+    ins.estoque = Number(ins.estoque_atual)||0;
+    ins.updated_at = new Date().toISOString();
+    custoTotal += consumido * (Number(ins.custo_unitario||0)||0);
+    registrarMovimentoEstoqueSaidaProducao(o, item, consumido, falta, before);
   });
-  if(!hasAny){
-    toast('Nenhum insumo mapeado para baixar estoque');
-    return;
-  }
   saveInsumos();
+  return {insuficientes: insuficientes, custo_total_lote: custoTotal};
+}
+
+function marcarBaixaRealizada(o, result){
+  var tag = '#ESTOQUE_BAIXADO ' + new Date().toISOString();
+  if(result && result.custo_total_lote != null) tag += ' CUSTO=' + Number(result.custo_total_lote||0).toFixed(2);
+  o.observacoes = String(o.observacoes||'').trim() + (String(o.observacoes||'').trim() ? '\n' : '') + tag;
+}
+
+function baixarEstoqueDaOrdem(id, opts){
+  opts = opts || {};
+  var o=allOrdens.find(function(x){return String(x && x.id || '')===String(id);});
+  var idem = validarIdempotenciaBaixa(o);
+  if(!idem.ok){
+    if(!opts.silent) toast(idem.reason);
+    return {ok:false, reason: idem.reason};
+  }
+  if(!opts.silent && !confirm('Baixar estoque desta OP agora?')) return {ok:false, reason:'cancelado'};
+  var consumo = calcularConsumoDaOP(o);
+  if(!consumo.items.length){
+    toast('Nenhum ingrediente encontrado em receitas_produtos para este produto');
+    return {ok:false, reason:'sem_receita'};
+  }
+  var res = aplicarBaixaDeEstoque(o, consumo);
+  o.custo_total_lote = Number(res.custo_total_lote||0)||0;
+  marcarBaixaRealizada(o, res);
+  saveOrdens();
   renderInsumos();
   renderProdKpis();
-  toast('Estoque baixado');
+  if(res.insuficientes.length){
+    toast('Estoque insuficiente: ' + res.insuficientes.join(', '));
+  }else{
+    toast('Estoque baixado');
+  }
+  return {ok:true, insuficientes: res.insuficientes, custo_total_lote: o.custo_total_lote};
 }
 
 function setProdTab(tab){
-  ['insumos','ordens','simulador','receitas'].forEach(function(t){
+  ['insumos','ordens','movimentos','simulador','receitas'].forEach(function(t){
     var el=document.getElementById('prod-tab-'+t);
     var btn=document.getElementById('ptab-'+t);
     if(el) el.style.display=t===tab?'':'none';
@@ -855,6 +1381,7 @@ function setProdTab(tab){
   });
   if(tab==='insumos'){renderInsumos();renderProdKpis();}
   if(tab==='ordens') renderOrdens();
+  if(tab==='movimentos') renderMovimentosEstoque();
   if(tab==='simulador'){renderSimuladorInputs();var sr=document.getElementById('sim-resultado');if(sr)sr.innerHTML='';}
   if(tab==='receitas') renderReceitaDetalhe();
 }
@@ -873,19 +1400,26 @@ export {
   renderProdKpis,
   renderInsumos,
   renderOrdens,
-  verDetalheOrdem,
+  renderMovimentosEstoque,
   renderSimuladorInputs,
   calcularSimulador,
   salvarOrdemDeSimulacao,
   renderReceitaDetalhe,
+  novoProdutoReceita,
+  adicionarIngredienteReceita,
+  removerIngredienteReceita,
+  salvarReceitaProduto,
   abrirModalInsumo,
   salvarInsumo,
   deletarInsumo,
+  abrirModalEntradaInsumo,
+  registrarEntradaInsumo,
   abrirNovaOrdem,
   abrirModalPedidoProd,
   salvarOrdem,
   deletarOrdem,
   setOrdemStatusQuick,
+  marcarOrdemConcluida,
   baixarEstoqueDaOrdem,
   setProdTab
 };
@@ -893,14 +1427,21 @@ export {
 window.renderProdKpis = renderProdKpis;
 window.renderInsumos = renderInsumos;
 window.renderOrdens = renderOrdens;
-window.verDetalheOrdem = verDetalheOrdem;
+window.renderMovimentosEstoque = renderMovimentosEstoque;
 window.renderSimuladorInputs = renderSimuladorInputs;
 window.calcularSimulador = calcularSimulador;
 window.salvarOrdemDeSimulacao = salvarOrdemDeSimulacao;
+window.marcarOrdemConcluida = marcarOrdemConcluida;
 window.renderReceitaDetalhe = renderReceitaDetalhe;
+window.novoProdutoReceita = novoProdutoReceita;
+window.adicionarIngredienteReceita = adicionarIngredienteReceita;
+window.removerIngredienteReceita = removerIngredienteReceita;
+window.salvarReceitaProduto = salvarReceitaProduto;
 window.abrirModalInsumo = abrirModalInsumo;
 window.salvarInsumo = salvarInsumo;
 window.deletarInsumo = deletarInsumo;
+window.abrirModalEntradaInsumo = abrirModalEntradaInsumo;
+window.registrarEntradaInsumo = registrarEntradaInsumo;
 window.abrirNovaOrdem = abrirNovaOrdem;
 window.abrirModalPedidoProd = abrirModalPedidoProd;
 window.salvarOrdem = salvarOrdem;
@@ -908,3 +1449,4 @@ window.deletarOrdem = deletarOrdem;
 window.setOrdemStatusQuick = setOrdemStatusQuick;
 window.baixarEstoqueDaOrdem = baixarEstoqueDaOrdem;
 window.setProdTab = setProdTab;
+window.abrirMovimentosDoLote = abrirMovimentosDoLote;

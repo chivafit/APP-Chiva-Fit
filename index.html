@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
@@ -8,7 +8,6 @@
 <meta name="apple-mobile-web-app-title" content="CRM Chiva"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="theme-color" content="#0FA765"/>
-<link rel="manifest" href="./manifest.json"/>
 <title>CRM Chiva Fit — Inteligente</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -78,6 +77,7 @@
     <div class="sidebar-section-label">Principal</div>
     <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
     <div class="nav-item" onclick="showPage('clientes')" id="nav-clientes"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></div>
+    <div class="nav-item" onclick="showPage('inteligencia')" id="nav-inteligencia"><span class="nav-icon">🧠</span><span class="nav-label">Inteligência</span></div>
     <div class="nav-item" onclick="showPage('pedidos-page')" id="nav-pedidos"><span class="nav-icon">🛒</span><span class="nav-label">Pedidos</span></div>
     <div class="nav-item" onclick="showPage('cidades')" id="nav-cidades"><span class="nav-icon">📍</span><span class="nav-label">Cidades</span></div>
     <div class="nav-item" onclick="showPage('produtos')" id="nav-produtos"><span class="nav-icon">📦</span><span class="nav-label">Produtos</span></div>
@@ -132,10 +132,16 @@
     <input type="search" id="topbar-search" placeholder="Buscar clientes, pedidos..." oninput="handleTopbarSearch(this.value)"/>
   </div>
   <div class="topbar-actions">
+    <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">
+      <span class="icon-btn-icon" id="topbar-theme-icon">◐</span>
+    </button>
     <div class="notif-wrap">
       <button id="notif-btn" onclick="toggleNotif()" title="Notificações">🔔</button>
       <div id="notif-badge"></div>
     </div>
+    <button class="avatar-btn" title="Usuário" aria-label="Usuário">
+      <span id="topbar-avatar">👤</span>
+    </button>
   </div>
 </div>
 <div id="sync-bar" style="display:none"><span id="sync-txt-bar">⟳</span></div>
@@ -166,6 +172,7 @@
   </div>
     <div id="alert-banner"></div>
   <div id="source-row" style="display:flex;gap:var(--sp-1);flex-wrap:wrap;margin-bottom:var(--sp-4);font-size:10px;color:var(--text-3);font-weight:600"></div>
+  <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
   <div class="meta-card">
     <div class="card-hdr"><span class="card-title">🎯 Meta Mensal</span><button class="btn-link" onclick="editMeta()">✏️ Editar</button></div>
@@ -199,10 +206,19 @@
       <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">💡 Oportunidades</h1>
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Clientes que precisam de ação agora</p>
     </div>
+    <button class="btn" onclick="renderOportunidades()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
   </div>
-    <div style="font-size:13px;font-weight:800;margin-bottom:4px">💡 Painel de Oportunidades</div>
-  <div style="font-size:11px;color:var(--text-3);margin-bottom:14px">Clientes que precisam de ação agora para maximizar receita.</div>
-  <div id="oport-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px"></div>
+  <div class="filter-bar" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">
+    <select id="opp-resp-filter" onchange="renderOportunidades()">
+      <option value="">Todos responsáveis</option>
+    </select>
+    <input id="opp-sla-days" type="number" min="0" value="3" placeholder="SLA (dias)" oninput="renderOportunidades()" style="max-width:140px"/>
+    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+      <input type="checkbox" id="opp-only-sla" onchange="renderOportunidades()"/>
+      Só SLA estourado
+    </label>
+  </div>
+  <div class="kanban" id="opp-kanban"></div>
 </div>
 
 <!-- TAREFAS -->
@@ -284,6 +300,28 @@
   </div>
 </div>
 
+<!-- INTELIGÊNCIA DE CLIENTES -->
+<div class="page" id="page-inteligencia">
+  <div class="page-header" style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border-sub)">
+    <div>
+      <h1 class="page-title">🧠 Inteligência de Clientes</h1>
+      <p class="page-sub">Top clientes, risco, recompra e ações rápidas</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" onclick="computeCustomerIntelligence();renderInteligencia()" style="padding:8px 10px;font-size:11px">↻ Atualizar</button>
+      <button class="btn" onclick="showPage('segmentos')" style="padding:8px 10px;font-size:11px">Ver Segmentos</button>
+    </div>
+  </div>
+  <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
+  <div class="profile-grid">
+    <div class="profile-card" id="intel-top"></div>
+    <div class="profile-card" id="intel-risk"></div>
+    <div class="profile-card" id="intel-new"></div>
+    <div class="profile-card" id="intel-rec"></div>
+    <div class="profile-card profile-span-2" id="intel-actions"></div>
+  </div>
+</div>
+
 <!-- SEGMENTOS -->
 <div class="page" id="page-segmentos">
   <div style="margin-bottom:var(--sp-5);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
@@ -303,28 +341,58 @@
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Todos os clientes e pedidos</p>
     </div>
   </div>
-    <div class="filter-bar">
-    <input id="search-cli" placeholder="🔍 Nome, telefone, email..." oninput="renderClientes()"/>
-    <select id="fil-status-pedido" onchange="renderClientes()">
-      <option value="">Todos status</option>
-      <option value="aprovado">Aprovados</option>
-      <option value="pendente">Pendentes</option>
-      <option value="cancelado">Cancelados</option>
-    </select>
-    <select id="fil-estado" onchange="renderClientes()"><option value="">Todos estados</option></select>
-    <select id="fil-perfil" onchange="renderClientes()">
-      <option value="">Todos perfis</option>
-      <option value="vip">⭐ VIP</option>
-      <option value="ativo">✅ Ativo</option>
-      <option value="inativo">😴 Inativo</option>
-      <option value="alerta">⚠️ Alerta</option>
-      <option value="novo">🆕 Novo</option>
-    </select>
-    <button class="btn-refresh" onclick="recarregar()"><span id="ri">↻</span></button>
+  <div class="saas-filterbar" style="margin-bottom:12px">
+    <div class="saas-search">
+      <span class="saas-search-ico">⌕</span>
+      <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientes()"/>
+    </div>
+    <div class="saas-chips">
+      <select id="fil-status-pedido" class="saas-chip saas-chip-select" onchange="renderClientes()">
+        <option value="">Status</option>
+        <option value="aprovado">Aprovados</option>
+        <option value="pendente">Pendentes</option>
+        <option value="cancelado">Cancelados</option>
+      </select>
+      <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">Estado</option></select>
+      <select id="fil-perfil" class="saas-chip saas-chip-select" onchange="renderClientes()">
+        <option value="">Perfil</option>
+        <option value="vip">⭐ VIP</option>
+        <option value="ativo">✅ Ativo</option>
+        <option value="inativo">😴 Inativo</option>
+        <option value="alerta">⚠️ Alerta</option>
+        <option value="novo">🆕 Novo</option>
+      </select>
+      <button class="saas-chip saas-chip-btn" onclick="recarregar()" aria-label="Recarregar"><span id="ri">↻</span></button>
+    </div>
   </div>
   <div class="ch-pills" id="ch-pills-cli"></div>
   <div class="section-label" id="cli-label"></div>
   <div class="client-list" id="client-list"></div>
+</div>
+
+<!-- PERFIL DO CLIENTE -->
+<div class="page" id="page-cliente">
+  <div class="page-header" style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border-sub)">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="backToClientes()" style="padding:8px 10px;font-size:11px">← Clientes</button>
+      <div>
+        <div class="page-title" id="cliente-title">Cliente</div>
+        <div class="page-sub" id="cliente-sub">Perfil completo e histórico</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" onclick="clienteAddTask()" style="padding:8px 10px;font-size:11px">+ Tarefa</button>
+      <button class="btn" onclick="clienteAddNegotiation()" style="padding:8px 10px;font-size:11px">🤝 Negociação</button>
+      <button class="btn" onclick="clienteAddCall()" style="padding:8px 10px;font-size:11px">📞 Ligação</button>
+      <button class="btn" onclick="clienteAddNote()" style="padding:8px 10px;font-size:11px">📝 Nota</button>
+      <button class="btn" onclick="clienteWhatsApp()" style="padding:8px 10px;font-size:11px">💬 WhatsApp</button>
+    </div>
+  </div>
+  <div class="profile-grid">
+    <div class="profile-card" id="cliente-info"></div>
+    <div class="profile-card" id="cliente-metrics"></div>
+    <div class="profile-card profile-span-2" id="cliente-history"></div>
+  </div>
 </div>
 
 <!-- PRODUTOS -->
@@ -335,26 +403,31 @@
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Performance por produto e sabor</p>
     </div>
   </div>
-    <div class="filter-bar" style="flex-wrap:wrap;gap:6px">
-    <input id="search-prod" placeholder="🔍 Produto ou sabor..." oninput="renderProdutos()" style="flex:1;min-width:140px"/>
-    <select id="fil-canal-prod" onchange="renderProdutos()">
-      <option value="">Todos os canais</option>
-      <option value="ml">Mercado Livre</option>
-      <option value="shopee">Shopee</option>
-      <option value="amazon">Amazon</option>
-      <option value="shopify">Shopify</option>
-      <option value="yampi">Yampi</option>
-      <option value="cnpj">B2B/CNPJ</option>
-      <option value="outros">Outros</option>
-    </select>
-    <select id="fil-periodo-prod" onchange="renderProdutos()">
-      <option value="">Todo período</option>
-      <option value="30">Últimos 30 dias</option>
-      <option value="60">Últimos 60 dias</option>
-      <option value="90">Últimos 90 dias</option>
-      <option value="180">Últimos 6 meses</option>
-      <option value="365">Último ano</option>
-    </select>
+  <div class="saas-filterbar" style="margin-bottom:12px">
+    <div class="saas-search">
+      <span class="saas-search-ico">⌕</span>
+      <input id="search-prod" class="saas-search-input" placeholder="Buscar produto ou sabor..." oninput="renderProdutos()"/>
+    </div>
+    <div class="saas-chips">
+      <select id="fil-canal-prod" class="saas-chip saas-chip-select" onchange="renderProdutos()">
+        <option value="">Canal</option>
+        <option value="ml">Mercado Livre</option>
+        <option value="shopee">Shopee</option>
+        <option value="amazon">Amazon</option>
+        <option value="shopify">Shopify</option>
+        <option value="yampi">Yampi</option>
+        <option value="cnpj">B2B/CNPJ</option>
+        <option value="outros">Outros</option>
+      </select>
+      <select id="fil-periodo-prod" class="saas-chip saas-chip-select" onchange="renderProdutos()">
+        <option value="">Período</option>
+        <option value="30">Últimos 30 dias</option>
+        <option value="60">Últimos 60 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="180">Últimos 6 meses</option>
+        <option value="365">Último ano</option>
+      </select>
+    </div>
   </div>
   <div class="section-label" id="prod-label"></div>
   <div style="background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;border:1px solid var(--border)">
@@ -372,9 +445,14 @@
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Distribuição geográfica das vendas</p>
     </div>
   </div>
-    <div class="filter-bar">
-    <input id="search-city" placeholder="🔍 Cidade ou estado..." oninput="renderCidades()"/>
-    <select id="fil-uf" onchange="renderCidades()"><option value="">Todos estados</option></select>
+  <div class="saas-filterbar" style="margin-bottom:12px">
+    <div class="saas-search">
+      <span class="saas-search-ico">⌕</span>
+      <input id="search-city" class="saas-search-input" placeholder="Buscar cidade..." oninput="renderCidades()"/>
+    </div>
+    <div class="saas-chips">
+      <select id="fil-uf" class="saas-chip saas-chip-select" onchange="renderCidades()"><option value="">Estado</option></select>
+    </div>
   </div>
   <div class="section-label" id="city-label"></div>
   <div class="city-table" id="city-table"></div>
@@ -416,7 +494,9 @@
         <label>Chave Pública (anon)</label>
         <input class="inp" id="inp-supa-key" type="password" placeholder="sb-anon-key..."/>
         <button class="btn-primary" onclick="saveSupabaseConfig()">Salvar & Testar Conexão</button>
+        <button class="btn" style="margin-top:8px" onclick="auditSupabaseSchema()">Auditar schema & RLS</button>
         <div id="supa-status" class="setup-status"></div>
+        <div id="supa-audit" class="setup-status" style="white-space:pre-wrap"></div>
       </div>
 
       <div class="setup-section">
@@ -436,6 +516,8 @@
         <p style="font-size:11px;color:var(--text-3);margin-top:6px">
           Não é necessário informar token aqui no CRM — a integração é feita 100% pelo backend.
         </p>
+        <button class="btn-primary" onclick="syncYampi()">Recarregar Pedidos da Yampi</button>
+        <div id="yampi-status" class="setup-status"></div>
       </div>
 
       <div class="setup-section">
@@ -448,7 +530,7 @@
       </div>
 
       <div class="setup-section">
-        <h3>� Gerenciamento de Acessos</h3>
+        <h3>🔐 Gerenciamento de Acessos</h3>
         <p>Cadastre novos logins permitidos no CRM.</p>
         <label>E-mail</label>
         <input class="inp" id="inp-access-email" placeholder="usuario@dominio.com"/>
@@ -488,17 +570,44 @@
     <h1 style="font-size:18px;font-weight:800;letter-spacing:-.4px">🛒 Pedidos</h1>
     <p style="font-size:11px;color:var(--text-3);margin-top:3px">Todos os pedidos importados</p>
   </div>
-  <div style="display:flex;gap:8px;align-items:center">
-    <input class="inp" id="ped-search" placeholder="Buscar pedido ou cliente..." style="width:220px;margin:0" oninput="renderPedidosPage()"/>
-    <select class="inp" id="ped-status-filter" style="width:130px;margin:0" onchange="renderPedidosPage()">
-      <option value="">Todos status</option>
-      <option value="em aberto">Em aberto</option>
-      <option value="atendido">Atendido</option>
-      <option value="cancelado">Cancelado</option>
+</div>
+<div class="saas-filterbar" style="margin-bottom:14px">
+  <div class="saas-search">
+    <span class="saas-search-ico">⌕</span>
+    <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPage()"/>
+  </div>
+  <div class="saas-chips" aria-label="Filtros de pedidos">
+    <select id="ped-canal-filter" class="saas-chip saas-chip-select" onchange="renderPedidosPage()">
+      <option value="">Canal</option>
+      <option value="yampi">Yampi</option>
+      <option value="shopee">Shopee</option>
+      <option value="ml">Mercado Livre</option>
+      <option value="amazon">Amazon</option>
+      <option value="shopify">Shopify</option>
+      <option value="cnpj">B2B/CNPJ</option>
+      <option value="outros">Outros</option>
     </select>
+    <select id="ped-status-filter" class="saas-chip saas-chip-select" onchange="renderPedidosPage()">
+      <option value="">Status</option>
+      <option value="aprovado">Aprovado</option>
+      <option value="pendente">Pendente</option>
+      <option value="cancelado">Cancelado</option>
+      <option value="outros">Outros</option>
+    </select>
+    <div class="saas-chip saas-chip-range">
+      <span class="saas-chip-label">Data</span>
+      <input id="ped-date-from" type="date" class="saas-chip-input" onchange="renderPedidosPage()"/>
+      <span class="saas-chip-sep">—</span>
+      <input id="ped-date-to" type="date" class="saas-chip-input" onchange="renderPedidosPage()"/>
+    </div>
+    <div class="saas-chip saas-chip-number">
+      <span class="saas-chip-label">Min</span>
+      <span class="saas-chip-prefix">R$</span>
+      <input id="ped-min" type="number" inputmode="numeric" class="saas-chip-input" placeholder="0" oninput="renderPedidosPage()"/>
+    </div>
   </div>
 </div>
-<div id="ped-kpi-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:18px"></div>
+<div id="ped-kpi-row" class="saas-kpi-row"></div>
 <div id="pedidos-list-wrap"></div>
 </div>
 
@@ -524,7 +633,7 @@
     </div>
     <div style="display:flex;gap:var(--sp-2)">
       <button onclick="abrirModalInsumo(null)" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 14px;color:var(--text);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">+ Insumo</button>
-      <button onclick="abrirNovaOrdem()" style="background:#5a9e30;border:none;border-radius:var(--r-md);padding:8px 14px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">+ Nova Ordem</button>
+      <button onclick="abrirNovaOrdem()" style="background:#5a9e30;border:none;border-radius:var(--r-md);padding:8px 14px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">+ Nova OP</button>
     </div>
   </div>
 
@@ -532,7 +641,8 @@
 
   <div style="display:flex;gap:2px;margin-bottom:var(--sp-3);background:var(--card);border-radius:var(--r-md);padding:3px;border:1px solid var(--border);width:fit-content">
     <button id="ptab-insumos" onclick="setProdTab('insumos')" class="inner-tab active-tab">🌾 Insumos</button>
-    <button id="ptab-ordens" onclick="setProdTab('ordens')" class="inner-tab">📋 Ordens</button>
+    <button id="ptab-ordens" onclick="setProdTab('ordens')" class="inner-tab">📋 Ordens de Produção</button>
+    <button id="ptab-movimentos" onclick="setProdTab('movimentos')" class="inner-tab">📦 Movimentações</button>
     <button id="ptab-simulador" onclick="setProdTab('simulador')" class="inner-tab">🧮 Simulador</button>
     <button id="ptab-receitas" onclick="setProdTab('receitas')" class="inner-tab">📖 Receitas</button>
   </div>
@@ -543,15 +653,18 @@
       <div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:var(--sp-3)">📊 Nível de Estoque</div>
       <div style="height:160px"><canvas id="chart-estoque"></canvas></div>
     </div>
-    <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
-      <input id="search-insumo" placeholder="🔍 Buscar insumo..." oninput="renderInsumos()" class="filter-inp" style="flex:1;min-width:140px"/>
-      <select id="fil-insumo-status" onchange="renderInsumos()" class="filter-sel">
-        <option value="">Todos</option>
-        <option value="ok">✅ OK</option>
-        <option value="baixo">⚠️ Baixo</option>
-        <option value="critico">🔴 Crítico</option>
-        <option value="zerado">❌ Zerado</option>
-      </select>
+    <div class="saas-filterbar" style="margin-bottom:var(--sp-3)">
+      <div class="saas-search">
+        <span class="saas-search-ico">⌕</span>
+        <input id="search-insumo" class="saas-search-input" placeholder="Buscar insumo..." oninput="renderInsumos()"/>
+      </div>
+      <div class="saas-chips">
+        <select id="fil-insumo-status" class="saas-chip saas-chip-select" onchange="renderInsumos()">
+          <option value="">Status</option>
+          <option value="ok">✅ OK</option>
+          <option value="baixo">⚠️ Baixo</option>
+        </select>
+      </div>
     </div>
     <div id="insumos-list"></div>
   </div>
@@ -559,6 +672,11 @@
   <!-- ORDENS -->
   <div id="prod-tab-ordens" style="display:none">
     <div id="ordens-prod-list"></div>
+  </div>
+
+  <!-- MOVIMENTAÇÕES -->
+  <div id="prod-tab-movimentos" style="display:none">
+    <div id="movimentos-estoque-list"></div>
   </div>
 
   <!-- SIMULADOR DE PEDIDO -->
@@ -576,14 +694,16 @@
 
   <!-- RECEITAS -->
   <div id="prod-tab-receitas" style="display:none">
-    <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
-      <select id="sel-receita-produto" onchange="renderReceitaDetalhe()" class="filter-sel" style="flex:1">
-        <option value="">Selecione um produto...</option>
-      </select>
-      <select id="sel-receita-tamanho" onchange="renderReceitaDetalhe()" class="filter-sel">
-        <option value="250">250g / 200g</option>
-        <option value="30">30g (mini)</option>
-      </select>
+    <div class="saas-filterbar" style="margin-bottom:var(--sp-3)">
+      <div class="saas-search" style="min-width:240px">
+        <span class="saas-search-ico">⌕</span>
+        <select id="sel-receita-produto" class="saas-search-input" onchange="renderReceitaDetalhe()" style="appearance:none;-webkit-appearance:none;-moz-appearance:none;cursor:pointer">
+          <option value="">Selecione um produto...</option>
+        </select>
+      </div>
+      <div class="saas-chips">
+        <button class="saas-chip saas-chip-btn" onclick="novoProdutoReceita()">+ Produto</button>
+      </div>
     </div>
     <div id="receita-detalhe"></div>
   </div>
@@ -602,6 +722,7 @@
     <button id="ctab-pedidos" onclick="setComTab('pedidos')" class="inner-tab active-tab">🛒 Pedidos</button>
     <button id="ctab-canais" onclick="setComTab('canais')" class="inner-tab">📊 Canais</button>
     <button id="ctab-campanhas" onclick="setComTab('campanhas')" class="inner-tab">🎯 Campanhas</button>
+    <button id="ctab-carrinhos" onclick="setComTab('carrinhos')" class="inner-tab">🧺 Carrinhos</button>
   </div>
   <div id="com-tab-pedidos">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-3)">
@@ -614,28 +735,55 @@
       <div style="height:120px"><canvas id="chart-com-status"></canvas></div>
     </div>
   </div>
-    <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
-      <input id="search-com" placeholder="🔍 Número, cliente..." oninput="renderComPedidos()" class="filter-inp" style="flex:1;min-width:140px"/>
-      <select id="fil-com-canal" onchange="renderComPedidos()" class="filter-sel">
-        <option value="">Todos canais</option>
-        <option value="shopee">Shopee</option>
-        <option value="site">Site</option>
-        <option value="ml">Mercado Livre</option>
-        <option value="whatsapp">WhatsApp</option>
-      </select>
-      <select id="fil-com-status" onchange="renderComPedidos()" class="filter-sel">
-        <option value="">Todos status</option>
-        <option value="novo">🆕 Novo</option>
-        <option value="separando">📦 Separando</option>
-        <option value="enviado">🚚 Enviado</option>
-        <option value="entregue">✅ Entregue</option>
-        <option value="cancelado">❌ Cancelado</option>
-      </select>
+    <div class="saas-filterbar" style="margin-bottom:var(--sp-3)">
+      <div class="saas-search">
+        <span class="saas-search-ico">⌕</span>
+        <input id="search-com" class="saas-search-input" placeholder="Buscar pedido ou cliente..." oninput="renderComPedidos()"/>
+      </div>
+      <div class="saas-chips">
+        <select id="fil-com-canal" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
+          <option value="">Canal</option>
+          <option value="shopee">Shopee</option>
+          <option value="site">Site</option>
+          <option value="ml">Mercado Livre</option>
+          <option value="whatsapp">WhatsApp</option>
+        </select>
+        <select id="fil-com-status" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
+          <option value="">Status</option>
+          <option value="novo">🆕 Novo</option>
+          <option value="separando">📦 Separando</option>
+          <option value="enviado">🚚 Enviado</option>
+          <option value="entregue">✅ Entregue</option>
+          <option value="cancelado">❌ Cancelado</option>
+        </select>
+      </div>
     </div>
     <div id="com-pedidos-list"></div>
   </div>
   <div id="com-tab-canais" style="display:none"><div id="canais-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--sp-3)"></div></div>
   <div id="com-tab-campanhas" style="display:none"><div id="campanhas-list"></div></div>
+  <div id="com-tab-carrinhos" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
+      <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+        <button class="btn-primary" onclick="syncCarrinhosAbandonadosYampi()">Sincronizar carrinhos</button>
+        <div id="abandoned-status" class="setup-status"></div>
+      </div>
+      <div class="saas-filterbar" style="margin:0;min-width:420px;justify-content:flex-end">
+        <div class="saas-search" style="min-width:260px">
+          <span class="saas-search-ico">⌕</span>
+          <input id="car-search" class="saas-search-input" placeholder="Buscar carrinho..." oninput="renderCarrinhosAbandonados()"/>
+        </div>
+        <div class="saas-chips">
+          <select id="car-status" class="saas-chip saas-chip-select" onchange="renderCarrinhosAbandonados()">
+            <option value="">Status</option>
+            <option value="abertos">Abertos</option>
+            <option value="recuperados">Recuperados</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="carrinhos-list"></div>
+  </div>
 </div>
 
 <div class="page" id="page-marca">
@@ -672,32 +820,43 @@
     <input type="hidden" id="insumo-edit-id"/>
     <div class="mod-row">
       <div class="mod-field"><label>Nome do Insumo</label><input id="in-nome" placeholder="Ex: Proteína vegetal, Cacau em pó..."/></div>
-      <div class="mod-field"><label>Categoria</label>
-        <select id="in-cat">
-          <option>Proteína</option><option>Saborizante</option><option>Embalagem</option>
-          <option>Adoçante</option><option>Vitamina</option><option>Mineral</option><option>Outro</option>
-        </select>
-      </div>
-    </div>
-    <div class="mod-row">
-      <div class="mod-field"><label>Estoque Atual (kg/un)</label><input type="number" id="in-estoque" placeholder="0"/></div>
       <div class="mod-field"><label>Unidade</label>
-        <select id="in-unidade"><option>kg</option><option>g</option><option>L</option><option>ml</option><option>un</option><option>cx</option></select>
+        <select id="in-unidade"><option>kg</option><option>g</option><option>unidade</option></select>
       </div>
     </div>
     <div class="mod-row">
+      <div class="mod-field"><label>Estoque Atual</label><input type="number" id="in-estoque" placeholder="0"/></div>
       <div class="mod-field"><label>Estoque Mínimo</label><input type="number" id="in-minimo" placeholder="0"/></div>
-      <div class="mod-field"><label>Estoque Crítico</label><input type="number" id="in-critico" placeholder="0"/></div>
     </div>
     <div class="mod-row">
-      <div class="mod-field"><label>Custo por Unidade (R$)</label><input type="number" id="in-custo" placeholder="0.00" step="0.01"/></div>
+      <div class="mod-field"><label>Custo Unitário (R$)</label><input type="number" id="in-custo" placeholder="0.00" step="0.01"/></div>
       <div class="mod-field"><label>Fornecedor</label><input id="in-fornecedor" placeholder="Nome do fornecedor"/></div>
     </div>
-    <div class="mod-field"><label>Previsão de reposição</label><input type="date" id="in-previsao"/></div>
+    <div class="mod-field"><label>Lead time (dias)</label><input type="number" id="in-lead-time" placeholder="0" min="0"/></div>
     <div class="mod-actions">
       <button class="btn-mod-cancel" onclick="fecharModal('modal-insumo')">Cancelar</button>
       <button class="btn-mod-del" id="btn-del-insumo" onclick="deletarInsumo()" style="display:none">Excluir</button>
       <button class="btn-mod-save" onclick="salvarInsumo()">Salvar Insumo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENTRADA INSUMO -->
+<div class="mod-overlay" id="modal-entrada-insumo">
+  <div class="mod-box">
+    <div class="mod-title" id="modal-entrada-insumo-title">Registrar Entrada</div>
+    <input type="hidden" id="entrada-insumo-id"/>
+    <div class="mod-row">
+      <div class="mod-field"><label>Quantidade</label><input type="number" id="en-qty" placeholder="0" step="0.01"/></div>
+      <div class="mod-field"><label>Custo unitário (opcional)</label><input type="number" id="en-custo" placeholder="0.00" step="0.01"/></div>
+    </div>
+    <div class="mod-row">
+      <div class="mod-field"><label>Fornecedor (opcional)</label><input id="en-fornecedor" placeholder="Fornecedor"/></div>
+      <div class="mod-field"><label>Data</label><input type="date" id="en-data"/></div>
+    </div>
+    <div class="mod-actions">
+      <button class="btn-mod-cancel" onclick="fecharModal('modal-entrada-insumo')">Cancelar</button>
+      <button class="btn-mod-save" onclick="registrarEntradaInsumo()">Registrar</button>
     </div>
   </div>
 </div>
@@ -708,34 +867,31 @@
     <div class="mod-title" id="modal-ordem-title">Nova Ordem de Produção</div>
     <input type="hidden" id="ordem-edit-id"/>
     <div class="mod-row">
-      <div class="mod-field"><label>Produto Final</label>
-        <select id="or-produto" style="width:100%">
-          <option>Shake Chocolate 500g</option><option>Shake Baunilha 500g</option>
-          <option>Shake Morango 500g</option><option>Shake Neutro 500g</option>
-          <option>Shake Chocolate 1kg</option><option>Shake Baunilha 1kg</option>
-          <option>Shake Morango 1kg</option><option>Shake Neutro 1kg</option>
-        </select>
-      </div>
-      <div class="mod-field"><label>Quantidade a Produzir</label><input type="number" id="or-qty" placeholder="0"/></div>
-    </div>
-    <div class="mod-row">
-      <div class="mod-field"><label>Data Início</label><input type="date" id="or-inicio"/></div>
-      <div class="mod-field"><label>Previsão Conclusão</label><input type="date" id="or-fim"/></div>
-    </div>
-    <div class="mod-row">
+      <div class="mod-field"><label>Lote</label><input id="or-lote" placeholder="Gerado automaticamente" disabled/></div>
       <div class="mod-field"><label>Status</label>
         <select id="or-status">
           <option value="planejada">📋 Planejada</option>
-          <option value="producao">⚙️ Em Produção</option>
+          <option value="em_producao">⚙️ Em produção</option>
           <option value="concluida">✅ Concluída</option>
-          <option value="cancelada">❌ Cancelada</option>
         </select>
       </div>
-      <div class="mod-field"><label>Responsável</label><input id="or-responsavel" placeholder="Nome..."/></div>
     </div>
-    <div class="mod-field"><label>Observações</label><textarea id="or-obs" placeholder="Lote, notas de produção..."></textarea></div>
+    <div class="mod-row">
+      <div class="mod-field"><label>Produto</label><select id="or-produto" style="width:100%"></select></div>
+      <div class="mod-field"><label>Data de produção</label><input type="date" id="or-data"/></div>
+    </div>
+    <div class="mod-row">
+      <div class="mod-field"><label>Quantidade planejada</label><input type="number" id="or-qtd-planejada" placeholder="0" step="0.01"/></div>
+      <div class="mod-field"><label>Quantidade produzida</label><input type="number" id="or-qtd-produzida" placeholder="0" step="0.01"/></div>
+    </div>
+    <div class="mod-row">
+      <div class="mod-field"><label>Custo total do lote</label><input id="or-custo-lote" placeholder="—" disabled/></div>
+      <div class="mod-field"><label>Estoque</label><input id="or-estoque-status" placeholder="—" disabled/></div>
+    </div>
+    <div class="mod-field"><label>Observações</label><textarea id="or-obs" placeholder="Notas de produção..."></textarea></div>
     <div class="mod-actions">
       <button class="btn-mod-cancel" onclick="fecharModal('modal-ordem')">Cancelar</button>
+      <button class="btn-mod-cancel" onclick="abrirMovimentosDoLote()">Ver movimentações</button>
       <button class="btn-mod-del" id="btn-del-ordem" onclick="deletarOrdem()" style="display:none">Excluir</button>
       <button class="btn-mod-save" onclick="salvarOrdem()">Salvar Ordem</button>
     </div>
