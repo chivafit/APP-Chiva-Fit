@@ -83,8 +83,6 @@ function safeInvokeName(name, ...args){
   }
 }
 
-let TOKEN   = localStorage.getItem("crm_token")||"";
-let REFRESH = localStorage.getItem("crm_refresh")||"";
 let CID     = localStorage.getItem("crm_cid")||"";
 let CSEC    = localStorage.getItem("crm_csec")||"";
 let SHOP    = localStorage.getItem("crm_shop")||"";
@@ -172,8 +170,6 @@ try{
     const ca=document.getElementById("cmp-a"), cb=document.getElementById("cmp-b");
     if(ca) ca.value=`${y}-${m}`; if(cb) cb.value=`${py}-${String(pm).padStart(2,"0")}`;
     const ad=localStorage.getItem("crm_alertdays"); if(ad){ const el=document.getElementById("alert-days"); if(el) el.value=ad; }
-    if(TOKEN){ const el=document.getElementById("inp-token"); if(el) el.value=TOKEN; }
-    if(REFRESH){ const el=document.getElementById("inp-refresh"); if(el) el.value=REFRESH; }
     if(CID){ const el=document.getElementById("inp-cid"); if(el) el.value=CID; }
     if(CSEC){ const el=document.getElementById("inp-csec"); if(el) el.value=CSEC; }
     if(SHOP){ const el=document.getElementById("inp-shop"); if(el) el.value=SHOP; }
@@ -891,7 +887,6 @@ ensureBootstrapAdminUser().catch(()=>{});
 //  CREDENTIALS
 // ═══════════════════════════════════════════════════
 function saveCreds(){
-  localStorage.setItem("crm_token",TOKEN); localStorage.setItem("crm_refresh",REFRESH);
   localStorage.setItem("crm_cid",CID); localStorage.setItem("crm_csec",CSEC);
   localStorage.setItem("crm_shop",SHOP); localStorage.setItem("crm_shopkey",SHOPKEY);
 }
@@ -951,62 +946,6 @@ function saveAIKey(){
   const st=document.getElementById("ai-key-status");
   st.textContent=AI_KEY?"✓ Chave salva! IA ativada.":"Chave removida.";
   st.className="setup-status s-ok";
-}
-
-async function saveBlingRefreshManual(){
-  const el = document.getElementById("inp-refresh-manual");
-  const st = document.getElementById("bling-status");
-  const val = el?.value?.trim();
-  if(!val){ toast("⚠ Informe o Refresh Token"); return; }
-  
-  if(st){ st.textContent="Salvando no banco..."; st.className="setup-status"; }
-  
-  try {
-    if(!supaConnected || !supaClient) throw new Error("Conecte o Supabase primeiro.");
-    
-    await supaClient.from('configuracoes').upsert({
-      chave: 'bling_refresh_token', 
-      valor_texto: val, 
-      updated_at: new Date().toISOString()
-    });
-    
-    REFRESH = val;
-    localStorage.setItem("crm_refresh", val);
-    if(el) el.value = "";
-    
-    if(st){ st.textContent="✓ Refresh Token atualizado!"; st.className="setup-status s-ok"; }
-    toast("✓ Refresh Token do Bling salvo no banco!");
-    
-    // Tenta renovar imediatamente para testar
-    await renewToken();
-  } catch(e) {
-    console.error(e);
-    if(st){ st.textContent="⚠ Erro ao salvar: "+e.message; st.className="setup-status s-err"; }
-  }
-}
-async function renewToken(){
-  try {
-    const resp = await fetch(getSupaFnBase() + "/bling-renew-token", {
-      method: "POST",
-      headers: supaFnHeaders(),
-      body: JSON.stringify({ }) // O token agora é buscado no banco de dados pela Edge Function
-    });
-
-    if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({}));
-      throw new Error(errorData.error || "Falha ao renovar token via Edge Function");
-    }
-
-    const d = await resp.json();
-    TOKEN = d.access_token;
-    REFRESH = d.refresh_token || REFRESH;
-    saveCreds();
-    toast("🔄 Token renovado com sucesso!");
-  } catch (e) {
-    console.error("renewToken error:", e);
-    toast(`⚠ ${e.message}`);
-    throw e;
-  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -4855,18 +4794,6 @@ async function loadSupabaseData(){
     if(usersRow?.valor_texto){
       localStorage.setItem('crm_access_users', usersRow.valor_texto);
       renderAccessUsers();
-    }
-
-    // Bling Tokens
-    const {data:blingToken} = await supaClient.from('configuracoes').select('valor_texto').eq('chave','bling_access_token').maybeSingle();
-    if(blingToken?.valor_texto) {
-      TOKEN = blingToken.valor_texto;
-      localStorage.setItem("crm_token", TOKEN);
-    }
-    const {data:blingRefresh} = await supaClient.from('configuracoes').select('valor_texto').eq('chave','bling_refresh_token').maybeSingle();
-    if(blingRefresh?.valor_texto) {
-      REFRESH = blingRefresh.valor_texto;
-      localStorage.setItem("crm_refresh", REFRESH);
     }
 
     // v2_tarefas — campos: descricao (antigo: desc), vencimento (antigo: data), status 'aberta'→'pendente' para UI

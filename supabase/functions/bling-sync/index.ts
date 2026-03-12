@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -7,7 +6,7 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type BlingTokenPair = { access_token: string; refresh_token?: string };
+type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_token?: string };
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -16,62 +15,54 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-async function getConfigValue(supabase: ReturnType<typeof createClient>, chave: string) {
-  const { data, error } = await supabase.from("configuracoes").select("valor_texto").eq("chave", chave).maybeSingle();
-  if (error) throw error;
-  return data?.valor_texto ?? "";
-}
+let tokenCache: { token: string; expiresAtMs: number } | null = null;
 
-async function setConfigValues(supabase: ReturnType<typeof createClient>, rows: { chave: string; valor_texto: string }[]) {
-  if (!rows.length) return;
-  const now = new Date().toISOString();
-  const payload = rows.map((r) => ({ ...r, updated_at: now }));
-  const { error } = await supabase.from("configuracoes").upsert(payload);
-  if (error) throw error;
-}
-
-async function renewBlingToken(supabase: ReturnType<typeof createClient>): Promise<BlingTokenPair> {
-  const clientId = Deno.env.get("BLING_CLIENT_ID");
-  const clientSecret = Deno.env.get("BLING_CLIENT_SECRET");
-  if (!clientId || !clientSecret) throw new Error("Missing BLING_CLIENT_ID/BLING_CLIENT_SECRET env vars");
-
-  const currentRefresh = await getConfigValue(supabase, "bling_refresh_token");
-  if (!currentRefresh) throw new Error("Missing bling_refresh_token in configuracoes");
-
-  const b64 = btoa(`${clientId}:${clientSecret}`);
-  const url = "https://api.bling.com.br/Api/v3/oauth/token";
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${b64}`,
-    },
-    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(currentRefresh)}`,
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`Bling token renew failed: ${resp.status} ${txt}`);
+async function renewBlingTokenViaEdgeFunction(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<BlingTokenResponse> {
+  const url = `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/bling-renew-token`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({}),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      throw new Error(`bling-renew-token failed: ${resp.status} ${txt}`);
+    }
+    const data = (await resp.json()) as BlingTokenResponse;
+    const access_token = String(data?.access_token || "").trim();
+    if (!access_token) throw new Error("bling-renew-token returned no access_token");
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  const data = (await resp.json()) as BlingTokenPair;
-  if (!data?.access_token) throw new Error("Bling token renew returned no access_token");
-  await setConfigValues(supabase, [
-    { chave: "bling_access_token", valor_texto: data.access_token },
-    { chave: "bling_refresh_token", valor_texto: data.refresh_token || currentRefresh },
-  ]);
-  return data;
 }
 
-async function getBlingAccessToken(supabase: ReturnType<typeof createClient>) {
-  const token = await getConfigValue(supabase, "bling_access_token");
-  if (token) return token;
-  const renewed = await renewBlingToken(supabase);
+async function getBlingAccessToken(supabaseUrl: string, serviceRoleKey: string, forceRenew = false) {
+  const now = Date.now();
+  const safetyWindowMs = 120_000;
+  if (!forceRenew && tokenCache?.token && now < tokenCache.expiresAtMs - safetyWindowMs) return tokenCache.token;
+
+  const renewed = await renewBlingTokenViaEdgeFunction(supabaseUrl, serviceRoleKey);
+  const expiresInSec = Number(renewed?.expires_in ?? 0) || 6 * 60 * 60;
+  tokenCache = { token: renewed.access_token, expiresAtMs: now + expiresInSec * 1000 };
   return renewed.access_token;
 }
 
 async function blingFetchJson(
-  supabase: ReturnType<typeof createClient>,
   url: string,
   tokenRef: { value: string },
+  supabaseUrl: string,
+  serviceRoleKey: string,
   retry = true,
 ): Promise<unknown> {
   const resp = await fetch(url, {
@@ -82,9 +73,8 @@ async function blingFetchJson(
     },
   });
   if (resp.status === 401 && retry) {
-    const renewed = await renewBlingToken(supabase);
-    tokenRef.value = renewed.access_token;
-    return await blingFetchJson(supabase, url, tokenRef, false);
+    tokenRef.value = await getBlingAccessToken(supabaseUrl, serviceRoleKey, true);
+    return await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey, false);
   }
   if (!resp.ok) {
     const txt = await resp.text();
@@ -237,8 +227,6 @@ serve(async (req: Request) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     if (!supabaseUrl || !serviceRoleKey) return jsonResponse({ error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }, 500);
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-
     const body = await req.json().catch(() => ({}));
     const from = String(body?.from ?? "").slice(0, 10);
     const to = String(body?.to ?? "").slice(0, 10);
@@ -248,14 +236,14 @@ serve(async (req: Request) => {
     const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
     const concurrency = Math.min(10, Math.max(1, Number(body?.concurrency ?? 6) || 6));
 
-    const tokenRef = { value: await getBlingAccessToken(supabase) };
+    const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
 
     const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
     const ids: string[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
       const url = `${base}?dataInicial=${encodeURIComponent(from)}&dataFinal=${encodeURIComponent(to)}&pagina=${page}&limite=${limit}`;
-      const json: any = await blingFetchJson(supabase, url, tokenRef);
+      const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
       const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
       if (!data.length) break;
       data.forEach((r: any) => {
@@ -269,7 +257,7 @@ serve(async (req: Request) => {
 
     const details = await mapWithConcurrency(uniqueIds, concurrency, async (id) => {
       const url = `${base}/${encodeURIComponent(id)}`;
-      const json: any = await blingFetchJson(supabase, url, tokenRef);
+      const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
       return mapBlingOrder(json);
     });
 
