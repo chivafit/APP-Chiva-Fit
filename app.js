@@ -3242,35 +3242,30 @@ const SEGMENTS=[
   {id:"cnpj",icon:"🏢",name:"Empresas (CNPJ)",desc:"Clientes B2B. Potencial de volume mas excluídos do VIP.",action:"Proposta comercial B2B",filter:c=>isCNPJ(c.doc)},
 ];
 
-function renderSegmentos(){
-  const clis=Object.values(buildCli(allOrders));
-  document.getElementById("seg-grid").innerHTML=SEGMENTS.map(seg=>{
-    const count=clis.filter(seg.filter).length;
-    return`<div class="seg-card ${activeSegment===seg.id?"active":""}" onclick="selectSegment('${seg.id}')">
-      <div class="seg-icon">${seg.icon}</div>
-      <div class="seg-name">${seg.name}</div>
-      <div class="seg-desc">${seg.desc}</div>
-      <div class="seg-count">${count} cliente${count!==1?"s":""}</div>
-      <div class="seg-action">💡 ${seg.action}</div>
-    </div>`;
-  }).join("");
-  if(activeSegment) renderSegmentClients(activeSegment);
-}
-
 function selectSegment(id){
-  activeSegment=activeSegment===id?null:id;
-  renderSegmentos();
-}
+  currentSegmentId = id;
+  const seg = computedSegments.find(s => s.id === id);
+  if(!seg) return;
 
-function renderSegmentClients(id){
-  const seg=SEGMENTS.find(s=>s.id===id);
-  if(!seg){ document.getElementById("seg-result").innerHTML=""; return; }
-  const clis=Object.values(buildCli(allOrders)).filter(seg.filter).sort((a,b)=>b.orders.reduce((s,o)=>s+val(o),0)-a.orders.reduce((s,o)=>s+val(o),0));
-  if(!clis.length){ document.getElementById("seg-result").innerHTML=`<div class="empty">Nenhum cliente neste segmento.</div>`; return; }
+  const titleEl = document.getElementById('seg-detalhe-title');
+  const descEl = document.getElementById('seg-detalhe-desc');
+  if(titleEl) titleEl.textContent = seg.name;
+  if(descEl) descEl.textContent = seg.desc;
 
-  document.getElementById("seg-result").innerHTML=`
-    <div style="font-size:11px;font-weight:700;color:var(--ai);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.6px">${seg.icon} ${seg.name} — ${clis.length} clientes</div>
-    <div class="client-list">${clis.map((c,i)=>renderCliCard(c,"sg"+i)).join("")}</div>`;
+  // Stats interna
+  const statsHost = document.getElementById('seg-detalhe-stats');
+  if(statsHost){
+    statsHost.innerHTML = [
+      {l:"Clientes", v:seg.count, s:"no grupo"},
+      {l:"Receita Total", v:fmtBRL(seg.revenue), s:"acumulada"},
+      {l:"Ticket Médio", v:fmtBRL(seg.avgTicket), s:"do grupo"},
+      {l:"Freq. Média", v:"—", s:"em breve"}
+    ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+  }
+
+  showPage('segmento-detalhe');
+  renderSegmentCustomers();
+  renderSegmentCharts(seg);
 }
 
 function intelRow(customer, subtitle, rightHtml){
