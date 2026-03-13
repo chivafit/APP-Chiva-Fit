@@ -1274,8 +1274,6 @@ body {
 .btn-wa:hover { background:rgba(37,211,102,.18); }
 .btn-email { background:var(--blue-bg); border:1px solid rgba(91,156,246,.2); border-radius:var(--r-xs); padding:5px 10px; color:var(--blue); font-size:10px; font-weight:600; text-decoration:none; display:flex; align-items:center; gap:3px; transition:background var(--t-fast); }
 .btn-email:hover { background:rgba(91,156,246,.15); }
-.btn-call  { background:var(--green-bg); border:1px solid rgba(52,212,154,.2); border-radius:var(--r-xs); padding:5px 10px; color:var(--green); font-size:10px; font-weight:600; text-decoration:none; display:flex; align-items:center; gap:3px; transition:background var(--t-fast); }
-.btn-call:hover { background:rgba(52,212,154,.15); }
 
 .notes-bar {
   padding: 8px 14px; border-bottom: 1px solid var(--border);

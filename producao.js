@@ -23,6 +23,22 @@ function randomUUIDCompat(){
   return String(Date.now()) + String(Math.random()).slice(2);
 }
 
+function parseDateToIso(v){
+  const s = String(v || "").trim();
+  if(!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso) return s;
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return "";
+}
+
+function fmtDateBrFromIso(iso){
+  const s = String(iso || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+
 function kpiCard(title, value, subtitle, color){
   if(typeof globalThis.kpiCard === "function") return globalThis.kpiCard(title, value, subtitle, color);
   return "";
@@ -603,7 +619,7 @@ function renderOrdens(){
               '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtNum(o.quantidade_planejada,2))+'</td>'+
               '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtNum(o.quantidade_produzida,2))+'</td>'+
               '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(custo)+'</td>'+
-              '<td>'+escapeHTML(o.data_producao||'—')+'</td>'+
+              '<td>'+escapeHTML(o.data_producao?fmtDateBrFromIso(String(o.data_producao).slice(0,10)):'—')+'</td>'+
               '<td>'+stBadge(o.status)+'</td>'+
               '<td style="text-align:right;white-space:nowrap">'+
                 (canStart?('<button class="opp-mini-btn" onclick="setOrdemStatusQuick(\''+safeId+'\',\'em_producao\')">Iniciar</button> '):'')+
@@ -622,7 +638,7 @@ function exportOrdensCustoCSV(){
     var obj=o||{};
     var produto = String(obj.produto_id||'').trim();
     var lote = String(obj.lote||'').trim();
-    var data = String(obj.data_producao||'').slice(0,10);
+    var data = fmtDateBrFromIso(String(obj.data_producao||'').slice(0,10));
     var qtd = Number(obj.quantidade_produzida||0) || Number(obj.quantidade_planejada||0) || 0;
     var custoTotal = Number(obj.custo_total_lote||0) || 0;
     var custoUnit = qtd>0 ? (custoTotal/qtd) : 0;
@@ -1164,7 +1180,7 @@ function abrirModalEntradaInsumo(id){
   document.getElementById('en-custo').value='';
   document.getElementById('en-fornecedor').value=i.fornecedor||'';
   var d=document.getElementById('en-data');
-  if(d) d.value=new Date().toISOString().slice(0,10);
+  if(d) d.value=fmtDateBrFromIso(new Date().toISOString().slice(0,10));
   m.classList.add('open');
 }
 
@@ -1178,7 +1194,7 @@ function registrarEntradaInsumo(){
   var custoRaw=document.getElementById('en-custo').value;
   var custo = custoRaw==='' ? null : (parseFloat(custoRaw)||0);
   var forn=String(document.getElementById('en-fornecedor').value||'').trim();
-  var data=String(document.getElementById('en-data').value||new Date().toISOString().slice(0,10));
+  var data=parseDateToIso(String(document.getElementById('en-data').value||"")) || new Date().toISOString().slice(0,10);
 
   i.estoque_atual = (Number(i.estoque_atual)||0) + qty;
   if(custo != null && isFinite(custo) && custo>=0) i.custo_unitario = custo;
@@ -1207,7 +1223,8 @@ function registrarEntradaInsumo(){
 
 function pad3(n){ var s=String(n||0); while(s.length<3) s='0'+s; return s; }
 function generateLote(dateStr){
-  var d = String(dateStr||new Date().toISOString().slice(0,10)).replace(/\D/g,'').slice(0,8);
+  var iso = parseDateToIso(String(dateStr||"")) || new Date().toISOString().slice(0,10);
+  var d = String(iso||"").replace(/\D/g,'').slice(0,8);
   if(d.length!==8) d = new Date().toISOString().slice(0,10).replace(/\D/g,'');
   var pref = 'OP'+d+'-';
   var max = 0;
@@ -1249,7 +1266,7 @@ function abrirModalPedidoProd(id){
   document.getElementById('ordem-edit-id').value = o ? String(o.id) : '';
   document.getElementById('modal-ordem-title').textContent = o ? 'Editar OP' : 'Nova OP';
   document.getElementById('or-status').value = o ? String(o.status||'planejada') : 'planejada';
-  document.getElementById('or-data').value = o ? String(o.data_producao||today) : today;
+  document.getElementById('or-data').value = fmtDateBrFromIso(o ? String(o.data_producao||today) : today);
   if(sel) sel.value = o ? String(o.produto_id||'') : (sel.options[0]?.value||'');
   document.getElementById('or-qtd-planejada').value = o ? String(o.quantidade_planejada||0) : '';
   document.getElementById('or-qtd-produzida').value = o ? String(o.quantidade_produzida||0) : '';
@@ -1286,7 +1303,7 @@ function abrirMovimentosDoLote(){
 function salvarOrdem(){
   var id=String(document.getElementById('ordem-edit-id').value||'');
   var prod=String(document.getElementById('or-produto').value||'').trim();
-  var date=String(document.getElementById('or-data').value||new Date().toISOString().slice(0,10));
+  var date=parseDateToIso(String(document.getElementById('or-data').value||"")) || new Date().toISOString().slice(0,10);
   var st=String(document.getElementById('or-status').value||'planejada');
   var lote=String(document.getElementById('or-lote').value||'').trim() || generateLote(date);
   var qp=parseFloat(document.getElementById('or-qtd-planejada').value)||0;

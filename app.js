@@ -128,7 +128,7 @@ let selectedUser="admin";
 let currentClienteId = null;
 let oppPipeline = safeJsonParse("crm_opp_pipeline", []);
 let allTasks = safeJsonParse("crm_tasks", null) || [
-  {id:1,titulo:"Ligar para clientes VIP inativos",desc:"Clientes VIP que não compram há +60 dias",prioridade:"alta",status:"pendente",cliente:"",data:new Date().toISOString().slice(0,10)},
+  {id:1,titulo:"Reativar clientes VIP inativos (WhatsApp)",desc:"Clientes VIP que não compram há +60 dias",prioridade:"alta",status:"pendente",cliente:"",data:new Date().toISOString().slice(0,10)},
   {id:2,titulo:"Enviar campanha de reativação",desc:"Segmento de inativos - template WhatsApp",prioridade:"media",status:"pendente",cliente:"",data:new Date().toISOString().slice(0,10)},
   {id:3,titulo:"Verificar pedidos pendentes no Bling",desc:"Conferir status de entregas desta semana",prioridade:"alta",status:"em_andamento",cliente:"",data:new Date().toISOString().slice(0,10)},
 ];
@@ -197,8 +197,8 @@ try{
     const shopToSaved = localStorage.getItem("crm_shopify_to") || "";
     const blingFromEl = document.getElementById("date-from");
     const blingToEl = document.getElementById("date-to");
-    if(blingFromEl) blingFromEl.value = iso(from);
-    if(blingToEl) blingToEl.value = iso(now);
+    if(blingFromEl) blingFromEl.value = fmtDate(iso(from));
+    if(blingToEl) blingToEl.value = fmtDate(iso(now));
     const shopFromEl = document.getElementById("shop-date-from");
     const shopToEl = document.getElementById("shop-date-to");
     if(shopFromEl) shopFromEl.value = shopFromSaved || iso(from);
@@ -685,8 +685,8 @@ function renderPedidosPage(){
   const q = String((document.getElementById("ped-search")||{value:""}).value||"").toLowerCase().trim();
   const sf = String((document.getElementById("ped-status-filter")||{value:""}).value||"").toLowerCase().trim();
   const ch = String((document.getElementById("ped-canal-filter")||{value:""}).value||"").toLowerCase().trim();
-  const from = String((document.getElementById("ped-date-from")||{value:""}).value||"").trim();
-  const to = String((document.getElementById("ped-date-to")||{value:""}).value||"").trim();
+  const from = parseDateToIso(String((document.getElementById("ped-date-from")||{value:""}).value||"").trim());
+  const to = parseDateToIso(String((document.getElementById("ped-date-to")||{value:""}).value||"").trim());
   const minRaw = String((document.getElementById("ped-min")||{value:""}).value||"").trim();
   const minVal = minRaw ? (Number(minRaw)||0) : null;
 
@@ -1076,10 +1076,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
     if(fromEl && !fromEl.value){
       const d = new Date();
       d.setDate(d.getDate() - 365);
-      fromEl.value = d.toISOString().slice(0,10);
+      fromEl.value = fmtDate(d.toISOString().slice(0,10));
     }
     if(toEl && !toEl.value){
-      toEl.value = new Date().toISOString().slice(0,10);
+      toEl.value = fmtDate(new Date().toISOString().slice(0,10));
     }
   }catch(_e){}
 });
@@ -1964,7 +1964,7 @@ function renderTarefas(){
           <div class="task-badges">
             <span class="task-badge">${PRIO_LABEL[t.prioridade]||t.prioridade}</span>
             <span class="task-badge">${STATUS_LABEL[t.status]||t.status}</span>
-            ${t.data?`<span class="task-badge">📅 ${escapeHTML(t.data)}</span>`:""}
+            ${t.data?`<span class="task-badge">📅 ${escapeHTML(fmtDate(t.data))}</span>`:""}
           </div>
         </div>
         <div class="task-actions">
@@ -2025,7 +2025,7 @@ function openTaskModal(id, cliente, customerId){
             <option value="concluida" ${t?.status==="concluida"?"selected":""}>✅ Concluída</option>
           </select>
         </div>
-        <input id="tm-data" type="date" value="${t?.data||new Date().toISOString().slice(0,10)}"
+        <input id="tm-data" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" value="${escapeHTML(fmtDate(t?.data||new Date().toISOString().slice(0,10)))}"
           style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:14px;box-sizing:border-box"/>
         <div style="display:flex;gap:8px">
           <button onclick="document.getElementById('task-modal-overlay').remove()" 
@@ -2049,7 +2049,7 @@ function saveTask(id){
     cliente: document.getElementById("tm-cliente")?.value.trim()||"",
     prioridade: document.getElementById("tm-prio")?.value||"media",
     status: document.getElementById("tm-status")?.value||"pendente",
-    data: document.getElementById("tm-data")?.value||"",
+    data: parseDateToIso(document.getElementById("tm-data")?.value||"") || "",
   };
   if(id) { const i=allTasks.findIndex(t=>t.id===id); if(i>=0) allTasks[i]=task; }
   else allTasks.push(task);
@@ -2571,7 +2571,25 @@ function normSt(s){ const v=(s?.nome||s?.id||s||"").toString().toLowerCase(); if
 const ST_LABEL={aprovado:"Aprovado",pendente:"Pendente",cancelado:"Cancelado"};
 const ST_CLASS={aprovado:"s-aprovado",pendente:"s-pendente",cancelado:"s-cancelado"};
 function fmtBRL(v){ return(parseFloat(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}); }
-function fmtDate(d){ if(!d)return"—"; const dt=new Date(d); return isNaN(dt)?"—":dt.toLocaleDateString("pt-BR"); }
+function fmtDate(d){
+  if(!d) return "—";
+  const s = String(d).trim();
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(br) return s;
+  const dt = new Date(s);
+  return isNaN(dt) ? "—" : dt.toLocaleDateString("pt-BR");
+}
+function parseDateToIso(v){
+  const s = String(v || "").trim();
+  if(!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso) return s;
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return "";
+}
 function fmtDoc(d){ d=(d||"").replace(/\D/g,""); if(d.length===11)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4"); if(d.length===14)return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5"); return d; }
 function fmtPhone(p){ p=(p||"").replace(/\D/g,""); if(!p)return""; if(p.length===11)return`(${p.slice(0,2)}) ${p.slice(2,7)}-${p.slice(7)}`; if(p.length===10)return`(${p.slice(0,2)}) ${p.slice(2,6)}-${p.slice(6)}`; return p; }
 function rawPhone(p){ return(p||"").replace(/\D/g,""); }
@@ -3506,11 +3524,6 @@ function clienteAddNote(){
   openInteractionModal(currentClienteId, "nota");
 }
 
-function clienteAddCall(){
-  if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
-  openInteractionModal(currentClienteId, "ligacao");
-}
-
 function clienteAddNegotiation(){
   if(!currentClienteId){ toast("⚠ Cliente não selecionado"); return; }
   openInteractionModal(currentClienteId, "negociacao_registrada");
@@ -3807,7 +3820,7 @@ async function renderClienteTimeline(customerKey){
       .order("created_at",{ascending:false})
       .limit(80);
     if(error) throw error;
-    const rows = Array.isArray(data) ? data : [];
+    const rows = (Array.isArray(data) ? data : []).filter(r => String(r?.type || "") !== "ligacao");
     if(!rows.length){
       host.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhuma interação registrada ainda.</div>`;
       return;
@@ -3816,7 +3829,6 @@ async function renderClienteTimeline(customerKey){
       const tt = String(t||"");
       if(tt==="mensagem_enviada" || tt==="mensagem_recebida") return "whatsapp";
       if(tt==="tarefa_criada" || tt==="tarefa_concluida") return "tarefa";
-      if(tt==="ligacao") return "ligação";
       if(tt==="negociacao_registrada") return "negociação";
       if(tt==="pedido_criado" || tt==="pagamento_confirmado" || tt==="status_pedido_atualizado") return "pedido";
       if(tt==="nota") return "nota";
@@ -3825,7 +3837,6 @@ async function renderClienteTimeline(customerKey){
     const bucketLabel = {
       whatsapp: "WhatsApp",
       tarefa: "Tarefa",
-      "ligação": "Ligação",
       "negociação": "Negociação",
       pedido: "Pedido",
       nota: "Nota"
@@ -3836,7 +3847,6 @@ async function renderClienteTimeline(customerKey){
       if(tt==="mensagem_recebida") return "WhatsApp (recebido)";
       if(tt==="tarefa_criada") return "Tarefa criada";
       if(tt==="tarefa_concluida") return "Tarefa concluída";
-      if(tt==="ligacao") return "Ligação";
       if(tt==="negociacao_registrada") return "Negociação";
       if(tt==="pedido_criado") return "Pedido criado";
       if(tt==="pagamento_confirmado") return "Pagamento confirmado";
@@ -3871,8 +3881,9 @@ async function renderClienteTimeline(customerKey){
 function openInteractionModal(customerId, type){
   const c = allCustomers.find(x=>x.id===customerId);
   const nm = c?.nome || "Cliente";
-  const t = String(type||"nota");
-  const title = t==="ligacao" ? "📞 Registrar ligação" : t==="nota" ? "📝 Adicionar nota" : t==="negociacao_registrada" ? "🤝 Registrar negociação" : "➕ Interação";
+  let t = String(type||"nota");
+  if(t === "ligacao") t = "nota";
+  const title = t==="nota" ? "📝 Adicionar nota" : t==="negociacao_registrada" ? "🤝 Registrar negociação" : "➕ Interação";
   const html=`
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px" id="int-modal-overlay">
       <div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:420px;border:1px solid var(--border)">
@@ -3881,7 +3892,6 @@ function openInteractionModal(customerId, type){
         <input type="hidden" id="im-customer" value="${escapeHTML(String(customerId))}"/>
         <select id="im-type" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px">
           <option value="nota" ${t==="nota"?"selected":""}>📝 Nota</option>
-          <option value="ligacao" ${t==="ligacao"?"selected":""}>📞 Ligação</option>
           <option value="negociacao_registrada" ${t==="negociacao_registrada"?"selected":""}>🤝 Negociação</option>
         </select>
         <textarea id="im-desc" placeholder="Descrição" rows="3"
@@ -3941,7 +3951,6 @@ function renderCliCard(c,eid){
     </div>
     <div class="contact-actions">
       ${phoneRaw?`<a class="btn-wa" href="#" onclick="openWa('${phoneRaw}','${safeName}','${scores.status}');return false;">💬 WA</a>`:""}
-      ${phoneRaw?`<a class="btn-call" href="tel:+55${phoneRaw}">📞</a>`:""}
       ${c.email?`<a class="btn-email" href="${mailtoHref}">✉️</a>`:""}
     </div>
   </div>`:"";
@@ -4273,7 +4282,7 @@ async function renderOportunidadesFromSupabase(){
     const typeLabel = {
       mensagem_enviada: "Mensagem enviada",
       mensagem_recebida: "Mensagem recebida",
-      ligacao: "Ligação",
+      ligacao: "Interação",
       tarefa_criada: "Tarefa criada",
       tarefa_concluida: "Tarefa concluída",
       negociacao_registrada: "Negociação",
@@ -4350,7 +4359,6 @@ async function renderOportunidadesFromSupabase(){
               const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
               const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? dsContact) || 0;
               const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? 0) || 0;
-              const recomendacao = (diasSemComprar > 45 && String(segment||statusSaude).toLowerCase()==="vip") ? "ligar_agora" : "";
               const hs = hoursSinceIso(r.last_interaction_at || r.last_contact_at);
               const slaNovoLead = (s.id === "novo_lead") && hs != null && hs > 24;
               const healthCls = String(statusSaude||"").toLowerCase()==="churn" ? "opp-health-churn" : (String(segment||"").toLowerCase()==="vip" ? "opp-health-vip" : "");
@@ -4370,10 +4378,8 @@ async function renderOportunidadesFromSupabase(){
                   <div class="opp-meta">Última: ${escapeHTML(lastLabel)} · ${escapeHTML(lastTime)}${descMini?` · ${escapeHTML(descMini)}`:""}</div>
                   <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}</div>
                   <div class="opp-next">Próxima ação: <b>${escapeHTML(nextAction)}</b></div>
-                  ${recomendacao==="ligar_agora" ? `<button class="opp-primary-btn" onclick="event.stopPropagation();openInteractionModal('${safeKey}','ligacao')">Ação: Ligar Agora</button>` : ``}
                   <div class="opp-actions" onclick="event.stopPropagation()">
                     ${phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WA</button>`:""}
-                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','ligacao')">Lig</button>
                     <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','nota')">Nota</button>
                     <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','negociacao_registrada')">Neg</button>
                     <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
@@ -7158,7 +7164,8 @@ function getComPedidosBase(){
     const canal = String(o?._canal || o?.canal || o?.channel || detectCh(o) || "yampi").toLowerCase();
     const produto = summarizeOrderItems(o);
     const valor = Number(val(o) || o?.total || o?.total_price || 0) || 0;
-    const data = String(o?.data_pedido || o?.data || o?.created_at || "").slice(0,10) || "—";
+    const dataIso = String(o?.data_pedido || o?.data || o?.created_at || "").slice(0,10) || "";
+    const data = dataIso ? fmtDate(dataIso) : "—";
     const status = mapComStatusFromOrder(o);
     return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal, produto, valor, status, data };
   });
@@ -7232,7 +7239,7 @@ function renderCampanhas(){
   var stL={ativa:'🟢 Ativa',planejada:'📋 Planejada',pausada:'⏸️ Pausada',encerrada:'🔴 Encerrada'};
   var tE={desconto:'🏷️',frete:'🚚',brinde:'🎁',kit:'📦',lancamento:'🚀'};
   el.innerHTML=[].concat(allCampanhas).reverse().map(function(c){
-    return '<div class="campanha-card"><div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:16px">'+(tE[c.tipo]||'📣')+'</span><div style="font-size:13px;font-weight:800">'+escapeHTML(c.nome)+'</div></div><div style="font-size:10px;color:var(--text-3);margin-bottom:8px">'+escapeHTML(c.inicio)+' → '+escapeHTML(c.fim)+' · '+escapeHTML(String(c.canal||"").toUpperCase())+' · '+escapeHTML(c.oferta)+'</div><div style="display:flex;gap:16px"><span style="font-size:10px;color:var(--text-3)">Budget: <b style="color:var(--text)">R$'+c.budget.toLocaleString('pt-BR')+'</b></span><span style="font-size:10px;color:var(--text-3)">Meta: <b style="color:var(--green)">R$'+c.meta.toLocaleString('pt-BR')+'</b></span></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px"><span class="camp-status '+stC[c.status]+'">'+escapeHTML(stL[c.status]||c.status)+'</span><button onclick="abrirModalCampanha('+c.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:4px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div></div>';
+    return '<div class="campanha-card"><div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:16px">'+(tE[c.tipo]||'📣')+'</span><div style="font-size:13px;font-weight:800">'+escapeHTML(c.nome)+'</div></div><div style="font-size:10px;color:var(--text-3);margin-bottom:8px">'+escapeHTML(fmtDate(c.inicio))+' → '+escapeHTML(fmtDate(c.fim))+' · '+escapeHTML(String(c.canal||"").toUpperCase())+' · '+escapeHTML(c.oferta)+'</div><div style="display:flex;gap:16px"><span style="font-size:10px;color:var(--text-3)">Budget: <b style="color:var(--text)">R$'+c.budget.toLocaleString('pt-BR')+'</b></span><span style="font-size:10px;color:var(--text-3)">Meta: <b style="color:var(--green)">R$'+c.meta.toLocaleString('pt-BR')+'</b></span></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px"><span class="camp-status '+stC[c.status]+'">'+escapeHTML(stL[c.status]||c.status)+'</span><button onclick="abrirModalCampanha('+c.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:4px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div></div>';
   }).join('');
 }
 
@@ -7367,8 +7374,8 @@ function abrirModalCampanha(id){
     document.getElementById('camp-nome').value=c.nome;
     document.getElementById('camp-canal').value=c.canal;
     document.getElementById('camp-tipo').value=c.tipo;
-    document.getElementById('camp-inicio').value=c.inicio||'';
-    document.getElementById('camp-fim').value=c.fim||'';
+    document.getElementById('camp-inicio').value=c.inicio?fmtDate(c.inicio):'';
+    document.getElementById('camp-fim').value=c.fim?fmtDate(c.fim):'';
     document.getElementById('camp-oferta').value=c.oferta||'';
     document.getElementById('camp-budget').value=c.budget||0;
     document.getElementById('camp-meta').value=c.meta||0;
@@ -7386,7 +7393,7 @@ function abrirModalCampanha(id){
 }
 function salvarCampanha(){
   var id=document.getElementById('camp-edit-id').value;
-  var obj={id:id?parseInt(id):Date.now(),nome:document.getElementById('camp-nome').value.trim(),canal:document.getElementById('camp-canal').value,tipo:document.getElementById('camp-tipo').value,inicio:document.getElementById('camp-inicio').value,fim:document.getElementById('camp-fim').value,oferta:document.getElementById('camp-oferta').value.trim(),budget:parseFloat(document.getElementById('camp-budget').value)||0,meta:parseFloat(document.getElementById('camp-meta').value)||0,status:document.getElementById('camp-status').value,desc:document.getElementById('camp-desc').value.trim()};
+  var obj={id:id?parseInt(id):Date.now(),nome:document.getElementById('camp-nome').value.trim(),canal:document.getElementById('camp-canal').value,tipo:document.getElementById('camp-tipo').value,inicio:parseDateToIso(document.getElementById('camp-inicio').value),fim:parseDateToIso(document.getElementById('camp-fim').value),oferta:document.getElementById('camp-oferta').value.trim(),budget:parseFloat(document.getElementById('camp-budget').value)||0,meta:parseFloat(document.getElementById('camp-meta').value)||0,status:document.getElementById('camp-status').value,desc:document.getElementById('camp-desc').value.trim()};
   if(!obj.nome){ toast('⚠️ Informe o nome da campanha'); return; }
   if(id){ var idx=allCampanhas.findIndex(function(x){return x.id===parseInt(id);}); if(idx>=0) allCampanhas[idx]=obj; } else allCampanhas.push(obj);
   saveCampanhas(); renderCampanhas(); renderComKpis(); fecharModal('modal-campanha'); toast('✅ Campanha salva!');
@@ -7452,7 +7459,7 @@ function renderEventosLista(){
   if(filtroDia!==null) list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual&&parseInt(e.data.split('-')[2])===filtroDia; });
   if(!list.length){ el.innerHTML='<div class="empty">Nenhum evento neste período</div>'; return; }
   el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+(filtroDia?'Eventos dia '+filtroDia:'Próximos eventos')+'</div>'+list.map(function(e){
-    return '<div class="evento-card"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(e.data)+' '+escapeHTML(e.hora)+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
+    return '<div class="evento-card"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(fmtDate(e.data))+' '+escapeHTML(e.hora)+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
   }).join('');
 }
 
@@ -7463,7 +7470,7 @@ function renderDegustacoes(){
   el.innerHTML=list.map(function(e){
     var roi=e.custo>0?((e.receita-e.custo)/e.custo*100).toFixed(0):null;
     var taxa=e.amostras>0?Math.round(e.conversoes/e.amostras*100):0;
-    return '<div class="degust-card"><div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px"><div><div style="font-size:13px;font-weight:700;margin-bottom:3px">'+escapeHTML(e.titulo)+'</div><div style="font-size:10px;color:var(--text-3)">'+escapeHTML(e.data)+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div></div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-top:12px">'+miniKpi('🧪 Amostras',e.amostras||0,'var(--blue)')+miniKpi('✅ Conversões',e.conversoes||0,'var(--green)')+miniKpi('📈 Conv.%',taxa+'%','var(--indigo-hi)')+miniKpi('💰 Custo','R$'+(e.custo||0),'var(--red)')+miniKpi('💵 Receita','R$'+(e.receita||0),'var(--green)')+(roi!==null?miniKpi('🚀 ROI',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)'):'')+'</div>'+(e.obs?'<div style="font-size:11px;color:var(--text-2);margin-top:12px;padding-top:12px;border-top:1px solid var(--border-sub);font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div>';
+    return '<div class="degust-card"><div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px"><div><div style="font-size:13px;font-weight:700;margin-bottom:3px">'+escapeHTML(e.titulo)+'</div><div style="font-size:10px;color:var(--text-3)">'+escapeHTML(fmtDate(e.data))+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div></div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-top:12px">'+miniKpi('🧪 Amostras',e.amostras||0,'var(--blue)')+miniKpi('✅ Conversões',e.conversoes||0,'var(--green)')+miniKpi('📈 Conv.%',taxa+'%','var(--indigo-hi)')+miniKpi('💰 Custo','R$'+(e.custo||0),'var(--red)')+miniKpi('💵 Receita','R$'+(e.receita||0),'var(--green)')+(roi!==null?miniKpi('🚀 ROI',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)'):'')+'</div>'+(e.obs?'<div style="font-size:11px;color:var(--text-2);margin-top:12px;padding-top:12px;border-top:1px solid var(--border-sub);font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div>';
   }).join('');
 }
 
@@ -7501,7 +7508,7 @@ function abrirModalEvento(id){
     document.getElementById('modal-evento-title').textContent='Editar Evento';
     document.getElementById('ev-titulo').value=e.titulo;
     document.getElementById('ev-tipo').value=e.tipo;
-    document.getElementById('ev-data').value=e.data||'';
+    document.getElementById('ev-data').value=e.data?fmtDate(e.data):'';
     document.getElementById('ev-hora').value=e.hora||'';
     document.getElementById('ev-local').value=e.local||'';
     document.getElementById('ev-responsavel').value=e.responsavel||'';
@@ -7521,7 +7528,7 @@ function abrirModalEvento(id){
 }
 function salvarEvento(){
   var id=document.getElementById('ev-edit-id').value;
-  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:document.getElementById('ev-data').value,hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
+  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:parseDateToIso(document.getElementById('ev-data').value),hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
   if(!obj.titulo){ toast('⚠️ Informe o título'); return; }
   if(id){ var idx=allEventos.findIndex(function(x){return x.id===parseInt(id);}); if(idx>=0) allEventos[idx]=obj; } else allEventos.push(obj);
   saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('✅ Evento salvo!');

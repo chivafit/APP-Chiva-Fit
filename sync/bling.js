@@ -33,19 +33,33 @@ export async function syncBling(ctx, options){
   const st = document.getElementById("bling-status");
   const fromEl = document.getElementById("date-from");
   const toEl = document.getElementById("date-to");
-  let from = String(fromEl?.value||"").slice(0,10);
-  let to = String(toEl?.value||"").slice(0,10);
+  const fmtDateBrFromIso = (iso)=>{
+    const s = String(iso||"").trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+  };
+  const parseDateToIso = (v)=>{
+    const s = String(v||"").trim();
+    if(!s) return "";
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(iso) return s;
+    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if(br) return `${br[3]}-${br[2]}-${br[1]}`;
+    return "";
+  };
+  let from = parseDateToIso(String(fromEl?.value||""));
+  let to = parseDateToIso(String(toEl?.value||""));
   if((!from || !to) && !omitDates){
     try{
       if(!from){
         const d = new Date();
         d.setDate(d.getDate() - 365);
         from = d.toISOString().slice(0,10);
-        if(fromEl) fromEl.value = from;
+        if(fromEl) fromEl.value = fmtDateBrFromIso(from);
       }
       if(!to){
         to = new Date().toISOString().slice(0,10);
-        if(toEl) toEl.value = to;
+        if(toEl) toEl.value = fmtDateBrFromIso(to);
       }
     }catch(_e){}
   }

@@ -390,7 +390,6 @@
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn" onclick="clienteAddTask()" style="padding:8px 10px;font-size:11px">+ Tarefa</button>
       <button class="btn" onclick="clienteAddNegotiation()" style="padding:8px 10px;font-size:11px">🤝 Negociação</button>
-      <button class="btn" onclick="clienteAddCall()" style="padding:8px 10px;font-size:11px">📞 Ligação</button>
       <button class="btn" onclick="clienteAddNote()" style="padding:8px 10px;font-size:11px">📝 Nota</button>
       <button class="btn" onclick="clienteWhatsApp()" style="padding:8px 10px;font-size:11px">💬 WhatsApp</button>
     </div>
@@ -604,7 +603,7 @@
         As credenciais estão configuradas com segurança no servidor (Supabase).</p>
 
         <label>Período de importação</label>
-        <div class="date-row"><input type="date" class="inp" id="date-from"/><span>até</span><input type="date" class="inp" id="date-to"/></div>
+        <div class="date-row"><input type="text" class="inp" id="date-from" inputmode="numeric" placeholder="dd/mm/aaaa"/><span>até</span><input type="text" class="inp" id="date-to" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
         <button class="btn-primary" onclick="syncBling()">Importar Pedidos do Bling</button>
         <div id="bling-status" class="setup-status"></div>
 
@@ -701,9 +700,9 @@
     </select>
     <div class="saas-chip saas-chip-range">
       <span class="saas-chip-label">Data</span>
-      <input id="ped-date-from" type="date" class="saas-chip-input" onchange="renderPedidosPage()"/>
+      <input id="ped-date-from" type="text" class="saas-chip-input" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
       <span class="saas-chip-sep">—</span>
-      <input id="ped-date-to" type="date" class="saas-chip-input" onchange="renderPedidosPage()"/>
+      <input id="ped-date-to" type="text" class="saas-chip-input" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
     </div>
     <div class="saas-chip saas-chip-number">
       <span class="saas-chip-label">Min</span>
@@ -1018,7 +1017,7 @@
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Fornecedor (opcional)</label><input id="en-fornecedor" placeholder="Fornecedor"/></div>
-      <div class="mod-field"><label>Data</label><input type="date" id="en-data"/></div>
+      <div class="mod-field"><label>Data</label><input type="text" id="en-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-actions">
       <button class="btn-mod-cancel" onclick="fecharModal('modal-entrada-insumo')">Cancelar</button>
@@ -1044,7 +1043,7 @@
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Produto</label><select id="or-produto" style="width:100%"></select></div>
-      <div class="mod-field"><label>Data de produção</label><input type="date" id="or-data"/></div>
+      <div class="mod-field"><label>Data de produção</label><input type="text" id="or-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Quantidade planejada</label><input type="number" id="or-qtd-planejada" placeholder="0" step="0.01"/></div>
@@ -1087,8 +1086,8 @@
       </div>
     </div>
     <div class="mod-row">
-      <div class="mod-field"><label>Início</label><input type="date" id="camp-inicio"/></div>
-      <div class="mod-field"><label>Fim</label><input type="date" id="camp-fim"/></div>
+      <div class="mod-field"><label>Início</label><input type="text" id="camp-inicio" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Fim</label><input type="text" id="camp-fim" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Desconto / Oferta</label><input id="camp-oferta" placeholder="Ex: 20% off, frete grátis..."/></div>
@@ -1132,7 +1131,7 @@
       </div>
     </div>
     <div class="mod-row">
-      <div class="mod-field"><label>Data</label><input type="date" id="ev-data"/></div>
+      <div class="mod-field"><label>Data</label><input type="text" id="ev-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
       <div class="mod-field"><label>Horário</label><input type="time" id="ev-hora"/></div>
     </div>
     <div class="mod-field"><label>Local / Plataforma</label><input id="ev-local" placeholder="Endereço ou link..."/></div>
