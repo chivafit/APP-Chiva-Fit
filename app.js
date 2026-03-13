@@ -48,6 +48,9 @@ document.addEventListener("DOMContentLoaded",function(){
 let tarefasCache = [];
 let supaConnected = false;
 let supaClient = null;
+let supaSession = null;
+let supaAccessToken = "";
+let supaAuthUnsub = null;
 let canaisLookup = {};
 
 // ═══════════════════════════════════════════════════
@@ -286,13 +289,35 @@ function getSupaFnBase(){
   return url + "/functions/v1";
 }
 
+async function refreshSupabaseSession(){
+  if(!supaClient || !supaClient.auth || typeof supaClient.auth.getSession !== "function") return null;
+  try{
+    const { data, error } = await supaClient.auth.getSession();
+    if(error) return null;
+    supaSession = data?.session || null;
+    supaAccessToken = supaSession?.access_token ? String(supaSession.access_token) : "";
+    return supaSession;
+  }catch(_e){
+    return null;
+  }
+}
+
+async function supaFnHeadersAsync(){
+  await refreshSupabaseSession();
+  return supaFnHeaders();
+}
+
 function supaFnHeaders(){
   const anonKey = getSupabaseAnonKey();
   if(!anonKey) throw new Error("Supabase não configurado: informe a chave pública (anon) em Configurações.");
+  if(!supaAccessToken){
+    forceLogout("Sessão do Supabase expirada.");
+    throw new Error("Sessão do Supabase expirada. Faça login novamente.");
+  }
   return {
     "Content-Type":"application/json",
     "apikey": anonKey,
-    "Authorization": "Bearer "+anonKey
+    "Authorization": "Bearer "+supaAccessToken
   };
 }
 
@@ -352,6 +377,38 @@ async function handleLoginSubmit(e){
     }
     
     if(ok){
+      const url = getSupabaseProjectUrl();
+      const key = getSupabaseAnonKey();
+      if(url && key){
+        try{
+          supaClient = getSupabaseClient(url, key);
+          if(!supaAuthUnsub && supaClient.auth && typeof supaClient.auth.onAuthStateChange === "function"){
+            const res = supaClient.auth.onAuthStateChange((_event, session)=>{
+              supaSession = session || null;
+              supaAccessToken = session?.access_token ? String(session.access_token) : "";
+            });
+            supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
+          }
+        }catch(_e){}
+
+        if(!supaClient || !supaClient.auth || typeof supaClient.auth.signInWithPassword !== "function"){
+          if(errEl) errEl.textContent = "Supabase Auth não está disponível neste ambiente.";
+          return false;
+        }
+        const { data, error } = await supaClient.auth.signInWithPassword({ email: canonicalEmail, password: pass });
+        if(error || !data?.session?.access_token){
+          if(errEl) errEl.textContent = "Falha ao autenticar no Supabase (Auth). Crie este usuário no Supabase Auth ou revise a senha.";
+          return false;
+        }
+        supaSession = data.session;
+        supaAccessToken = String(data.session.access_token || "");
+
+        const connected = await initSupabase();
+        if(!connected){
+          if(errEl) errEl.textContent = "Supabase não está conectado. Verifique a URL, a chave (anon) e as políticas (RLS).";
+          return false;
+        }
+      }
       localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
       localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
       enterApp(canonicalEmail);
@@ -628,19 +685,41 @@ function renderPedidosPage(){
   `;
 }
 
-function goLogout(){
-  if(!confirm("Sair?"))return;
+function forceLogout(reason){
   if(syncTimer) clearInterval(syncTimer);
   try{ localStorage.removeItem(STORAGE_KEYS.loginFlag); }catch(_e){}
   try{ localStorage.removeItem(STORAGE_KEYS.sessionEmail); }catch(_e){}
-  document.getElementById("login-screen").style.display="flex";
+  try{
+    if(supaClient && supaClient.auth && typeof supaClient.auth.signOut === "function"){
+      supaClient.auth.signOut().catch(()=>{});
+    }
+  }catch(_e){}
+  supaSession = null;
+  supaAccessToken = "";
+  try{
+    if(supaAuthUnsub && typeof supaAuthUnsub.unsubscribe === "function") supaAuthUnsub.unsubscribe();
+  }catch(_e){}
+  supaAuthUnsub = null;
+  const loginScreen = document.getElementById("login-screen");
+  if(loginScreen) loginScreen.style.display="flex";
   const shell = document.getElementById("app-shell");
-  shell.style.display="none"; shell.classList.remove("visible");
+  if(shell){
+    shell.style.display="none";
+    shell.classList.remove("visible");
+  }
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   const errEl = document.getElementById("login-error");
-  if(errEl) errEl.textContent = "";
+  if(errEl){
+    errEl.textContent = reason ? String(reason) : "";
+    errEl.style.color = reason ? "#f87171" : "";
+  }
   const passEl = document.getElementById("login-pass");
   if(passEl) passEl.value = "";
+}
+
+function goLogout(){
+  if(!confirm("Sair?"))return;
+  forceLogout("");
 }
 window.goLogout = goLogout;
 
@@ -956,6 +1035,7 @@ function getSyncCtx(){
     getSupaClient: ()=>supaClient,
     getSupaFnBase,
     supaFnHeaders,
+    supaFnHeadersAsync,
     normalizeOrderForCRM,
     mergeOrders,
     populateUFs,
@@ -1568,7 +1648,7 @@ async function reconcileCarrinhosRecuperados(){
 async function fetchShopify(shop,key,from,to){
   const r=await fetch(getSupaFnBase()+"/shopify-sync",{
     method:"POST",
-    headers:supaFnHeaders(),
+    headers:await supaFnHeadersAsync(),
     body:JSON.stringify({shop,key,from,to})
   });
   if(!r.ok){
@@ -1639,7 +1719,7 @@ async function recarregar(silent=false){
     const to=iso(new Date());
     const resp=await fetch(getSupaFnBase()+"/bling-sync",{
       method:"POST",
-      headers:supaFnHeaders(),
+      headers:await supaFnHeadersAsync(),
       body:JSON.stringify({from,to})
     });
     if(resp.ok){
@@ -1978,6 +2058,7 @@ function getIACtx(){
     escapeHTML,
     getSupaFnBase,
     supaFnHeaders,
+    supaFnHeadersAsync,
     supaConnected,
     supaClient,
     selectedUser,
@@ -6037,6 +6118,17 @@ async function initSupabase(){
 
   try{
     supaClient = getSupabaseClient(url, key);
+
+    try{
+      if(!supaAuthUnsub && supaClient.auth && typeof supaClient.auth.onAuthStateChange === "function"){
+        const res = supaClient.auth.onAuthStateChange((_event, session)=>{
+          supaSession = session || null;
+          supaAccessToken = session?.access_token ? String(session.access_token) : "";
+        });
+        supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
+      }
+    }catch(_e){}
+    await refreshSupabaseSession();
     
     const { error } = await supaClient.from('configuracoes').select('chave').limit(1);
     

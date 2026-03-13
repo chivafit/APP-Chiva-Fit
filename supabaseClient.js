@@ -10,9 +10,9 @@ export function getSupabaseClient(projectUrl, anonKey){
   if(!lib || typeof lib.createClient !== "function") throw new Error("Supabase JS não carregado.");
   const client = lib.createClient(url, key, {
     auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
     }
   });
   clientsByConfig.set(cacheKey, client);

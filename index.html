@@ -13,7 +13,21 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.js"></script>
+<script src="./config.example.js"></script>
+<script>
+(function(){
+  try{
+    fetch("./config.js", { method: "HEAD", cache: "no-store" })
+      .then(function(r){
+        if(!r || !r.ok) return;
+        var s = document.createElement("script");
+        s.src = "./config.js?v=" + Date.now();
+        document.head.appendChild(s);
+      })
+      .catch(function(){});
+  }catch(_e){}
+})();
+</script>
 <link rel="stylesheet" href="./main.css?v=20260313-1">
 <script type="module" src="./main.js?v=20260313-1"></script>
 </head>

@@ -1039,7 +1039,7 @@ Personalização: use o primeiro nome do cliente quando possível (${firstName||
   try{
     const apiKey = String(localStorage.getItem("crm_ai_key") || "").trim();
     if(!apiKey) throw new Error("Chave da IA não configurada em Configurações.");
-    const resp=await fetch(ctx.getSupaFnBase()+"/ia-commercial",{method:"POST",headers:ctx.supaFnHeaders(),body:JSON.stringify({contexto,pergunta,apiKey})});
+    const resp=await fetch(ctx.getSupaFnBase()+"/ia-commercial",{method:"POST",headers:await ctx.supaFnHeadersAsync(),body:JSON.stringify({contexto,pergunta,apiKey})});
     if(!resp.ok){ const txt=await resp.text(); throw new Error(txt||"Erro na IA comercial"); }
     const data=await resp.json();
     const parsed=parseCommercialAIResponse(data);
@@ -1240,7 +1240,7 @@ export async function runAI(ctx, type){
   try{
     const response=await fetch(ctx.getSupaFnBase()+"/ia-claude",{
       method:"POST",
-      headers:ctx.supaFnHeaders(),
+      headers:await ctx.supaFnHeadersAsync(),
       body:JSON.stringify({
         prompt:`${dataSummary}\n\nPERGUNTA: ${prompts[type]}`,
         system:"Você é um especialista em CRM e retenção de clientes para e-commerce brasileiro, especialmente marcas de suplementos/nutrição. Responda sempre em português, seja direto, use dados reais fornecidos, e dê insights acionáveis. Use bullet points e seja conciso mas impactante."

@@ -79,7 +79,7 @@ export async function syncBling(ctx, options){
       const payload = omitDates ? { limit: batchLimit, offset } : { from, to, limit: batchLimit, offset };
       const resp = await fetch(ctx.getSupaFnBase()+"/bling-sync",{
         method:"POST",
-        headers: ctx.supaFnHeaders(),
+        headers: await ctx.supaFnHeadersAsync(),
         body: JSON.stringify(payload)
       });
 
@@ -132,7 +132,7 @@ export async function syncBlingProdutos(ctx){
 
     const resp = await fetch(ctx.getSupaFnBase()+"/bling-products-sync",{
       method:"POST",
-      headers: ctx.supaFnHeaders(),
+      headers: await ctx.supaFnHeadersAsync(),
       body: JSON.stringify({ limit: 100, maxPages: 200 })
     });
 
@@ -221,7 +221,7 @@ export async function backfillBlingEnderecos(ctx){
 
     const resp = await fetch(ctx.getSupaFnBase()+"/bling-sync",{
       method:"POST",
-      headers: ctx.supaFnHeaders(),
+      headers: await ctx.supaFnHeadersAsync(),
       body: JSON.stringify({from,to, maxPages: 200})
     });
     if(!resp.ok){
