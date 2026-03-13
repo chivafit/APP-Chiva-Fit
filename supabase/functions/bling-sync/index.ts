@@ -636,6 +636,9 @@ function mapBlingOrder(detail: any) {
   const dataPedido = toIsoDate(data?.data ?? data?.dataEmissao ?? data?.dataPedido ?? data?.dataCriacao ?? "");
   const status = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? "").trim();
 
+  const loja = data?.loja ?? {};
+  const numeroPedidoEcommerce = String(data?.numeroPedidoEcommerce ?? "").trim();
+
   const email = String(contato?.email ?? "").trim().toLowerCase();
   const tel = onlyDigits(contato?.telefone ?? contato?.fone ?? "");
   const cel = onlyDigits(contato?.celular ?? contato?.cel ?? "");
@@ -655,6 +658,8 @@ function mapBlingOrder(detail: any) {
       : undefined,
     cidade_entrega: endereco.municipio || null,
     uf_entrega: endereco.uf || null,
+    loja,
+    numeroPedidoEcommerce,
     contato: {
       nome: String(contato?.nome ?? "Desconhecido").trim(),
       cpfCnpj: doc,

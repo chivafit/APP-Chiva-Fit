@@ -211,7 +211,10 @@ function getSupabaseProjectUrl(){
     localStorage.getItem("supa_url") ||
     localStorage.getItem("supabase_url") ||
     "";
-  return String(raw || "").trim().replace(/\/+$/,"");
+  let url = String(raw || "").trim().replace(/\/+$/,"");
+  if(!url) return "";
+  if(!url.includes("://")) url = "https://" + url;
+  return url;
 }
 
 function getSupabaseAnonKey(){
@@ -820,21 +823,40 @@ function saveAlertDays(){
 }
 
 function saveSupabaseConfig(){
-  const url = document.getElementById("inp-supa-url")?.value?.trim();
-  const key = document.getElementById("inp-supa-key")?.value?.trim();
+  let url = document.getElementById("inp-supa-url")?.value?.trim() || "";
+  const key = document.getElementById("inp-supa-key")?.value?.trim() || "";
   const st = document.getElementById("supa-status");
-  if(!url||!key){ if(st) st.textContent="⚠ Preencha URL e chave."; if(st) st.className="setup-status s-err"; return; }
+
+  if(!url || !key){
+    if(st){ st.textContent="⚠ Preencha URL e chave."; st.className="setup-status s-err"; }
+    return;
+  }
+
+  // Auto-completar URL se o usuário colou apenas o ID do projeto
+  if(!url.includes(".") && !url.includes("://")){
+    url = `https://${url}.supabase.co`;
+    const urlEl = document.getElementById("inp-supa-url");
+    if(urlEl) urlEl.value = url;
+  } else if(!url.startsWith("http")){
+    url = `https://${url}`;
+    const urlEl = document.getElementById("inp-supa-url");
+    if(urlEl) urlEl.value = url;
+  }
+
+  // Limpar chaves antigas e salvar novas (usando apenas o prefixo crm_ como padrão)
+  const keys = ["crm_supa_url", "crm_supa_key", "supa_url", "supa_key", "supabase_url", "supabase_key"];
+  keys.forEach(k => localStorage.removeItem(k));
+
   localStorage.setItem("crm_supa_url", url);
   localStorage.setItem("crm_supa_key", key);
-  localStorage.setItem("supa_url", url);
-  localStorage.setItem("supa_key", key);
-  localStorage.setItem("supabase_url", url);
-  localStorage.setItem("supabase_key", key);
+
   if(st){ st.textContent="✓ Salvo! Conectando..."; st.className="setup-status s-ok"; }
+
   setTimeout(async()=>{
     const connected = await initSupabase();
-    if(connected && document.getElementById("app-shell")?.classList.contains("visible")){
+    if(connected){
       try{ await loadSupabaseData(); }catch(_e){}
+      toast("✓ Supabase conectado com sucesso!");
     }
   }, 300);
 }
@@ -2169,6 +2191,260 @@ function openWhatsAppForCustomer(clienteId){
   return openWhatsAppForCustomerImpl(getIACtx(), clienteId);
 }
 
+let currentSegmentId = null;
+let computedSegments = [];
+
+function getSegmentDefinitions(){
+  return [
+    { id: 'vip', name: 'VIP', desc: 'LTV >= R$300 ou 5+ pedidos', filter: c => c.total_gasto >= 300 || c.total_pedidos >= 5 },
+    { id: 'risco', name: 'Em Risco', desc: 'Churn risk >= 70%', filter: c => (c.risco_churn || 0) >= 70 },
+    { id: 'novos', name: 'Novos Clientes', desc: 'Apenas 1 pedido realizado', filter: c => c.total_pedidos === 1 },
+    { id: 'recompra', name: 'Recompra', desc: '2+ pedidos e intervalo <= 30 dias', filter: c => c.total_pedidos >= 2 && (c.intervalo_medio_dias || 999) <= 30 },
+    { id: 'uma_compra', name: 'Só uma compra', desc: '1 pedido e risco churn >= 50%', filter: c => c.total_pedidos === 1 && (c.risco_churn || 0) >= 50 },
+    { id: 'alto_ticket', name: 'Alto Ticket', desc: 'Ticket médio >= R$100', filter: c => c.ticket_medio >= 100 },
+    { id: 'low_carb', name: 'Low Carb Lovers', desc: 'Produto favorito: low carb', filter: c => String(c.produto_favorito || "").toLowerCase().includes('low carb') },
+    { id: 'cranberry', name: 'Cranberry Lovers', desc: 'Produto favorito: cranberry', filter: c => String(c.produto_favorito || "").toLowerCase().includes('cranberry') },
+    { id: 'tradicional', name: 'Tradicional Lovers', desc: 'Produto favorito: tradicional', filter: c => String(c.produto_favorito || "").toLowerCase().includes('tradicional') },
+    { id: 'site', name: 'Clientes do Site', desc: 'Canal principal: site', filter: c => String(c.canal_principal || "").toLowerCase().includes('site') },
+    { id: 'shopee', name: 'Clientes Shopee', desc: 'Canal principal: shopee', filter: c => String(c.canal_principal || "").toLowerCase().includes('shopee') },
+    { id: 'amazon', name: 'Clientes Amazon', desc: 'Canal principal: amazon', filter: c => String(c.canal_principal || "").toLowerCase().includes('amazon') },
+    { id: 'mg', name: 'Clientes MG', desc: 'Localizados em Minas Gerais', filter: c => String(c.uf || "").toUpperCase() === 'MG' },
+    { id: 'sp', name: 'Clientes SP', desc: 'Localizados em São Paulo', filter: c => String(c.uf || "").toUpperCase() === 'SP' }
+  ];
+}
+
+async function recalculateSegments(){
+  const loader = document.getElementById('app-loader');
+  if(loader) loader.style.display = 'flex';
+  
+  try {
+    // 1. Garantir dados atualizados
+    if(supaConnected && supaClient){
+      const { data, error } = await supaClient.from('v2_clientes').select('*');
+      if(!error && data) {
+        allCustomers.length = 0;
+        allCustomers.push(...data);
+      }
+    }
+
+    // 2. Calcular segmentos
+    const defs = getSegmentDefinitions();
+    computedSegments = defs.map(d => {
+      const filtered = allCustomers.filter(d.filter);
+      const totalRevenue = filtered.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
+      const avgTicket = filtered.length ? totalRevenue / filtered.length : 0;
+      return {
+        ...d,
+        count: filtered.length,
+        revenue: totalRevenue,
+        avgTicket: avgTicket,
+        customers: filtered
+      };
+    });
+
+    renderSegmentos();
+    toast('✅ Segmentos recalculados!');
+  } catch(e) {
+    console.error(e);
+    toast('❌ Erro ao calcular segmentos');
+  } finally {
+    if(loader) loader.style.display = 'none';
+  }
+}
+
+function renderSegmentos(){
+  const statsHost = document.getElementById('segment-stats');
+  const listHost = document.getElementById('segment-list');
+  if(!statsHost || !listHost) return;
+
+  // KPIs Topo
+  const totalClis = allCustomers.length;
+  const vipSeg = computedSegments.find(s => s.id === 'vip');
+  const riscoSeg = computedSegments.find(s => s.id === 'risco');
+  const novosSeg = computedSegments.find(s => s.id === 'novos');
+  const totalRevenue = allCustomers.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
+  const avgTicketGeral = totalClis ? totalRevenue / allCustomers.length : 0;
+
+  statsHost.innerHTML = [
+    {l:"Total Clientes", v:totalClis, s:"base ativa"},
+    {l:"Clientes VIP", v:vipSeg?.count || 0, s:fmtBRL(vipSeg?.revenue || 0)},
+    {l:"Em Risco", v:riscoSeg?.count || 0, s:Math.round((riscoSeg?.count || 0) / (totalClis || 1) * 100) + "% da base"},
+    {l:"Novos (30d)", v:novosSeg?.count || 0, s:"primeira compra"},
+    {l:"Ticket Médio", v:fmtBRL(avgTicketGeral), s:"geral"},
+    {l:"Receita Total", v:fmtBRL(totalRevenue), s:"acumulada"}
+  ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+
+  // Lista de Cards
+  listHost.innerHTML = computedSegments.map(s => `
+    <div class="canal-card" style="cursor:pointer; transition:transform 0.2s" onclick="openSegmentDetail('${s.id}')" onmouseover="this.style.transform='translateY(-4px)'" onmouseout="this.style.transform='none'">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px">
+        <div>
+          <div style="font-size:15px; font-weight:800; color:var(--chiva-primary-light)">${escapeHTML(s.name)}</div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:2px">${escapeHTML(s.desc)}</div>
+        </div>
+        <div class="badge" style="background:var(--chiva-primary-bg); color:var(--chiva-primary)">${s.count} clis</div>
+      </div>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px">
+        <div>
+          <div style="font-size:9px; color:var(--text-3); text-transform:uppercase; font-weight:700">Receita</div>
+          <div style="font-size:14px; font-weight:700; font-family:var(--mono)">${fmtBRL(s.revenue)}</div>
+        </div>
+        <div>
+          <div style="font-size:9px; color:var(--text-3); text-transform:uppercase; font-weight:700">Ticket Médio</div>
+          <div style="font-size:14px; font-weight:700; font-family:var(--mono)">${fmtBRL(s.avgTicket)}</div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px" onclick="event.stopPropagation()">
+        <button class="btn" style="flex:1; font-size:10px; padding:6px" onclick="openSegmentDetail('${s.id}')">Ver clientes</button>
+        <button class="btn" style="flex:1; font-size:10px; padding:6px" onclick="exportSegmentData('${s.id}')">Exportar</button>
+        <button class="btn-primary" style="flex:1; font-size:10px; padding:6px" onclick="toast('Campanha iniciada para ${s.name}')">Campanha</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function openSegmentDetail(id){
+  currentSegmentId = id;
+  const seg = computedSegments.find(s => s.id === id);
+  if(!seg) return;
+
+  const titleEl = document.getElementById('seg-detalhe-title');
+  const descEl = document.getElementById('seg-detalhe-desc');
+  if(titleEl) titleEl.textContent = seg.name;
+  if(descEl) descEl.textContent = seg.desc;
+
+  // Stats interna
+  const statsHost = document.getElementById('seg-detalhe-stats');
+  if(statsHost){
+    statsHost.innerHTML = [
+      {l:"Clientes", v:seg.count, s:"no grupo"},
+      {l:"Receita Total", v:fmtBRL(seg.revenue), s:"acumulada"},
+      {l:"Ticket Médio", v:fmtBRL(seg.avgTicket), s:"do grupo"},
+      {l:"Freq. Média", v:"—", s:"em breve"}
+    ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+  }
+
+  showPage('segmento-detalhe');
+  renderSegmentCustomers();
+  renderSegmentCharts(seg);
+}
+
+function renderSegmentCustomers(){
+  const host = document.getElementById('seg-cust-list');
+  if(!host) return;
+
+  const seg = computedSegments.find(s => s.id === currentSegmentId);
+  if(!seg) return;
+
+  const q = String(document.getElementById('seg-cust-search')?.value || "").toLowerCase();
+  const list = seg.customers.filter(c => 
+    String(c.nome || "").toLowerCase().includes(q) || 
+    String(c.email || "").toLowerCase().includes(q)
+  );
+
+  if(!list.length){
+    host.innerHTML = `<div class="empty">Nenhum cliente encontrado</div>`;
+    return;
+  }
+
+  host.innerHTML = `
+    <table class="chiva-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Cidade</th>
+          <th style="text-align:right">Total Gasto</th>
+          <th style="text-align:right">Pedidos</th>
+          <th style="text-align:right">Risco Churn</th>
+          <th>Favorito</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map(c => `
+          <tr style="cursor:pointer" onclick="openClienteDrawer('${c.id}')">
+            <td>
+              <div style="font-weight:700">${escapeHTML(c.nome || "—")}</div>
+              <div style="font-size:10px; color:var(--text-3)">${escapeHTML(c.email || "—")}</div>
+            </td>
+            <td>${escapeHTML(c.cidade || "—")} ${escapeHTML(c.uf || "")}</td>
+            <td style="text-align:right; font-family:var(--mono)">${fmtBRL(c.total_gasto || 0)}</td>
+            <td style="text-align:right">${c.total_pedidos || 0}</td>
+            <td style="text-align:right">
+              <span style="color:${(c.risco_churn||0) > 60 ? 'var(--red)' : (c.risco_churn||0) > 30 ? 'var(--amber)' : 'var(--green)'}">
+                ${c.risco_churn || 0}%
+              </span>
+            </td>
+            <td><span class="badge">${escapeHTML(c.produto_favorito || "—")}</span></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderSegmentCharts(seg){
+  // Cidades
+  const cities = {};
+  seg.customers.forEach(c => { const k = c.cidade || "Não inf."; cities[k] = (cities[k]||0) + 1; });
+  const topCities = Object.entries(cities).sort((a,b) => b[1]-a[1]).slice(0,5);
+  const citiesHost = document.getElementById('seg-chart-cidades');
+  if(citiesHost) citiesHost.innerHTML = topCities.map(([name, count]) => `
+    <div style="margin-bottom:10px">
+      <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px">
+        <span>${escapeHTML(name)}</span>
+        <span style="font-weight:700">${count}</span>
+      </div>
+      <div style="height:6px; background:var(--border); border-radius:10px; overflow:hidden">
+        <div style="height:100%; background:var(--chiva-primary); width:${Math.min(100, count/seg.count*100)}%"></div>
+      </div>
+    </div>
+  `).join("") || '<div class="empty">Sem dados</div>';
+
+  // Produtos
+  const prods = {};
+  seg.customers.forEach(c => { const k = c.produto_favorito || "Não inf."; prods[k] = (prods[k]||0) + 1; });
+  const topProds = Object.entries(prods).sort((a,b) => b[1]-a[1]).slice(0,5);
+  const prodsHost = document.getElementById('seg-chart-produtos');
+  if(prodsHost) prodsHost.innerHTML = topProds.map(([name, count]) => `
+    <div style="margin-bottom:10px">
+      <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px">
+        <span>${escapeHTML(name)}</span>
+        <span style="font-weight:700">${count}</span>
+      </div>
+      <div style="height:6px; background:var(--border); border-radius:10px; overflow:hidden">
+        <div style="height:100%; background:var(--indigo-hi); width:${Math.min(100, count/seg.count*100)}%"></div>
+      </div>
+    </div>
+  `).join("") || '<div class="empty">Sem dados</div>';
+}
+
+function exportSegmentData(id){
+  const seg = id ? computedSegments.find(s => s.id === id) : { name: "Todos Clientes", customers: allCustomers };
+  if(!seg || !seg.customers.length) return toast("Nenhum dado para exportar");
+
+  const headers = ["Nome", "Email", "Telefone", "Cidade", "UF", "Total Gasto", "Pedidos", "Favorito"];
+  const csv = [
+    headers.join(";"),
+    ...seg.customers.map(c => [
+      c.nome, c.email, c.telefone, c.cidade, c.uf, c.total_gasto, c.total_pedidos, c.produto_favorito
+    ].join(";"))
+  ].join("\n");
+
+  const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", `segmento_${seg.name.toLowerCase().replace(/\s/g, '_')}.csv`);
+  link.click();
+  toast("✅ CSV gerado com sucesso!");
+}
+
+function selectSegment(id){
+  showPage('segmentos');
+  setTimeout(() => openSegmentDetail(id), 100);
+}
+
 function renderAll(){
   safeInvokeName("renderDash");
   safeInvokeName("renderClientes");
@@ -2188,6 +2464,7 @@ function renderAll(){
   safeInvokeName("renderCalendario");
   safeInvokeName("renderDegustacoes");
   safeInvokeName("renderIADashboard");
+  safeInvokeName("recalculateSegments");
 }
 
 // ═══════════════════════════════════════════════════
@@ -2210,12 +2487,16 @@ function detectCh(o){
     o.origem?.nome, o.origem?.descricao,
     o.canal?.nome, o.canal?.descricao,
     o.ecommerce?.nome, o.ecommerce?.descricao,
-    o.numeroPedidoEcommerce
+    o.numeroPedidoEcommerce,
+    // Busca profunda no _raw para garantir retrocompatibilidade e precisão
+    o._raw?.loja?.nome,
+    o._raw?.numeroPedidoEcommerce,
+    o._raw?.observacoes
   ].map(norm).join(" ");
 
   if(fields.includes("shopify")) return "shopify";
 
-  const numExt=norm(o.numeroPedidoEcommerce);
+  const numExt=norm(o.numeroPedidoEcommerce || o._raw?.numeroPedidoEcommerce);
   if(/\bmercado\s*livre\b|\bmercadolivre\b|\bmlb\b|\bmeli\b/.test(fields) || /^mlb/.test(numExt)) return "ml";
   if(/\bshopee\b/.test(fields) || /^shopee/.test(numExt)) return "shopee";
   if(/\bamazon\b/.test(fields)) return "amazon";
@@ -7244,5 +7525,30 @@ Object.assign(window,{
   copyWhatsAppMessageForCustomer,
   openWhatsAppForCustomer,
   runPostFixValidation,
-  runClienteDebug
+  runClienteDebug,
+  detectCh,
+  initSupabase,
+  loadSupabaseData,
+  recalculateSegments,
+  openSegmentDetail,
+  renderSegmentCustomers,
+  exportSegmentData
 });
+
+export {
+  detectCh,
+  saveSupabaseConfig,
+  syncBling,
+  syncYampi,
+  saveAIKey,
+  addAccessUser,
+  removeAccessUser,
+  goLogout,
+  renderPedidosPage,
+  openClienteDrawer,
+  openPedidoDrawer,
+  auditSupabaseSchema,
+  saveAlertDays,
+  initSupabase,
+  loadSupabaseData
+};
