@@ -16,3 +16,6 @@ pnpm-debug.log*
 
 .idea/
 .vscode/
+
+# Configuração sensível
+config.js

@@ -1238,13 +1238,10 @@ export async function runAI(ctx, type){
   };
 
   try{
-    const apiKey = String(localStorage.getItem("crm_ai_key") || "").trim();
-    if(!apiKey) throw new Error("Chave da IA não configurada em Configurações.");
     const response=await fetch(ctx.getSupaFnBase()+"/ia-claude",{
       method:"POST",
       headers:ctx.supaFnHeaders(),
       body:JSON.stringify({
-        apiKey,
         prompt:`${dataSummary}\n\nPERGUNTA: ${prompts[type]}`,
         system:"Você é um especialista em CRM e retenção de clientes para e-commerce brasileiro, especialmente marcas de suplementos/nutrição. Responda sempre em português, seja direto, use dados reais fornecidos, e dê insights acionáveis. Use bullet points e seja conciso mas impactante."
       })

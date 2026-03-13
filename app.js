@@ -88,7 +88,7 @@ let CID     = localStorage.getItem("crm_cid")||"";
 let CSEC    = localStorage.getItem("crm_csec")||"";
 let SHOP    = localStorage.getItem("crm_shop")||"";
 let SHOPKEY = localStorage.getItem("crm_shopkey")||"";
-let AI_KEY  = localStorage.getItem("crm_ai_key")||"";
+let AI_KEY  = "";
 
 let cliMeta = safeJsonParse("crm_climeta", {});
 let cliMetaCache = {};
@@ -176,7 +176,11 @@ try{
     if(CSEC){ const el=document.getElementById("inp-csec"); if(el) el.value=CSEC; }
     if(SHOP){ const el=document.getElementById("inp-shop"); if(el) el.value=SHOP; }
     if(SHOPKEY){ const el=document.getElementById("inp-shopkey"); if(el) el.value=SHOPKEY; }
-    if(AI_KEY){ const el=document.getElementById("inp-ai-key"); if(el) el.value=AI_KEY; }
+    
+    // Limpeza de chaves sensíveis do localStorage
+    const keysToClear = ["crm_ai_key", "crm_supa_url", "crm_supa_key", "supa_url", "supa_key", "supabase_url", "supabase_key"];
+    keysToClear.forEach(k => localStorage.removeItem(k));
+    
     loadTemplatesUI();
   })();
 }catch(e){
@@ -207,6 +211,7 @@ function blng(d){ if(!d)return""; const[y,m,dd]=d.split("-"); return`${dd}/${m}/
 // Endpoints e headers para Edge Functions do Supabase
 function getSupabaseProjectUrl(){
   const raw =
+    window.APP_CONFIG?.supabaseUrl ||
     localStorage.getItem("crm_supa_url") ||
     localStorage.getItem("supa_url") ||
     localStorage.getItem("supabase_url") ||
@@ -219,6 +224,7 @@ function getSupabaseProjectUrl(){
 
 function getSupabaseAnonKey(){
   const raw =
+    window.APP_CONFIG?.supabaseAnonKey ||
     localStorage.getItem("crm_supa_key") ||
     localStorage.getItem("supa_key") ||
     localStorage.getItem("supabase_key") ||
@@ -893,11 +899,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 });
 
 function saveAIKey(){
-  AI_KEY=document.getElementById("inp-ai-key").value.trim();
-  localStorage.setItem("crm_ai_key",AI_KEY);
-  const st=document.getElementById("ai-key-status");
-  st.textContent=AI_KEY?"✓ Chave salva! IA ativada.":"Chave removida.";
-  st.className="setup-status s-ok";
+  toast("A chave da IA agora é gerenciada com segurança no servidor.");
 }
 
 // ═══════════════════════════════════════════════════

@@ -13,6 +13,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
 <link rel="stylesheet" href="./main.css?v=20260313-1">
 <script type="module" src="./main.js?v=20260313-1"></script>
 </head>
@@ -595,7 +596,7 @@
     </div>
     <div class="setup-grid">
 
-      <div class="setup-section">
+      <div class="setup-section" style="display:none">
         <h3>🔷 Supabase</h3>
         <p>Conexão com banco de dados em nuvem.<br><strong>Como obter:</strong> Painel Supabase → Project Settings → API</p>
         <label>URL do Projeto</label>
@@ -635,7 +636,7 @@
         <div id="yampi-status" class="setup-status"></div>
       </div>
 
-      <div class="setup-section">
+      <div class="setup-section" style="display:none">
         <h3>🤖 IA (Claude API)</h3>
         <p>Chave da Anthropic para análises inteligentes.<br>Obtenha em <strong>console.anthropic.com</strong></p>
         <label>API Key</label>
