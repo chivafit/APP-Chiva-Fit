@@ -40,3 +40,6 @@ jobs:
 
       - name: Deploy bling-products-sync
         run: supabase functions deploy bling-products-sync --project-ref $SUPABASE_PROJECT_ID
+
+      - name: Deploy yampi-webhook
+        run: supabase functions deploy yampi-webhook --project-ref $SUPABASE_PROJECT_ID

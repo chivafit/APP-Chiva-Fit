@@ -119,6 +119,71 @@ CREATE TABLE IF NOT EXISTS public.customer_intelligence (
     updated_at timestamp with time zone DEFAULT now()
 );
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'customer_intelligence'
+  ) THEN
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'customer_intelligence'
+        AND column_name = 'atualizado_em'
+        AND is_nullable = 'NO'
+    ) THEN
+      EXECUTE 'ALTER TABLE public.customer_intelligence ALTER COLUMN atualizado_em DROP NOT NULL';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'customer_intelligence'
+        AND column_name = 'updated_at'
+        AND is_nullable = 'NO'
+    ) THEN
+      EXECUTE 'ALTER TABLE public.customer_intelligence ALTER COLUMN updated_at DROP NOT NULL';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'customer_intelligence'
+        AND column_name = 'score_final'
+        AND is_nullable = 'NO'
+    ) THEN
+      EXECUTE 'ALTER TABLE public.customer_intelligence ALTER COLUMN score_final DROP NOT NULL';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'customer_intelligence'
+        AND column_name = 'score_recompra'
+        AND is_nullable = 'NO'
+    ) THEN
+      EXECUTE 'ALTER TABLE public.customer_intelligence ALTER COLUMN score_recompra DROP NOT NULL';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'customer_intelligence'
+        AND column_name = 'risco_churn'
+        AND is_nullable = 'NO'
+    ) THEN
+      EXECUTE 'ALTER TABLE public.customer_intelligence ALTER COLUMN risco_churn DROP NOT NULL';
+    END IF;
+  END IF;
+END $$;
+
 -- 10. TABELA DE CARRINHOS ABANDONADOS
 CREATE TABLE IF NOT EXISTS public.carrinhos_abandonados (
     checkout_id text PRIMARY KEY,

@@ -2,16 +2,40 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 /**
  * Webhook da Yampi para CRM Chiva Fit.
- * Versão simples, ainda SEM validação de assinatura HMAC.
+ * Versão simples, com validação de assinatura HMAC.
  *
  * Lê eventos da Yampi e grava em "yampi_orders" no Supabase.
  */
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-yampi-hmac-sha256",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+declare const Deno: any;
+
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const aa = String(a ?? "");
+  const bb = String(b ?? "");
+  if (aa.length !== bb.length) return false;
+  let out = 0;
+  for (let i = 0; i < aa.length; i++) out |= aa.charCodeAt(i) ^ bb.charCodeAt(i);
+  return out === 0;
+}
+
+async function yampiSignatureForPayload(payload: string, secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  return base64FromBytes(new Uint8Array(sig));
+}
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -36,6 +60,21 @@ serve(async (req: Request) => {
 
   if (!bodyText || !bodyText.trim()) {
     return new Response("Empty body", { status: 400, headers: corsHeaders });
+  }
+
+  const yampiSecret = String(Deno.env.get("YAMPI_SECRET") || "").trim();
+  if (!yampiSecret) {
+    return new Response("Missing YAMPI_SECRET", { status: 500, headers: corsHeaders });
+  }
+
+  const receivedSig = String(req.headers.get("X-Yampi-Hmac-SHA256") || req.headers.get("x-yampi-hmac-sha256") || "").trim();
+  if (!receivedSig) {
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  }
+
+  const expectedSig = await yampiSignatureForPayload(bodyText, yampiSecret);
+  if (!timingSafeEqual(receivedSig, expectedSig)) {
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
   let payload: any;

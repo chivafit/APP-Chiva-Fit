@@ -35,7 +35,7 @@ supabase secrets set CRON_SECRET="um_valor_aleatorio_longo"
 
 ### Yampi Webhook
 ```bash
-supabase secrets set YAMPI_SECRET="wh_8lgW9FUnSkNZiQ5QSYIbXeUf4wIeg5biV279r"
+supabase secrets set YAMPI_SECRET="wh_SEU_SECRET_AQUI"
 ```
 
 ---
