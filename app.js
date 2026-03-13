@@ -1598,9 +1598,10 @@ async function ensureCustomerForCarrinho(c){
   const docKey = email || phone || "";
   if(!docKey) return null;
   try{
+    const nome = cleanText(c?.cliente_nome || "") || email || phone || "Cliente";
     await supaClient.from("v2_clientes").upsert({
       doc: docKey,
-      nome: c?.cliente_nome || null,
+      nome,
       email: email || null,
       telefone: phone || null,
       updated_at: new Date().toISOString()
@@ -3716,7 +3717,7 @@ function hydrateClienteInfoFromSupabase(customerKey){
     const digits = key.replace(/\D/g,"");
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
     const isEmail = key.includes("@");
-    let q = supaClient.from("v2_clientes").select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at").limit(1);
+    let q = supaClient.from("v2_clientes").select("*").limit(1);
     if(isUuid) q = q.eq("id", key);
     else if(digits.length===11 || digits.length===14) q = q.eq("doc", digits);
     else if(isEmail) q = q.ilike("email", key.toLowerCase());
@@ -3731,7 +3732,6 @@ function hydrateClienteInfoFromSupabase(customerKey){
       console.log("cliente v2_clientes (lookup): não encontrado para", key);
       return;
     }
-    console.log("cliente v2_clientes (lookup):", data);
     const uuid = String(data.id||"").trim();
     if(uuid) clienteKeyToUuid[key] = uuid;
 
@@ -4231,7 +4231,7 @@ async function renderOportunidadesFromSupabase(){
 
     const {data, error} = await supaClient
       .from("v2_clientes")
-      .select("id,doc,nome,cidade,uf,pipeline_stage,last_interaction_at,last_interaction_type,last_interaction_desc,last_contact_at,responsible_user")
+      .select("*")
       .range(0, Math.max(0, oppRemoteLimit - 1));
     if(error) throw error;
     const rows = Array.isArray(data) ? data : [];
@@ -6488,7 +6488,7 @@ async function loadOrdersFromSupabaseForCRM(){
   try{
     const {data:cliRows, error:cliErr} = await supaClient
       .from("v2_clientes")
-      .select("id,nome,doc,email,telefone,celular,cidade,uf,cep")
+      .select("*")
       .limit(5000);
     if(cliErr) throw cliErr;
     const cliById = {};
@@ -6709,10 +6709,11 @@ async function upsertOrdersToSupabase(orders){
       const telefone = cleanPhoneDigits(c.telefone || "");
       const cidade = cleanText(c.cidade || end.municipio || "");
       const uf = normalizeUF(c.uf || end.uf || "");
-      const cep = cleanCepDigits(c.cep || end.cep || end.zipcode || end.zip || "");
+      const nomeFinal = nome || email || telefone || String(c.doc || "").trim() || "Cliente";
       
       const row = {
         doc: c.doc,
+        nome: nomeFinal,
         primeiro_pedido: c.first, 
         ultimo_pedido: c.last,
         total_pedidos: c.orders.length, 
@@ -6726,12 +6727,10 @@ async function upsertOrdersToSupabase(orders){
         canal_principal: [...c.channels][0]||'outros',
         updated_at: new Date().toISOString() 
       };
-      if(nome) row.nome = nome;
       if(email) row.email = email;
       if(telefone) row.telefone = telefone;
       if(cidade) row.cidade = cidade;
       if(uf) row.uf = uf;
-      if(cep) row.cep = cep;
       return row;
     });
     cliRows.forEach(r=>{
@@ -6777,8 +6776,6 @@ async function upsertOrdersToSupabase(orders){
       const canalId = canaisLookup[canalSlug] || canaisLookup["outros"] || null;
       const baseId = String(o.id || o.numero || "").trim();
       const id = baseId || "";
-      const cidadeEntrega = cleanText(o.cidade_entrega || o.contato?.endereco?.municipio || "");
-      const ufEntrega = normalizeUF(o.uf_entrega || o.contato?.endereco?.uf || "");
       const row = {
         id,
         bling_id: String(o.id||o.numero),
@@ -6791,10 +6788,8 @@ async function upsertOrdersToSupabase(orders){
         source: o._source||'bling',
         created_at: o.dataCriacao||o.data||new Date().toISOString()
       };
-      if(cidadeEntrega) row.cidade_entrega = cidadeEntrega;
-      if(ufEntrega) row.uf_entrega = ufEntrega;
       return row;
-    }).filter(p => p.id && p.canal_id); // id é obrigatório (PK) e canal_id pode estar como NOT NULL no banco
+    }).filter(p => p.id); // id é obrigatório (PK)
     for(let i=0; i<pedRows.length; i+=100){
       const batch = pedRows.slice(i,i+100);
       const {error} = await supaClient.from("v2_pedidos").upsert(batch, { onConflict: "id" });
@@ -6896,7 +6891,7 @@ async function runPostFixValidation(){
   try{
     const {data, error} = await supaClient
       .from("v2_pedidos")
-      .select("id,numero_pedido,cliente_id,source,total,data_pedido,cidade_entrega,uf_entrega,created_at")
+      .select("id,numero_pedido,cliente_id,source,total,data_pedido,created_at")
       .order("created_at", { ascending: false })
       .limit(5);
     if(error) throw error;
@@ -6908,7 +6903,7 @@ async function runPostFixValidation(){
   try{
     const {data, error} = await supaClient
       .from("v2_clientes")
-      .select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at")
+      .select("id,nome,doc,email,telefone,cidade,uf,updated_at")
       .order("updated_at", { ascending: false })
       .limit(5);
     if(error) throw error;
@@ -6955,7 +6950,7 @@ async function runClienteDebug(customerKey){
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
   const isEmail = key.includes("@");
   try{
-    let q = supaClient.from("v2_clientes").select("id,nome,doc,email,telefone,celular,cidade,uf,cep,updated_at").limit(1);
+    let q = supaClient.from("v2_clientes").select("*").limit(1);
     if(isUuid) q = q.eq("id", key);
     else if(digits.length===11 || digits.length===14) q = q.eq("doc", digits);
     else if(isEmail) q = q.ilike("email", key.toLowerCase());
@@ -6973,7 +6968,7 @@ async function runClienteDebug(customerKey){
     try{
       const {data, error} = await supaClient
         .from("v2_pedidos")
-        .select("id,numero_pedido,cliente_id,canal_id,data_pedido,total,status,cidade_entrega,uf_entrega,created_at")
+        .select("id,numero_pedido,cliente_id,canal_id,data_pedido,total,status,created_at")
         .eq("cliente_id", clienteId)
         .order("data_pedido", { ascending: false })
         .limit(20);
