@@ -2016,20 +2016,105 @@ function openWhatsAppForCustomer(clienteId){
 let currentSegmentId = null;
 let computedSegments = [];
 
+function normSegText(v){
+  return String(v ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function segIncludes(v, needle){
+  const hay = normSegText(v);
+  const n = normSegText(needle);
+  if(!hay || !n) return false;
+  return hay.includes(n);
+}
+
+function segIncludesAny(v, needles){
+  const hay = normSegText(v);
+  if(!hay) return false;
+  return (Array.isArray(needles) ? needles : []).some(n => {
+    const nn = normSegText(n);
+    return nn ? hay.includes(nn) : false;
+  });
+}
+
+function segmentRiskThresholdDays(c){
+  const interval = Number(c?.intervalo_medio_dias) || 0;
+  if(interval > 0) return Math.max(60, interval * 2);
+  return 60;
+}
+
+function computeRFVForCustomers(customers){
+  const list = Array.isArray(customers) ? customers : [];
+  const base = list.filter(c => (Number(c?.total_pedidos) || 0) > 0);
+  const n = base.length;
+  const scoreByQuintiles = (rows, valueFn, lowIsBest) => {
+    const arr = rows.map(c => ({ id: c?.id, v: Number(valueFn(c)) || 0 }));
+    arr.sort((a,b) => a.v - b.v);
+    const out = {};
+    const len = arr.length || 1;
+    for(let i=0;i<arr.length;i++){
+      const q = Math.min(4, Math.floor((i / len) * 5));
+      const score = lowIsBest ? (5 - q) : (q + 1);
+      if(arr[i].id != null) out[arr[i].id] = score;
+    }
+    return out;
+  };
+  if(!n){
+    list.forEach(c=>{
+      c._rfv = { r: 1, f: 1, v: 1, score: 3, segment: "outros", dias_desde_ultima_compra: daysSince(c?.ultimo_pedido) };
+    });
+    return;
+  }
+  const rMap = scoreByQuintiles(base, c => daysSince(c?.ultimo_pedido), true);
+  const fMap = scoreByQuintiles(base, c => Number(c?.total_pedidos) || 0, false);
+  const vMap = scoreByQuintiles(base, c => Number(c?.total_gasto) || 0, false);
+  list.forEach(c=>{
+    const dias = daysSince(c?.ultimo_pedido);
+    const r = rMap[c?.id] || 1;
+    const f = fMap[c?.id] || 1;
+    const v = vMap[c?.id] || 1;
+    const ped = Number(c?.total_pedidos) || 0;
+    const total = r + f + v;
+    let seg = "outros";
+    if(ped > 0 && dias > 120) seg = "perdidos";
+    else if(ped > 0 && dias > 60) seg = "dormindo";
+    else if(r >= 4 && f >= 4 && v >= 4) seg = "champions";
+    else if(r >= 4 && v >= 4) seg = "vip";
+    else if(f >= 4 && r >= 3) seg = "fieis";
+    else if(r >= 4 && f >= 2) seg = "promissores";
+    else if(ped === 1 && dias <= 30) seg = "novos";
+    c._rfv = { r, f, v, score: total, segment: seg, dias_desde_ultima_compra: dias };
+  });
+}
+
 function getSegmentDefinitions(){
   return [
-    { id: 'vip', name: 'VIP', desc: 'LTV >= R$300 ou 5+ pedidos', filter: c => c.total_gasto >= 300 || c.total_pedidos >= 5 },
-    { id: 'risco', name: 'Em Risco', desc: 'Churn risk >= 70%', filter: c => (c.risco_churn || 0) >= 70 },
-    { id: 'novos', name: 'Novos Clientes', desc: 'Apenas 1 pedido realizado', filter: c => c.total_pedidos === 1 },
-    { id: 'recompra', name: 'Recompra', desc: '2+ pedidos e intervalo <= 30 dias', filter: c => c.total_pedidos >= 2 && (c.intervalo_medio_dias || 999) <= 30 },
-    { id: 'uma_compra', name: 'Só uma compra', desc: '1 pedido e risco churn >= 50%', filter: c => c.total_pedidos === 1 && (c.risco_churn || 0) >= 50 },
-    { id: 'alto_ticket', name: 'Alto Ticket', desc: 'Ticket médio >= R$100', filter: c => c.ticket_medio >= 100 },
-    { id: 'low_carb', name: 'Low Carb Lovers', desc: 'Produto favorito: low carb', filter: c => String(c.produto_favorito || "").toLowerCase().includes('low carb') },
-    { id: 'cranberry', name: 'Cranberry Lovers', desc: 'Produto favorito: cranberry', filter: c => String(c.produto_favorito || "").toLowerCase().includes('cranberry') },
-    { id: 'tradicional', name: 'Tradicional Lovers', desc: 'Produto favorito: tradicional', filter: c => String(c.produto_favorito || "").toLowerCase().includes('tradicional') },
-    { id: 'site', name: 'Clientes do Site', desc: 'Canal principal: site', filter: c => String(c.canal_principal || "").toLowerCase().includes('site') },
-    { id: 'shopee', name: 'Clientes Shopee', desc: 'Canal principal: shopee', filter: c => String(c.canal_principal || "").toLowerCase().includes('shopee') },
-    { id: 'amazon', name: 'Clientes Amazon', desc: 'Canal principal: amazon', filter: c => String(c.canal_principal || "").toLowerCase().includes('amazon') },
+    { id: 'champions', name: 'Champions', desc: 'Recência alta + frequência alta + valor alto (RFV)', filter: c => c?._rfv?.segment === "champions" },
+    { id: 'vip', name: 'VIP', desc: 'Muito valor + recência alta (RFV) / alto LTV', filter: c => c?._rfv?.segment === "vip" || (Number(c?.total_gasto)||0) >= 650 || (Number(c?.total_pedidos)||0) >= 6 },
+    { id: 'fieis', name: 'Clientes fiéis', desc: 'Compram com frequência (RFV)', filter: c => c?._rfv?.segment === "fieis" },
+    { id: 'promissores', name: 'Promissores', desc: 'Compraram recentemente e têm potencial de recorrência (RFV)', filter: c => c?._rfv?.segment === "promissores" },
+    { id: 'novos_rfv', name: 'Novos clientes', desc: 'Primeira compra recente (RFV)', filter: c => c?._rfv?.segment === "novos" },
+    { id: 'dormindo', name: 'Dormindo', desc: '61–120 dias sem comprar (RFV/recência)', filter: c => c?._rfv?.segment === "dormindo" },
+    { id: 'perdidos', name: 'Clientes perdidos', desc: '120+ dias sem comprar (RFV/recência)', filter: c => c?._rfv?.segment === "perdidos" },
+
+    { id: 'risco', name: 'Em Risco', desc: 'Dias sem comprar > max(60, intervalo médio × 2) e ainda não perdido', filter: c => {
+      const dias = Number(c?._rfv?.dias_desde_ultima_compra) || daysSince(c?.ultimo_pedido);
+      const th = segmentRiskThresholdDays(c);
+      return (Number(c?.total_pedidos)||0) > 0 && dias > th && dias <= 120;
+    }},
+    { id: 'recompra', name: 'Recompra', desc: '2+ pedidos e intervalo médio ≤ 30 dias', filter: c => (Number(c?.total_pedidos)||0) >= 2 && (Number(c?.intervalo_medio_dias)||999) <= 30 },
+    { id: 'alto_ticket', name: 'Alto Ticket', desc: 'Ticket médio (por pedido) ≥ R$100', filter: c => (Number(c?.ticket_medio)||0) >= 100 },
+
+    { id: 'low_carb', name: 'Low Carb Lovers', desc: 'Produto favorito contém: low', filter: c => segIncludes(String(c?.produto_favorito||""), "low") },
+    { id: 'cranberry', name: 'Cranberry Lovers', desc: 'Produto favorito contém: cranberry', filter: c => segIncludes(String(c?.produto_favorito||""), "cranberry") },
+    { id: 'tradicional', name: 'Tradicional Lovers', desc: 'Produto favorito contém: tradicional', filter: c => segIncludes(String(c?.produto_favorito||""), "tradicional") },
+    { id: 'site', name: 'Clientes do Site', desc: 'Canal principal: site/shopify', filter: c => segIncludesAny(c?.canal_principal, ["site","shopify"]) },
+    { id: 'shopee', name: 'Clientes Shopee', desc: 'Canal principal: shopee', filter: c => segIncludes(String(c?.canal_principal||""), "shopee") },
+    { id: 'amazon', name: 'Clientes Amazon', desc: 'Canal principal: amazon', filter: c => segIncludes(String(c?.canal_principal||""), "amazon") },
     { id: 'mg', name: 'Clientes MG', desc: 'Localizados em Minas Gerais', filter: c => String(c.uf || "").toUpperCase() === 'MG' },
     { id: 'sp', name: 'Clientes SP', desc: 'Localizados em São Paulo', filter: c => String(c.uf || "").toUpperCase() === 'SP' }
   ];
@@ -2049,17 +2134,24 @@ async function recalculateSegments(){
       }
     }
 
+    computeRFVForCustomers(allCustomers);
+
     // 2. Calcular segmentos
     const defs = getSegmentDefinitions();
+    const totalClis = allCustomers.length;
     computedSegments = defs.map(d => {
       const filtered = allCustomers.filter(d.filter);
       const totalRevenue = filtered.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
-      const avgTicket = filtered.length ? totalRevenue / filtered.length : 0;
+      const totalOrders = filtered.reduce((s, c) => s + (Number(c.total_pedidos) || 0), 0);
+      const avgTicket = totalOrders ? totalRevenue / totalOrders : 0;
+      const pctBase = totalClis ? (filtered.length / totalClis) : 0;
       return {
         ...d,
         count: filtered.length,
         revenue: totalRevenue,
         avgTicket: avgTicket,
+        pctBase,
+        orders: totalOrders,
         customers: filtered
       };
     });
@@ -2083,16 +2175,19 @@ function renderSegmentos(){
   const totalClis = allCustomers.length;
   const vipSeg = computedSegments.find(s => s.id === 'vip');
   const riscoSeg = computedSegments.find(s => s.id === 'risco');
-  const novosSeg = computedSegments.find(s => s.id === 'novos');
+  const championsSeg = computedSegments.find(s => s.id === 'champions');
+  const novosSeg = computedSegments.find(s => s.id === 'novos_rfv');
   const totalRevenue = allCustomers.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
-  const avgTicketGeral = totalClis ? totalRevenue / allCustomers.length : 0;
+  const totalOrders = allCustomers.reduce((s, c) => s + (Number(c.total_pedidos) || 0), 0);
+  const avgTicketGeral = totalOrders ? totalRevenue / totalOrders : 0;
 
   statsHost.innerHTML = [
     {l:"Total Clientes", v:totalClis, s:"base ativa"},
-    {l:"Clientes VIP", v:vipSeg?.count || 0, s:fmtBRL(vipSeg?.revenue || 0)},
+    {l:"Champions", v:championsSeg?.count || 0, s:Math.round((championsSeg?.count || 0) / (totalClis || 1) * 100) + "% da base"},
+    {l:"Clientes VIP", v:vipSeg?.count || 0, s:Math.round((vipSeg?.count || 0) / (totalClis || 1) * 100) + "% da base"},
     {l:"Em Risco", v:riscoSeg?.count || 0, s:Math.round((riscoSeg?.count || 0) / (totalClis || 1) * 100) + "% da base"},
-    {l:"Novos (30d)", v:novosSeg?.count || 0, s:"primeira compra"},
-    {l:"Ticket Médio", v:fmtBRL(avgTicketGeral), s:"geral"},
+    {l:"Novos", v:novosSeg?.count || 0, s:Math.round((novosSeg?.count || 0) / (totalClis || 1) * 100) + "% da base"},
+    {l:"Ticket Médio", v:fmtBRL(avgTicketGeral), s:"por pedido"},
     {l:"Receita Total", v:fmtBRL(totalRevenue), s:"acumulada"}
   ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
 
@@ -2104,7 +2199,7 @@ function renderSegmentos(){
           <div style="font-size:15px; font-weight:800; color:var(--chiva-primary-light)">${escapeHTML(s.name)}</div>
           <div style="font-size:11px; color:var(--text-3); margin-top:2px">${escapeHTML(s.desc)}</div>
         </div>
-        <div class="badge" style="background:var(--chiva-primary-bg); color:var(--chiva-primary)">${s.count} clis</div>
+        <div class="badge" style="background:var(--chiva-primary-bg); color:var(--chiva-primary)">${s.count} clis · ${Math.round((s.pctBase || 0) * 100)}%</div>
       </div>
       
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px">
@@ -2144,7 +2239,7 @@ function openSegmentDetail(id){
       {l:"Clientes", v:seg.count, s:"no grupo"},
       {l:"Receita Total", v:fmtBRL(seg.revenue), s:"acumulada"},
       {l:"Ticket Médio", v:fmtBRL(seg.avgTicket), s:"do grupo"},
-      {l:"Freq. Média", v:"—", s:"em breve"}
+      {l:"% da Base", v:Math.round((seg.pctBase || 0) * 100) + "%", s:"participação"}
     ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
   }
 
