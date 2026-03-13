@@ -76,27 +76,27 @@
 
   <div class="sidebar-nav">
     <div class="sidebar-section-label">Principal</div>
-    <div class="nav-item" onclick="showPage('dashboard')" id="nav-dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
-    <div class="nav-item" onclick="showPage('clientes')" id="nav-clientes"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></div>
-    <div class="nav-item" onclick="showPage('inteligencia')" id="nav-inteligencia"><span class="nav-icon">🧠</span><span class="nav-label">Inteligência</span></div>
-    <div class="nav-item" onclick="showPage('pedidos-page')" id="nav-pedidos"><span class="nav-icon">🛒</span><span class="nav-label">Pedidos</span></div>
-    <div class="nav-item" onclick="showPage('cidades')" id="nav-cidades"><span class="nav-icon">📍</span><span class="nav-label">Cidades</span></div>
-    <div class="nav-item" onclick="showPage('produtos')" id="nav-produtos"><span class="nav-icon">📦</span><span class="nav-label">Produtos</span></div>
+    <div class="nav-item" data-page="dashboard" id="nav-dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
+    <div class="nav-item" data-page="clientes" id="nav-clientes"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></div>
+    <div class="nav-item" data-page="inteligencia" id="nav-inteligencia"><span class="nav-icon">🧠</span><span class="nav-label">Inteligência</span></div>
+    <div class="nav-item" data-page="pedidos-page" id="nav-pedidos"><span class="nav-icon">🛒</span><span class="nav-label">Pedidos</span></div>
+    <div class="nav-item" data-page="cidades" id="nav-cidades"><span class="nav-icon">📍</span><span class="nav-label">Cidades</span></div>
+    <div class="nav-item" data-page="produtos" id="nav-produtos"><span class="nav-icon">📦</span><span class="nav-label">Produtos</span></div>
 
     <div class="sidebar-section-label">Operacional</div>
-    <div class="nav-item" onclick="showPage('tarefas')" id="nav-tarefas"><span class="nav-icon">✅</span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
-    <div class="nav-item" onclick="showPage('oportunidades')" id="nav-oportunidades"><span class="nav-icon">💡</span><span class="nav-label">Oportunidades</span></div>
-    <div class="nav-item" onclick="showPage('alertas')" id="nav-alertas"><span class="nav-icon">🚨</span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
-    <div class="nav-item ai-item" onclick="showPage('ia')" id="nav-ia"><span class="nav-icon">🤖</span><span class="nav-label">IA</span></div>
-    <div class="nav-item active" onclick="showPage('segmentos')" id="nav-segmentos"><span class="nav-icon">🎯</span><span class="nav-label">Segmentos</span></div>
+    <div class="nav-item" data-page="tarefas" id="nav-tarefas"><span class="nav-icon">✅</span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
+    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">💡</span><span class="nav-label">Oportunidades</span></div>
+    <div class="nav-item" data-page="alertas" id="nav-alertas"><span class="nav-icon">🚨</span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
+    <div class="nav-item ai-item" data-page="ia" id="nav-ia"><span class="nav-icon">🤖</span><span class="nav-label">IA</span></div>
+    <div class="nav-item active" data-page="segmentos" id="nav-segmentos"><span class="nav-icon">🎯</span><span class="nav-label">Segmentos</span></div>
 
     <div class="sidebar-section-label">Módulos</div>
-    <div class="nav-item" onclick="showPage('comercial')" id="nav-comercial"><span class="nav-icon">📈</span><span class="nav-label">Comercial</span></div>
-    <div class="nav-item" onclick="showPage('producao')" id="nav-producao"><span class="nav-icon">🏭</span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
-    <div class="nav-item" onclick="showPage('marca')" id="nav-marca"><span class="nav-icon">✨</span><span class="nav-label">Marca</span></div>
+    <div class="nav-item" data-page="comercial" id="nav-comercial"><span class="nav-icon">📈</span><span class="nav-label">Comercial</span></div>
+    <div class="nav-item" data-page="producao" id="nav-producao"><span class="nav-icon">🏭</span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
+    <div class="nav-item" data-page="marca" id="nav-marca"><span class="nav-icon">✨</span><span class="nav-label">Marca</span></div>
 
     <hr class="sidebar-divider"/>
-    <div class="nav-item" onclick="showPage('config')" id="nav-config"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></div>
+    <div class="nav-item" data-page="config" id="nav-config"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></div>
   </div>
 
   <div class="sidebar-footer">
@@ -327,7 +327,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn" onclick="computeCustomerIntelligence();renderInteligencia()" style="padding:8px 10px;font-size:11px">↻ Atualizar</button>
-      <button class="btn" onclick="showPage('segmentos')" style="padding:8px 10px;font-size:11px">Ver Segmentos</button>
+      <button class="btn" data-page="segmentos" style="padding:8px 10px;font-size:11px">Ver Segmentos</button>
     </div>
   </div>
   <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
@@ -838,7 +838,7 @@
 <!-- SEGMENTO DETALHE (Interna) -->
 <div class="page" id="page-segmento-detalhe">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border-sub)">
-    <button class="btn" onclick="showPage('segmentos')">← Voltar</button>
+    <button class="btn" data-page="segmentos">← Voltar</button>
     <div>
       <h1 id="seg-detalhe-title" style="font-size:20px;font-weight:800;letter-spacing:-.5px">Nome do Segmento</h1>
       <p id="seg-detalhe-desc" style="font-size:12px;color:var(--text-3);margin-top:4px"></p>

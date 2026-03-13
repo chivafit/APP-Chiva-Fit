@@ -3221,7 +3221,7 @@ html.light .nav-item:hover{
   color: var(--text);
 }
 .nav-item.active{
-  background: rgba(15,167,101,.10);
+  background: var(--chiva-primary-dim);
   border-color: rgba(15,167,101,.22);
   color: var(--text);
   font-weight: 700;
@@ -3231,7 +3231,7 @@ html.light .nav-item:hover{
   box-shadow: 0 0 0 1px rgba(15,167,101,.18), 0 0 14px rgba(164,233,107,.10);
 }
 html.light .nav-item.active{
-  background: rgba(15,167,101,.08);
+  background: var(--chiva-primary-dim);
   border-color: rgba(15,167,101,.18);
   color: var(--text);
 }
