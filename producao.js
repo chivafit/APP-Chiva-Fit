@@ -56,6 +56,8 @@ const PRECO_KG = {
   'Canela':                 6.00,
 };
 
+const PRECO_KG_FALLBACK = PRECO_KG;
+
 const RECEITAS_REAIS = {
   'Granola Cranberry 250g': { tamanho:'250g', categoria:'cranberry',
     insumos: {'Semente de Girassol':58,'Cranberry':40,'Flocos de Milho':38,'Castanha de Caju':30,'Semente de Abóbora':30,'Linhaça Dourada':20,'Chia':15,'Amêndoas':8,'Castanha do Pará':5,'Stevia':1,'Canela':1}},
@@ -87,7 +89,7 @@ let allInsumos = safeJsonParse('crm_insumos', null) || Object.keys(PRECO_KG).map
     unidade: 'kg',
     estoque_atual: 0,
     estoque_minimo: 2,
-    custo_unitario: PRECO_KG[nome],
+    custo_unitario: PRECO_KG_FALLBACK[nome],
     fornecedor: '',
     lead_time_dias: 0,
     updated_at: new Date().toISOString()
@@ -165,21 +167,13 @@ function saveOrdens(){
 function saveMovInsumos(){ localStorage.setItem('crm_insumo_movs', JSON.stringify(allMovInsumos)); }
 function saveMovimentosEstoque(){ localStorage.setItem('crm_movimentos_estoque', JSON.stringify(allMovimentosEstoque)); }
 function saveReceitasProdutos(){
-  var prev = localStorage.getItem('crm_receitas_produtos');
   localStorage.setItem('crm_receitas_produtos', JSON.stringify(allReceitasProdutos));
   if(typeof globalThis.syncReceitasToSupabase === "function"){
     try{
       Promise.resolve(globalThis.syncReceitasToSupabase(allReceitasProdutos)).then(function(){
         renderReceitaDetalhe();
       }).catch(function(){
-        if(prev != null) localStorage.setItem('crm_receitas_produtos', prev);
-        else localStorage.removeItem('crm_receitas_produtos');
-        try{
-          allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || [];
-        }catch(_e){
-          allReceitasProdutos = [];
-        }
-        toast('❌ Erro ao salvar receita no Supabase. Alterações revertidas.');
+        toast('⚠️ Sync pendente: a receita será enviada ao Supabase quando a conexão voltar.');
         renderReceitaDetalhe();
       });
     }catch(_e){}
@@ -765,8 +759,9 @@ function calcularSimulador(){
     var ins=allInsumos.find(function(i){return i.nome===nome;});
     var disp=ins?(ins.estoque||0):0;
     var falta=Math.max(0,nKg-disp);
-    var cf=falta*(PRECO_KG[nome]||0);
-    var ct=nKg*(PRECO_KG[nome]||0);
+    var unitCost = ins && ins.custo_unitario != null ? (Number(ins.custo_unitario)||0) : (PRECO_KG_FALLBACK[nome]||0);
+    var cf=falta*unitCost;
+    var ct=nKg*unitCost;
     totalFalta+=cf; totalTudo+=ct;
     var ok=falta<0.001;
     return '<div style="display:grid;grid-template-columns:1.5fr 75px 75px 75px 95px 90px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-sub)">'+
@@ -1467,6 +1462,7 @@ function setProdTab(tab){
 }
 
 export {
+  PRECO_KG_FALLBACK,
   PRECO_KG,
   RECEITAS_REAIS,
   CAT_EMOJI,

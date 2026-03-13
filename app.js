@@ -177,9 +177,10 @@ try{
     if(SHOP){ const el=document.getElementById("inp-shop"); if(el) el.value=SHOP; }
     if(SHOPKEY){ const el=document.getElementById("inp-shopkey"); if(el) el.value=SHOPKEY; }
     
-    // Limpeza de chaves sensíveis do localStorage
-    const keysToClear = ["crm_ai_key", "crm_supa_url", "crm_supa_key", "supa_url", "supa_key", "supabase_url", "supabase_key"];
-    keysToClear.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem("crm_ai_key");
+    if(window.APP_CONFIG && (window.APP_CONFIG.supabaseUrl || window.APP_CONFIG.supabaseAnonKey)){
+      ["crm_supa_url", "crm_supa_key", "supa_url", "supa_key", "supabase_url", "supabase_key"].forEach(k => localStorage.removeItem(k));
+    }
     
     loadTemplatesUI();
   })();
@@ -5441,12 +5442,109 @@ function renderAlertas(){
 //  UTILS
 // ═══════════════════════════════════════════════════
 function toast(m){ const e=document.getElementById("toast"); e.textContent=m; e.classList.add("show"); setTimeout(()=>e.classList.remove("show"),2500); }
-function setSyncDot(on){
-  const el = document.getElementById("sync-dot");
-  if(!el) return;
-  if(on) el.classList.remove("off");
-  else el.classList.add("off");
+const PENDING_OPS_KEY = "crm_pending_ops_v1";
+let pendingOpsTimer = null;
+
+function readPendingOps(){
+  try{
+    const raw = localStorage.getItem(PENDING_OPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  }catch(_e){
+    return [];
+  }
 }
+
+function writePendingOps(ops){
+  try{
+    localStorage.setItem(PENDING_OPS_KEY, JSON.stringify(Array.isArray(ops) ? ops : []));
+  }catch(_e){}
+}
+
+function setSyncStatus(status, meta){
+  const el = document.getElementById("sync-dot");
+  const txt = document.getElementById("sync-txt");
+  const timeEl = document.getElementById("sync-time");
+  if(!el || !txt) return;
+
+  const st = String(status || "").toLowerCase();
+  el.classList.remove("off","pending","pulse");
+  if(st === "offline"){
+    el.classList.add("off");
+    txt.textContent = "Offline";
+  }else if(st === "pending"){
+    el.classList.add("pending","pulse");
+    txt.textContent = "Sync pendente";
+  }else{
+    txt.textContent = "Sincronizado";
+    const nowIso = new Date().toISOString();
+    localStorage.setItem("crm_last_sync_ok", nowIso);
+  }
+
+  const lastIso = meta?.time || localStorage.getItem("crm_last_sync_ok") || "";
+  if(timeEl){
+    if(lastIso){
+      const d = new Date(lastIso);
+      timeEl.textContent = isNaN(d.getTime()) ? "" : d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    }else{
+      timeEl.textContent = "";
+    }
+  }
+}
+
+function setSyncDot(on){ setSyncStatus(on ? "ok" : "offline"); }
+
+function enqueueUpsert(table, rows, onConflict){
+  const ops = readPendingOps();
+  ops.push({
+    id: String(Date.now()) + String(Math.random()).slice(2),
+    op: "upsert",
+    table: String(table||""),
+    onConflict: onConflict ? String(onConflict) : null,
+    rows: Array.isArray(rows) ? rows : [],
+    createdAt: new Date().toISOString()
+  });
+  writePendingOps(ops);
+  setSyncStatus("pending");
+}
+
+async function flushPendingOps(){
+  if(!supaConnected || !supaClient) return;
+  const ops = readPendingOps();
+  if(!ops.length){
+    setSyncStatus("ok");
+    return;
+  }
+  setSyncStatus("pending");
+  const remaining = [];
+  for(let i=0;i<ops.length;i++){
+    const op = ops[i];
+    try{
+      if(op?.op === "upsert" && op?.table){
+        const rows = Array.isArray(op.rows) ? op.rows : [];
+        if(!rows.length) continue;
+        const cfg = op.onConflict ? { onConflict: op.onConflict } : undefined;
+        const {error} = cfg
+          ? await supaClient.from(op.table).upsert(rows, cfg)
+          : await supaClient.from(op.table).upsert(rows);
+        if(error) throw error;
+      }
+    }catch(e){
+      console.warn("pending op failed:", e?.message || String(e));
+      remaining.push(op);
+      for(let j=i+1;j<ops.length;j++) remaining.push(ops[j]);
+      break;
+    }
+  }
+  writePendingOps(remaining);
+  setSyncStatus(remaining.length ? "pending" : "ok");
+}
+
+function ensurePendingOpsPump(){
+  if(pendingOpsTimer) return;
+  pendingOpsTimer = setInterval(()=>{ flushPendingOps().catch(()=>{}); }, 30_000);
+}
+
 let deferred;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferred=e; document.getElementById("install-bar").style.display="flex"; });
 function installApp(){ if(deferred){ deferred.prompt(); deferred.userChoice.then(()=>{ deferred=null; document.getElementById("install-bar").style.display="none"; }); } }
@@ -5760,22 +5858,26 @@ async function loadInsumosFromSupabase(){
 async function syncInsumosToSupabase(list){
   if(!supaConnected || !supaClient) return;
   if(!Array.isArray(list) || !list.length) return;
+  const rows = list.map(i=>({
+    id: String(i.id),
+    nome: i.nome || null,
+    unidade: i.unidade || null,
+    estoque_atual: Number(i.estoque_atual ?? i.estoque ?? 0) || 0,
+    estoque_minimo: Number(i.estoque_minimo ?? i.minimo ?? 0) || 0,
+    custo_unitario: Number(i.custo_unitario ?? i.custo ?? 0) || 0,
+    fornecedor: i.fornecedor || null,
+    lead_time_dias: Number(i.lead_time_dias||0) || 0,
+    updated_at: new Date().toISOString()
+  }));
   try{
-    const rows = list.map(i=>({
-      id: String(i.id),
-      nome: i.nome || null,
-      unidade: i.unidade || null,
-      estoque_atual: Number(i.estoque_atual ?? i.estoque ?? 0) || 0,
-      estoque_minimo: Number(i.estoque_minimo ?? i.minimo ?? 0) || 0,
-      custo_unitario: Number(i.custo_unitario ?? i.custo ?? 0) || 0,
-      fornecedor: i.fornecedor || null,
-      lead_time_dias: Number(i.lead_time_dias||0) || 0,
-      updated_at: new Date().toISOString()
-    }));
     for(let i=0;i<rows.length;i+=200){
       await supaClient.from("insumos").upsert(rows.slice(i,i+200), { onConflict: "id" });
     }
-  }catch(_e){}
+    setSyncStatus("ok");
+  }catch(e){
+    console.warn("syncInsumosToSupabase:", e?.message || String(e));
+    enqueueUpsert("insumos", rows, "id");
+  }
 }
 
 async function loadReceitasProdutosFromSupabase(){
@@ -5824,6 +5926,7 @@ async function loadBlingProductsFromSupabase(){
 async function syncReceitasToSupabase(list){
   if(!supaConnected || !supaClient) return;
   if(!Array.isArray(list) || !list.length) return;
+  let rows = [];
   try{
     const isUuidLike = (v)=>{
       const s = String(v||"").trim();
@@ -5838,7 +5941,7 @@ async function syncReceitasToSupabase(list){
     };
     const nowIso = new Date().toISOString();
     const invalid = [];
-    const rows = list.map(r=>{
+    rows = list.map(r=>{
       const id = String(r?.id||"").trim();
       const produto_id = String(r?.produto_id||"").trim();
       const insumo_id = String(r?.insumo_id||"").trim();
@@ -5865,9 +5968,13 @@ async function syncReceitasToSupabase(list){
         throw error;
       }
     }
+    setSyncStatus("ok");
     return true;
   }catch(e){
-    throw e;
+    if(String(e?.message||"") === "invalid_payload_receitas_produtos") throw e;
+    console.warn("syncReceitasToSupabase:", e?.message || String(e));
+    enqueueUpsert("receitas_produtos", rows, "id");
+    return false;
   }
 }
 
@@ -5933,35 +6040,42 @@ async function loadMovimentosEstoqueFromSupabase(){
 async function syncOrdensProducaoToSupabase(list){
   if(!supaConnected || !supaClient) return;
   if(!Array.isArray(list) || !list.length) return;
+  const rowsWithCost = list.map(o=>({
+    id: String(o.id),
+    lote: o.lote || null,
+    produto_id: o.produto_id || null,
+    quantidade_planejada: Number(o.quantidade_planejada||0) || 0,
+    quantidade_produzida: Number(o.quantidade_produzida||0) || 0,
+    data_producao: o.data_producao || null,
+    status: o.status || "planejada",
+    observacoes: o.observacoes || null,
+    custo_total_lote: o.custo_total_lote != null ? Number(o.custo_total_lote||0) || 0 : null,
+    created_at: o.created_at || new Date().toISOString()
+  }));
   try{
-    const rowsWithCost = list.map(o=>({
-      id: String(o.id),
-      lote: o.lote || null,
-      produto_id: o.produto_id || null,
-      quantidade_planejada: Number(o.quantidade_planejada||0) || 0,
-      quantidade_produzida: Number(o.quantidade_produzida||0) || 0,
-      data_producao: o.data_producao || null,
-      status: o.status || "planejada",
-      observacoes: o.observacoes || null,
-      custo_total_lote: o.custo_total_lote != null ? Number(o.custo_total_lote||0) || 0 : null,
-      created_at: o.created_at || new Date().toISOString()
-    }));
     for(let i=0;i<rowsWithCost.length;i+=200){
       const chunk = rowsWithCost.slice(i,i+200);
       const {error} = await supaClient.from("ordens_producao").upsert(chunk, { onConflict: "id" });
       if(error){
         const fallback = chunk.map(({custo_total_lote, ...rest})=>rest);
-        await supaClient.from("ordens_producao").upsert(fallback, { onConflict: "id" });
+        const {error: e2} = await supaClient.from("ordens_producao").upsert(fallback, { onConflict: "id" });
+        if(e2) throw e2;
       }
     }
-  }catch(_e){}
+    setSyncStatus("ok");
+  }catch(e){
+    console.warn("syncOrdensProducaoToSupabase:", e?.message || String(e));
+    const fallbackRows = rowsWithCost.map(({custo_total_lote, ...rest})=>rest);
+    enqueueUpsert("ordens_producao", fallbackRows, "id");
+  }
 }
 
 async function logMovimentoEstoque(mov){
   if(!supaConnected || !supaClient) return;
   if(!mov || !mov.insumo_id || !mov.tipo) return;
+  let payloadWithColumns = null;
   try{
-    const payloadWithColumns = {
+    payloadWithColumns = {
       id: mov.id || null,
       insumo_id: String(mov.insumo_id),
       ordem_id: mov.ordem_id ? String(mov.ordem_id) : null,
@@ -5978,9 +6092,14 @@ async function logMovimentoEstoque(mov){
       .upsert(payloadWithColumns, { onConflict: "ordem_id,insumo_id,tipo" });
     if(error){
       const {lote, produto_id, ...fallback} = payloadWithColumns;
-      await supaClient.from("movimentos_estoque").upsert(fallback, { onConflict: "ordem_id,insumo_id,tipo" });
+      const {error: e2} = await supaClient.from("movimentos_estoque").upsert(fallback, { onConflict: "ordem_id,insumo_id,tipo" });
+      if(e2) throw e2;
     }
-  }catch(_e){}
+    setSyncStatus("ok");
+  }catch(e){
+    console.warn("logMovimentoEstoque:", e?.message || String(e));
+    if(payloadWithColumns) enqueueUpsert("movimentos_estoque", [payloadWithColumns], "ordem_id,insumo_id,tipo");
+  }
 }
 
 async function initSupabase(){
@@ -6004,6 +6123,8 @@ async function initSupabase(){
     supaConnected = true;
     if(st){ st.textContent="✓ Conectado"; st.className="setup-status s-ok"; }
     setSyncDot(true);
+    ensurePendingOpsPump();
+    flushPendingOps().catch(()=>{});
     return true;
 
   }catch(e){
@@ -6174,30 +6295,17 @@ async function auditSupabaseSchema(){
 
 async function loadCanalLookup(){
   if(!supaConnected || !supaClient) return;
-  const candidates = [
-    { table: "v2_canais", slug: "slug", id: "id" },
-    { table: "canais", slug: "slug", id: "id" },
-    { table: "canais", slug: "chave", id: "id" },
-    { table: "canais_venda", slug: "slug", id: "id" },
-    { table: "canais_venda", slug: "chave", id: "id" }
-  ];
-  for(let i=0;i<candidates.length;i++){
-    const c = candidates[i];
-    try{
-      const {data, error} = await supaClient.from(c.table).select(`${c.id},${c.slug}`).limit(500);
-      if(error || !Array.isArray(data) || !data.length) continue;
-      const next = {};
-      data.forEach(r=>{
-        const slug = String(r?.[c.slug] || "").trim().toLowerCase();
-        const id = r?.[c.id];
-        if(slug && id) next[slug] = id;
-      });
-      if(Object.keys(next).length){
-        canaisLookup = next;
-        return;
-      }
-    }catch(_e){}
-  }
+  try{
+    const {data, error} = await supaClient.from("v2_canais").select("id,slug").limit(500);
+    if(error || !Array.isArray(data) || !data.length) return;
+    const next = {};
+    data.forEach(r=>{
+      const slug = String(r?.slug || "").trim().toLowerCase();
+      const id = r?.id;
+      if(slug && id) next[slug] = id;
+    });
+    if(Object.keys(next).length) canaisLookup = next;
+  }catch(_e){}
 }
 
 function normalizeOrderForCRM(o, sourceHint){

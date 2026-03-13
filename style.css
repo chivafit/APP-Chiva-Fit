@@ -659,6 +659,7 @@ body {
 .sidebar-sync { display: flex; align-items: center; gap: 7px; padding: 5px 10px; font-size: 10px; color: var(--text-3); border-radius: var(--r-sm); }
 .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
 .sync-dot.off   { background: var(--text-3); }
+.sync-dot.pending { background: var(--amber); }
 .sync-dot.pulse { animation: sdp 2s ease-in-out infinite; }
 @keyframes sdp { 0%,100%{opacity:1}50%{opacity:.3} }
 
