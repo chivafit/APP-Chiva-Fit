@@ -13,6 +13,16 @@ import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=202
 import { CRMStore } from "./store.js?v=20260313-1";
 import { STORAGE_KEYS } from "./constants.js?v=20260313-1";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260313-1";
+import {
+  scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
+  syncBling as syncBlingImpl,
+  syncBlingProdutos as syncBlingProdutosImpl,
+  backfillBlingEnderecos as backfillBlingEnderecosImpl
+} from "./sync/bling.js?v=20260313-1";
+import {
+  syncYampi as syncYampiImpl,
+  syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl
+} from "./sync/yampi.js?v=20260313-1";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -123,16 +133,6 @@ let allTasks = safeJsonParse("crm_tasks", null) || [
 let taskIdSeq = allTasks.length ? Math.max(...allTasks.map(t=>t.id))+1 : 1;
 let CRM_BOOTSTRAPPED = false;
 let CRM_BOOTSTRAP_ERROR = null;
-
-const CRM_STATE = {
-  orders: allOrders,
-  customers: allCustomers,
-  intelligence: customerIntelligence,
-  tasks: allTasks,
-  integrations: { bling: blingOrders, yampi: yampiOrders, shopify: shopifyOrders },
-  cache: { tarefas: tarefasCache, notifs: notifs },
-  ui: { activeChannel: activeCh, charts: charts, activeSegment: activeSegment }
-};
 
 CRMStore.data.orders = allOrders;
 CRMStore.data.customers = allCustomers;
@@ -903,276 +903,61 @@ function saveAIKey(){
   toast("A chave da IA agora é gerenciada com segurança no servidor.");
 }
 
+function getSyncCtx(){
+  return {
+    isSupaReady: ()=>!!(supaConnected && supaClient),
+    getSupaClient: ()=>supaClient,
+    getSupaFnBase,
+    supaFnHeaders,
+    normalizeOrderForCRM,
+    mergeOrders,
+    populateUFs,
+    upsertOrdersToSupabase,
+    renderAll,
+    startTimers,
+    toast,
+    sbSetConfig,
+    blingOrders,
+    blingProducts,
+    yampiOrders,
+    loadOrdersFromSupabaseForCRM,
+    loadCarrinhosAbandonadosFromSupabase,
+    fetchYampiAbandoned,
+    normalizeCarrinhoAbandonado,
+    getCarrinhosAbandonados: ()=>carrinhosAbandonados,
+    setCarrinhosAbandonados: (next)=>{ carrinhosAbandonados = Array.isArray(next) ? next : []; },
+    reconcileCarrinhosRecuperados,
+    recomputeCarrinhosScoresAndPersist,
+    upsertCarrinhosAbandonadosToSupabase,
+    renderCarrinhosAbandonados,
+    renderProdutos
+  };
+}
+
 // ═══════════════════════════════════════════════════
 //  BLING
 // ═══════════════════════════════════════════════════
-let blingAutoSyncTimer = null;
-
 function scheduleAutoBlingSync(){
-  if(blingAutoSyncTimer) clearInterval(blingAutoSyncTimer);
-  blingAutoSyncTimer = setInterval(()=>{
-    maybeRunAutoBlingSync().catch(()=>{});
-  }, 20*60*1000);
-  maybeRunAutoBlingSync().catch(()=>{});
-}
-
-async function maybeRunAutoBlingSync(){
-  if(!supaConnected || !supaClient) return;
-  const today = new Date().toISOString().slice(0,10);
-  const lastDay = String(localStorage.getItem("crm_bling_autosync_day") || "");
-  if(lastDay === today) return;
-  if(document.hidden) return;
-  await syncBling({ silent: true, auto: true, omitDates: true });
-  localStorage.setItem("crm_bling_autosync_day", today);
+  return scheduleAutoBlingSyncImpl(getSyncCtx());
 }
 
 async function syncBling(){
-  const options = arguments?.[0] && typeof arguments[0] === "object" ? arguments[0] : {};
-  const silent = options.silent === true;
-  const omitDates = options.omitDates === true;
-  const batchLimit = Math.max(1, Math.min(100, Number(options.batchLimit ?? 50) || 50));
-  const st=document.getElementById("bling-status");
-  const fromEl=document.getElementById("date-from");
-  const toEl=document.getElementById("date-to");
-  let from=String(fromEl?.value||"").slice(0,10);
-  let to=String(toEl?.value||"").slice(0,10);
-  if((!from || !to) && !omitDates){
-    try{
-      if(!from){
-        const d = new Date();
-        d.setDate(d.getDate() - 365);
-        from = d.toISOString().slice(0,10);
-        if(fromEl) fromEl.value = from;
-      }
-      if(!to){
-        to = new Date().toISOString().slice(0,10);
-        if(toEl) toEl.value = to;
-      }
-    }catch(_e){}
-  }
-  try{
-    let offset = 0;
-    let batch = 0;
-    let imported = 0;
-    const out = [];
-
-    const setStatus = (html, ok)=>{
-      if(!st || silent) return;
-      st.innerHTML = html;
-      st.className = ok === true ? "setup-status s-ok" : ok === false ? "setup-status s-err" : "setup-status";
-    };
-
-    setStatus(
-      `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span>Iniciando importação…</span><span class="chiva-table-mono">0</span></div>`+
-      `<div style="height:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:8px"><div style="height:100%;width:30%;background:linear-gradient(90deg, rgba(15,167,101,.2), rgba(164,233,107,.7), rgba(15,167,101,.2));animation:skel-shimmer 1.1s infinite"></div></div>`
-    );
-
-    let hasMore = true;
-    while(hasMore){
-      batch += 1;
-      setStatus(
-        `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span>Processando lote ${batch}…</span><span class="chiva-table-mono">${imported}</span></div>`+
-        `<div style="font-size:10px;color:var(--text-3);margin-top:6px">limit ${batchLimit} · offset ${offset}</div>`+
-        `<div style="height:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:8px"><div style="height:100%;width:30%;background:linear-gradient(90deg, rgba(15,167,101,.2), rgba(164,233,107,.7), rgba(15,167,101,.2));animation:skel-shimmer 1.1s infinite"></div></div>`
-      );
-
-      const payload = omitDates ? { limit: batchLimit, offset } : { from, to, limit: batchLimit, offset };
-      const resp=await fetch(getSupaFnBase()+"/bling-sync",{
-        method:"POST",
-        headers:supaFnHeaders(),
-        body:JSON.stringify(payload)
-      });
-
-      const txt = await resp.text().catch(()=> "");
-      let data = null;
-      try{ data = txt ? JSON.parse(txt) : null; }catch(_e){ data = null; }
-      if(!resp.ok){
-        const msg = (data && (data.message || data.error)) ? String(data.message || data.error) : (txt || "Erro na função Bling");
-        throw new Error(msg);
-      }
-
-      const orders = Array.isArray(data?.orders) ? data.orders : [];
-      orders.forEach(o=>out.push(normalizeOrderForCRM(o,"bling")));
-      imported += orders.length;
-
-      const nextOffset = Number(data?.nextOffset);
-      offset = Number.isFinite(nextOffset) ? nextOffset : (offset + orders.length);
-      hasMore = data?.hasMore === true && orders.length > 0;
-      if(!orders.length) hasMore = false;
-      if(batch > 400) throw new Error("Importação interrompida (muitos lotes). Ajuste o período ou aumente o limit.");
-    }
-
-    blingOrders.length = 0;
-    blingOrders.push(...out);
-    localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
-    mergeOrders(); populateUFs();
-    upsertOrdersToSupabase(blingOrders).catch(e=>console.warn(e)); renderAll(); startTimers();
-    try{ if(supaConnected) await sbSetConfig('ultima_sync_bling',new Date().toISOString()); }catch(e){}
-    if(st){
-      st.textContent=`✓ ${blingOrders.length} pedidos importados (lotes: ${batch})`;
-      st.className="setup-status s-ok";
-    }
-    if(!silent) toast("✓ Bling sincronizado!");
-  }catch(e){
-    if(st){
-      st.textContent="⚠ "+e.message;
-      st.className="setup-status s-err";
-    }
-  }
+  return syncBlingImpl(getSyncCtx(), arguments?.[0]);
 }
 
 async function syncBlingProdutos(){
-  const st = document.getElementById("bling-prod-status");
-  if(st){ st.textContent="Importando produtos..."; st.className="setup-status"; }
-  try{
-    if(!supaConnected || !supaClient) throw new Error("Conecte o Supabase primeiro.");
-
-    const resp = await fetch(getSupaFnBase()+"/bling-products-sync",{
-      method:"POST",
-      headers:supaFnHeaders(),
-      body:JSON.stringify({ limit: 100, maxPages: 200 })
-    });
-
-    const txt = await resp.text().catch(()=> "");
-    let data = null;
-    try{ data = txt ? JSON.parse(txt) : null; }catch(_e){ data = null; }
-    if(!resp.ok){
-      const msg = (data && (data.message || data.error)) ? String(data.message || data.error) : (txt || "Erro na função Bling (produtos)");
-      throw new Error(msg);
-    }
-
-    const products = Array.isArray(data?.products) ? data.products : [];
-    if(!products.length){
-      if(st){ st.textContent="⚠ Nenhum produto retornado do Bling."; st.className="setup-status s-err"; }
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-    const rows = products.map(p=>({
-      id: String(p?.id||"").trim(),
-      codigo: p?.codigo ?? null,
-      nome: p?.nome ?? null,
-      estoque: p?.estoque ?? null,
-      preco: p?.preco ?? null,
-      situacao: p?.situacao ?? null,
-      origem: p?.origem ?? "bling",
-      updated_at: p?.updated_at ?? nowIso,
-      raw: p?.raw ?? {}
-    })).filter(r=>r.id);
-
-    for(let i=0;i<rows.length;i+=200){
-      const batch = rows.slice(i,i+200);
-      const {error} = await supaClient.from("v2_produtos").upsert(batch, { onConflict: "id" });
-      if(error) throw error;
-    }
-
-    blingProducts = rows.map(r=>({
-      id: String(r.id||""),
-      codigo: r.codigo || "",
-      nome: r.nome || "",
-      estoque: r.estoque == null ? null : Number(r.estoque||0) || 0,
-      preco: r.preco == null ? null : Number(r.preco||0) || 0,
-      situacao: r.situacao || "",
-      origem: r.origem || "bling",
-      updated_at: r.updated_at || null
-    })).filter(p=>p.id);
-    localStorage.setItem("crm_bling_products", JSON.stringify(blingProducts));
-
-    if(document.getElementById("page-produtos")?.classList.contains("active")) {
-      renderProdutos();
-    }
-
-    if(st){ st.textContent=`✓ ${rows.length} produtos importados`; st.className="setup-status s-ok"; }
-    toast("✓ Produtos do Bling importados!");
-  }catch(e){
-    const msg = String(e?.message || String(e) || "");
-    if(st){
-      const hint =
-        /relation .*v2_produtos.*does not exist|42P01/i.test(msg)
-          ? " (Rode a migration 004_create_v2_produtos.sql no Supabase)"
-          : "";
-      st.textContent="⚠ "+msg+hint;
-      st.className="setup-status s-err";
-    }
-  }
+  return syncBlingProdutosImpl(getSyncCtx());
 }
 
 async function backfillBlingEnderecos(){
-  const st = document.getElementById("bling-status");
-  if(st){ st.textContent="Backfill: buscando período no Supabase..."; st.className="setup-status"; }
-  try{
-    if(!supaConnected || !supaClient) throw new Error("Conecte o Supabase primeiro.");
-
-    let from = "";
-    try{
-      const {data} = await supaClient
-        .from("v2_pedidos")
-        .select("data_pedido")
-        .order("data_pedido", { ascending: true })
-        .limit(1);
-      from = String(data?.[0]?.data_pedido || "").slice(0,10);
-    }catch(_e){}
-
-    const to = new Date().toISOString().slice(0,10);
-    if(!from) from = "2020-01-01";
-
-    if(st){ st.textContent=`Backfill: importando Bling (${from} → ${to})...`; st.className="setup-status"; }
-
-    const resp = await fetch(getSupaFnBase()+"/bling-sync",{
-      method:"POST",
-      headers:supaFnHeaders(),
-      body:JSON.stringify({from,to, maxPages: 200})
-    });
-    if(!resp.ok){
-      const txt=await resp.text();
-      throw new Error(txt||"Erro na função Bling");
-    }
-    const data=await resp.json();
-    const orders = (data.orders||[]).map(o=>normalizeOrderForCRM(o,"bling"));
-    if(!orders.length){
-      if(st){ st.textContent="Backfill: nenhum pedido retornado."; st.className="setup-status s-err"; }
-      return;
-    }
-
-    blingOrders.length = 0;
-    blingOrders.push(...orders);
-    localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
-
-    mergeOrders(); populateUFs();
-    await upsertOrdersToSupabase(blingOrders, { silent: true });
-    renderAll();
-
-    if(st){ st.textContent=`✓ Backfill concluído: ${orders.length} pedidos`; st.className="setup-status s-ok"; }
-    toast("✓ Backfill Bling concluído!");
-  }catch(e){
-    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
-  }
+  return backfillBlingEnderecosImpl(getSyncCtx());
 }
 
 // ═══════════════════════════════════════════════════
 //  YAMPI
 // ═══════════════════════════════════════════════════
 async function syncYampi(){
-  const st = document.getElementById("yampi-status");
-  if(st){ st.textContent="Sincronizando com Supabase..."; st.className="setup-status"; }
-  try{
-    if(!supaConnected || !supaClient){
-      throw new Error("Supabase não conectado. Conecte primeiro para ver os dados do Webhook.");
-    }
-    
-    // Como a Yampi trabalha apenas via Webhook, o "Recarregar" busca os dados
-    // que o Webhook da Yampi já salvou no nosso banco de dados Supabase.
-    await loadOrdersFromSupabaseForCRM({ persistBack: true });
-    await loadCarrinhosAbandonadosFromSupabase();
-    
-    if(st){ 
-      st.textContent=`✓ Dados da Yampi atualizados do banco`; 
-      st.className="setup-status s-ok"; 
-    }
-    toast("✓ Yampi sincronizado!");
-  }catch(e){
-    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
-  }
+  return syncYampiImpl(getSyncCtx());
 }
 
 function normalizeYampiOrder(o){
@@ -1560,28 +1345,7 @@ async function fetchYampiAbandoned(){
 }
 
 async function syncCarrinhosAbandonadosYampi(){
-  const st = document.getElementById("abandoned-status");
-  if(st){ st.textContent="Sincronizando..."; st.className="setup-status"; }
-  try{
-    const raw = await fetchYampiAbandoned();
-    const next = (Array.isArray(raw) ? raw : []).map(normalizeCarrinhoAbandonado).filter(c=>c.checkout_id);
-    const byId = {};
-    (carrinhosAbandonados||[]).forEach(c=>{ if(c && c.checkout_id) byId[String(c.checkout_id)] = c; });
-    next.forEach(c=>{
-      const prev = byId[c.checkout_id] || null;
-      byId[c.checkout_id] = prev ? {...prev, ...c, recuperado: prev.recuperado || c.recuperado, recuperado_em: prev.recuperado_em || c.recuperado_em, recuperado_pedido_id: prev.recuperado_pedido_id || c.recuperado_pedido_id} : c;
-    });
-    carrinhosAbandonados = Object.values(byId).sort((a,b)=>new Date(b.criado_em||0)-new Date(a.criado_em||0));
-    localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
-    await reconcileCarrinhosRecuperados();
-    await recomputeCarrinhosScoresAndPersist();
-    if(supaConnected && supaClient) await upsertCarrinhosAbandonadosToSupabase(carrinhosAbandonados);
-    if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
-    if(st){ st.textContent=`✓ ${carrinhosAbandonados.length} carrinhos carregados`; st.className="setup-status s-ok"; }
-    toast("✓ Carrinhos abandonados sincronizados!");
-  }catch(e){
-    if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
-  }
+  return syncCarrinhosAbandonadosYampiImpl(getSyncCtx());
 }
 
 function buildCarrinhoWaMessage(c, ctx){
@@ -5508,6 +5272,17 @@ function enqueueUpsert(table, rows, onConflict){
   setSyncStatus("pending");
 }
 
+function handleSyncError(context, error, meta){
+  const ctx = String(context || "sync");
+  const msg = error?.message || String(error);
+  console.warn(ctx + ":", msg);
+  if(/Failed to fetch|NetworkError|fetch failed|timeout|ECONN/i.test(msg)) setSyncStatus("offline");
+  else setSyncStatus("pending");
+  if(meta && meta.table && Array.isArray(meta.rows) && meta.rows.length){
+    enqueueUpsert(meta.table, meta.rows, meta.onConflict || null);
+  }
+}
+
 async function flushPendingOps(){
   if(!supaConnected || !supaClient) return;
   const ops = readPendingOps();
@@ -5875,8 +5650,7 @@ async function syncInsumosToSupabase(list){
     }
     setSyncStatus("ok");
   }catch(e){
-    console.warn("syncInsumosToSupabase:", e?.message || String(e));
-    enqueueUpsert("insumos", rows, "id");
+    handleSyncError("syncInsumosToSupabase", e, { table: "insumos", rows, onConflict: "id" });
   }
 }
 
@@ -5972,8 +5746,7 @@ async function syncReceitasToSupabase(list){
     return true;
   }catch(e){
     if(String(e?.message||"") === "invalid_payload_receitas_produtos") throw e;
-    console.warn("syncReceitasToSupabase:", e?.message || String(e));
-    enqueueUpsert("receitas_produtos", rows, "id");
+    handleSyncError("syncReceitasToSupabase", e, { table: "receitas_produtos", rows, onConflict: "id" });
     return false;
   }
 }
@@ -6064,9 +5837,8 @@ async function syncOrdensProducaoToSupabase(list){
     }
     setSyncStatus("ok");
   }catch(e){
-    console.warn("syncOrdensProducaoToSupabase:", e?.message || String(e));
     const fallbackRows = rowsWithCost.map(({custo_total_lote, ...rest})=>rest);
-    enqueueUpsert("ordens_producao", fallbackRows, "id");
+    handleSyncError("syncOrdensProducaoToSupabase", e, { table: "ordens_producao", rows: fallbackRows, onConflict: "id" });
   }
 }
 
@@ -6097,8 +5869,7 @@ async function logMovimentoEstoque(mov){
     }
     setSyncStatus("ok");
   }catch(e){
-    console.warn("logMovimentoEstoque:", e?.message || String(e));
-    if(payloadWithColumns) enqueueUpsert("movimentos_estoque", [payloadWithColumns], "ordem_id,insumo_id,tipo");
+    if(payloadWithColumns) handleSyncError("logMovimentoEstoque", e, { table: "movimentos_estoque", rows: [payloadWithColumns], onConflict: "ordem_id,insumo_id,tipo" });
   }
 }
 
