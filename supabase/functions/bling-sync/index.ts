@@ -18,6 +18,27 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function readBearerToken(req: Request): string {
+  const auth = String(req.headers.get("authorization") || "").trim();
+  if (!auth) return "";
+  const lower = auth.toLowerCase();
+  if (!lower.startsWith("bearer ")) return "";
+  return auth.slice(7).trim();
+}
+
+async function requireUserAuth(req: Request, supabaseUrl: string, serviceRoleKey: string) {
+  const jwt = readBearerToken(req);
+  if (!jwt) return { ok: false, reason: "Missing bearer token" };
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase.auth.getUser(jwt);
+    if (error || !data?.user) return { ok: false, reason: "Invalid JWT" };
+    return { ok: true, user: data.user };
+  } catch (_e) {
+    return { ok: false, reason: "Auth check failed" };
+  }
+}
+
 let tokenCache: { token: string; expiresAtMs: number } | null = null;
 
 function sleep(ms: number) {
@@ -790,6 +811,11 @@ serve(async (req: Request) => {
     if (persist) {
       const headerSecret = String(req.headers.get("x-cron-secret") || "").trim();
       if (!cronSecret || headerSecret !== cronSecret) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    } else {
+      const auth = await requireUserAuth(req, supabaseUrl, serviceRoleKey);
+      if (!auth.ok) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
     }
