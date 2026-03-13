@@ -13,8 +13,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link rel="stylesheet" href="./main.css?v=20260312-1">
-<script type="module" src="./main.js?v=20260312-1"></script>
+<link rel="stylesheet" href="./main.css?v=20260313-1">
+<script type="module" src="./main.js?v=20260313-1"></script>
 </head>
 <body>
 
@@ -168,6 +168,20 @@
     <div>
       <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">📊 Dashboard</h1>
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Visão geral de clientes e receita</p>
+    </div>
+  </div>
+  <div class="saas-filterbar" style="margin-bottom:12px">
+    <div class="saas-chips">
+      <select id="dash-canal-filter" class="saas-chip saas-chip-select" onchange="renderDash()">
+        <option value="">Canal</option>
+        <option value="ml">Mercado Livre</option>
+        <option value="shopee">Shopee</option>
+        <option value="amazon">Amazon</option>
+        <option value="shopify">Shopify</option>
+        <option value="yampi">Yampi</option>
+        <option value="cnpj">B2B/CNPJ</option>
+        <option value="outros">Outros</option>
+      </select>
     </div>
   </div>
     <div id="alert-banner"></div>

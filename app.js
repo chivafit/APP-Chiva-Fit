@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-1";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js";
-import { CRMStore } from "./store.js";
-import { STORAGE_KEYS } from "./constants.js";
-import { getSupabaseClient } from "./supabaseClient.js";
+} from "./ia.js?v=20260313-1";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-1";
+import { CRMStore } from "./store.js?v=20260313-1";
+import { STORAGE_KEYS } from "./constants.js?v=20260313-1";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260313-1";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -2288,20 +2288,30 @@ function populateUFs(){
 //  DASHBOARD
 // ═══════════════════════════════════════════════════
 function renderDash(){
+  const dashSel = document.getElementById("dash-canal-filter");
+  if(dashSel){
+    const stored = String(localStorage.getItem("crm_dash_canal")||"").toLowerCase().trim();
+    if(stored && !dashSel.value) dashSel.value = stored;
+  }
+  const dashCh = String(dashSel?.value||"").toLowerCase().trim();
+  if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
+  const ordersBase = Array.isArray(allOrders) ? allOrders : [];
+  const orders = dashCh ? ordersBase.filter(o=>detectCh(o)===dashCh) : ordersBase;
+
   // Atualizar período
-  if(allOrders.length){
-    const dates = allOrders.map(o=>new Date(o.data||o.dataPedido)).filter(d=>!isNaN(d)).sort((a,b)=>a-b);
+  if(orders.length){
+    const dates = orders.map(o=>new Date(o.data||o.dataPedido)).filter(d=>!isNaN(d)).sort((a,b)=>a-b);
     const dp = document.getElementById('dash-period');
-    if(dp && dates.length) dp.textContent = `${dates[0].toLocaleDateString('pt-BR')} — ${dates[dates.length-1].toLocaleDateString('pt-BR')} · ${allOrders.length} pedidos`;
+    if(dp && dates.length) dp.textContent = `${dates[0].toLocaleDateString('pt-BR')} — ${dates[dates.length-1].toLocaleDateString('pt-BR')} · ${orders.length} pedidos`;
   }
 
-  const total=allOrders.reduce((s,o)=>s+val(o),0);
+  const total=orders.reduce((s,o)=>s+val(o),0);
   const now=new Date();
-  const thisMo=allOrders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
-  const prevMo=allOrders.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
+  const thisMo=orders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
+  const prevMo=orders.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
   const tMo=thisMo.reduce((s,o)=>s+val(o),0),pMo=prevMo.reduce((s,o)=>s+val(o),0);
   const delta=pMo>0?((tMo-pMo)/pMo*100):0;
-  const cliMap=buildCli(allOrders);
+  const cliMap=buildCli(orders);
   const cliList=Object.values(cliMap);
   const vipCount=cliList.filter(c=>calcCliScores(c).status==="vip").length;
   const recorrentes=cliList.filter(c=>c.orders.length>=2).length;
@@ -2312,15 +2322,16 @@ function renderDash(){
     (blingOrders.length?`<span style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:3px 9px">🔵 Bling: ${blingOrders.length}</span>`:"")
     +(yampiOrders.length?`<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`:"")
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
-    +(!allOrders.length?`<span style="color:var(--text-3)">Nenhum dado — vá em ⚙️ Config</span>`:"");
+    +(dashCh?`<span style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:7px;padding:3px 9px">Filtro: ${escapeHTML(CH[dashCh]||dashCh)}</span>`:"")
+    +(!orders.length?`<span style="color:var(--text-3)">Nenhum dado — vá em ⚙️ Config</span>`:"");
 
   const autoEl = document.getElementById("auto-insights");
   if(autoEl){
     const weekMs = 7*86400000;
     const nowTs = Date.now();
-    const inLast = (days)=>allOrders.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
+    const inLast = (days)=>orders.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
     const w1 = inLast(7);
-    const w2 = allOrders.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
+    const w2 = orders.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
     const t1 = w1.reduce((s,o)=>s+val(o),0);
     const t2 = w2.reduce((s,o)=>s+val(o),0);
     const ticket1 = w1.length ? t1/w1.length : 0;
@@ -2393,12 +2404,12 @@ function renderDash(){
     {l:"Este Mês",v:fmtBRL(tMo),s:`<span style="color:${delta>=0?"var(--green)":"var(--red)"}">${delta>=0?"▲":"▼"}${Math.abs(delta).toFixed(1)}%</span>`},
     {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
     {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
-    {l:"Ticket Médio",v:fmtBRL(allOrders.length?total/allOrders.length:0),s:"por pedido"},
-    {l:"Pedidos Total",v:allOrders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
+    {l:"Ticket Médio",v:fmtBRL(orders.length?total/orders.length:0),s:"por pedido"},
+    {l:"Pedidos Total",v:orders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
   ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
 
-  renderMeta(tMo); renderCompare(); renderAlertBanner();
-  renderChartCanal(); renderChartMes(); renderTopCli(); renderTopProd(); setTimeout(()=>{renderDashChartsCrescimento();renderDashChartsCidades();},150);
+  renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
+  renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders); setTimeout(()=>{renderDashChartsCrescimento(orders);renderDashChartsCidades(orders);},150);
 }
 
 function renderMeta(v){
@@ -2420,9 +2431,14 @@ async function editMeta(){
   await sbSetConfig('meta_mensal',mv);
   renderDash();
 }
-function renderCompare(){
+function renderCompare(ordersOverride){
   const a=document.getElementById("cmp-a")?.value,b=document.getElementById("cmp-b")?.value; if(!a||!b)return;
-  const flt=ym=>{ const[y,m]=ym.split("-"); return allOrders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===+y&&(d.getMonth()+1)===+m; }); };
+  let orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  if(!Array.isArray(ordersOverride)){
+    const dashCh = String(document.getElementById("dash-canal-filter")?.value||"").toLowerCase().trim();
+    if(dashCh) orders = (Array.isArray(orders)?orders:[]).filter(o=>detectCh(o)===dashCh);
+  }
+  const flt=ym=>{ const[y,m]=ym.split("-"); return orders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===+y&&(d.getMonth()+1)===+m; }); };
   const oA=flt(a),oB=flt(b),vA=oA.reduce((s,o)=>s+val(o),0),vB=oB.reduce((s,o)=>s+val(o),0);
   const d=vB>0?((vA-vB)/vB*100):0;
   const mn=ym=>{ const[y,m]=ym.split("-"); return["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"][+m-1]+"/"+y.slice(2); };
@@ -2431,9 +2447,10 @@ function renderCompare(){
     <div class="cmp-col"><div class="cmp-col-title">${mn(b)}</div><div class="cmp-val" style="color:var(--violet-hi)">${fmtBRL(vB)}</div><div class="cmp-sub">${oB.length} pedidos</div></div>
   </div>`;
 }
-function renderAlertBanner(){
+function renderAlertBanner(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const ad=parseInt(localStorage.getItem("crm_alertdays")||"60");
-  const inat=Object.values(buildCli(allOrders)).filter(c=>daysSince(c.last)>ad&&!isCNPJ(c.doc));
+  const inat=Object.values(buildCli(orders)).filter(c=>daysSince(c.last)>ad&&!isCNPJ(c.doc));
   const el=document.getElementById("alert-banner");
   if(!inat.length){el.style.display="none";return;}
   el.style.display="block";
@@ -2441,9 +2458,10 @@ function renderAlertBanner(){
     ${inat.slice(0,3).map(c=>`<div class="ab-item"><strong>${escapeHTML(c.nome)}</strong> — ${daysSince(c.last)} dias</div>`).join("")}
     ${inat.length>3?`<span style="font-size:10px;color:var(--blue);cursor:pointer" onclick="showPage('alertas')">Ver todos →</span>`:""}`;
 }
-function renderChartCanal(){
+function renderChartCanal(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const t={};
-  allOrders.forEach(o=>{ const c=detectCh(o); t[c]=(t[c]||0)+val(o); });
+  orders.forEach(o=>{ const c=detectCh(o); t[c]=(t[c]||0)+val(o); });
   Object.keys(t).forEach(k=>{ if(!t[k]) delete t[k]; });
   if(charts.canal) charts.canal.destroy();
   const canvas=document.getElementById("chart-canal");
@@ -2520,9 +2538,10 @@ function renderChartCanal(){
 }
 
 
-function renderChartMes(){
+function renderChartMes(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const bm={};
-  allOrders.forEach(o=>{ const d=new Date(o.data); if(isNaN(d))return; const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; bm[k]=(bm[k]||0)+val(o); });
+  orders.forEach(o=>{ const d=new Date(o.data); if(isNaN(d))return; const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; bm[k]=(bm[k]||0)+val(o); });
   const sk=Object.keys(bm).sort();
   if(charts.mes) charts.mes.destroy();
   const canvas = document.getElementById("chart-mes");
@@ -2558,17 +2577,19 @@ function renderChartMes(){
     }
   })
 }
-function renderTopCli(){
-  const m={}; allOrders.forEach(o=>{
+function renderTopCli(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const m={}; orders.forEach(o=>{
     const k=cliKey(o);
-    if(!m[k]){ const cli=allCustomers.find(x=>(x.nome||"")===(o.contato?.nome||"")||x.doc===(o.contato?.cpfCnpj||o.contato?.numeroDocumento||"")); m[k]={n:o.contato?.nome||"?",t:0,id:cli?cli.id:""}; }
+    if(!m[k]){ m[k]={n:o.contato?.nome||"?",t:0,id:k}; }
     m[k].t+=val(o);
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
   document.getElementById("top-clientes").innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
 }
-function renderTopProd(){
-  const m={}; allOrders.forEach(o=>(o.itens||[]).forEach(it=>{ const k=it.codigo||it.descricao||"?"; if(!m[k])m[k]={n:it.descricao||k,t:0}; m[k].t+=(parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1); }));
+function renderTopProd(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const m={}; orders.forEach(o=>(o.itens||[]).forEach(it=>{ const k=it.codigo||it.descricao||"?"; if(!m[k])m[k]={n:it.descricao||k,t:0}; m[k].t+=(parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1); }));
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
   document.getElementById("top-produtos-dash").innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div style="padding:10px;font-size:11px;color:var(--text-3)">Nenhum produto</div>`;
 }
@@ -2578,17 +2599,18 @@ function renderTopProd(){
 // ═══════════════════════════════════════════════════
 
 // ─── DASHBOARD NEW CHARTS ─────────────────────────────────────
-function renderDashChartsCrescimento(){
+function renderDashChartsCrescimento(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const canvas = document.getElementById("chart-crescimento");
   if(!canvas) return;
   const ctx = canvas.getContext("2d");
   if(!ctx) return;
   const byMonth = {};
-  allOrders.forEach(o=>{
-    if(!o.data_pedido) return;
-    const d = new Date(o.data_pedido);
+  orders.forEach(o=>{
+    const d = new Date(o.data || o.data_pedido || o.dataPedido || "");
+    if(isNaN(d)) return;
     const k = d.getFullYear()+"-"+(d.getMonth()+1).toString().padStart(2,"0");
-    byMonth[k]=(byMonth[k]||0)+(o.total||0);
+    byMonth[k]=(byMonth[k]||0)+val(o);
   });
   const keys = Object.keys(byMonth).sort().slice(-12);
   const vals = keys.map(k=>byMonth[k]);
@@ -2618,15 +2640,16 @@ function renderDashChartsCrescimento(){
   });
 }
 
-function renderDashChartsCidades(){
+function renderDashChartsCidades(ordersOverride){
+  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const canvas = document.getElementById("chart-cidades");
   if(!canvas) return;
   const ctx = canvas.getContext("2d");
   if(!ctx) return;
   const byCity = {};
-  allCustomers.forEach(c=>{
-    if(!c.cidade) return;
-    const k = (c.cidade+" ("+c.uf+")").trim();
+  Object.values(buildCli(orders)).forEach(c=>{
+    if(!c?.cidade) return;
+    const k = (String(c.cidade||"")+" ("+String(c.uf||"")+")").trim();
     byCity[k]=(byCity[k]||0)+1;
   });
   const entries = Object.entries(byCity).sort((a,b)=>b[1]-a[1]).slice(0,8);

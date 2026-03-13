@@ -169,7 +169,9 @@ function saveReceitasProdutos(){
   localStorage.setItem('crm_receitas_produtos', JSON.stringify(allReceitasProdutos));
   if(typeof globalThis.syncReceitasToSupabase === "function"){
     try{
-      Promise.resolve(globalThis.syncReceitasToSupabase(allReceitasProdutos)).catch(function(){
+      Promise.resolve(globalThis.syncReceitasToSupabase(allReceitasProdutos)).then(function(){
+        renderReceitaDetalhe();
+      }).catch(function(){
         if(prev != null) localStorage.setItem('crm_receitas_produtos', prev);
         else localStorage.removeItem('crm_receitas_produtos');
         try{
@@ -1057,6 +1059,7 @@ function salvarReceitaProduto(){
   });
   saveReceitasProdutos();
   toast('Receita salva!');
+  renderReceitaDetalhe();
 }
 
 function abrirModalInsumo(id){
