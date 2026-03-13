@@ -3242,32 +3242,6 @@ const SEGMENTS=[
   {id:"cnpj",icon:"🏢",name:"Empresas (CNPJ)",desc:"Clientes B2B. Potencial de volume mas excluídos do VIP.",action:"Proposta comercial B2B",filter:c=>isCNPJ(c.doc)},
 ];
 
-function selectSegment(id){
-  currentSegmentId = id;
-  const seg = computedSegments.find(s => s.id === id);
-  if(!seg) return;
-
-  const titleEl = document.getElementById('seg-detalhe-title');
-  const descEl = document.getElementById('seg-detalhe-desc');
-  if(titleEl) titleEl.textContent = seg.name;
-  if(descEl) descEl.textContent = seg.desc;
-
-  // Stats interna
-  const statsHost = document.getElementById('seg-detalhe-stats');
-  if(statsHost){
-    statsHost.innerHTML = [
-      {l:"Clientes", v:seg.count, s:"no grupo"},
-      {l:"Receita Total", v:fmtBRL(seg.revenue), s:"acumulada"},
-      {l:"Ticket Médio", v:fmtBRL(seg.avgTicket), s:"do grupo"},
-      {l:"Freq. Média", v:"—", s:"em breve"}
-    ].map(s => `<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
-  }
-
-  showPage('segmento-detalhe');
-  renderSegmentCustomers();
-  renderSegmentCharts(seg);
-}
-
 function intelRow(customer, subtitle, rightHtml){
   const cid = escapeJsSingleQuote(String(customer?.id||""));
   const name = escapeHTML(String(customer?.nome||"Cliente"));
