@@ -101,6 +101,7 @@ let WA_TPLS = safeJsonParse("crm_wa_tpls", null) || [
 let blingOrders = safeJsonParse("crm_bling_orders", []);
 let yampiOrders = safeJsonParse("crm_yampi_orders", []);
 let shopifyOrders = safeJsonParse("crm_shopify_orders", []);
+let blingProducts = safeJsonParse("crm_bling_products", []);
 let carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []);
 let allOrders = [];
 let allCustomers = [];
@@ -3713,6 +3714,7 @@ function renderProdutos(){
   const evolucaoDias = parseInt(document.getElementById("fil-evolucao-prod")?.value || "30");
   const now=new Date();
   const m={};
+  const catalog = Array.isArray(blingProducts) ? blingProducts : [];
   
   // Processamento de dados base
   allOrders
@@ -3754,14 +3756,40 @@ function renderProdutos(){
       }
     }));
 
+  if(catalog.length){
+    catalog.forEach(p=>{
+      const code = String(p?.codigo||"").trim();
+      const name = String(p?.nome||"").trim();
+      const key = code || name || String(p?.id||"").trim();
+      if(!key) return;
+      if(!m[key]) m[key] = {
+        nome: name || key,
+        code: code || "",
+        total: 0,
+        qty: 0,
+        peds: new Set(),
+        clis: new Set(),
+        lastVenda: "",
+        canais: {shopify:0, amazon:0, shopee:0, outros:0, ml:0, cnpj:0, yampi:0},
+        historico: {}
+      };
+      if(name && (!m[key].nome || m[key].nome === "?" || m[key].nome === key)) m[key].nome = name;
+      if(code && !m[key].code) m[key].code = code;
+      if(p?.estoque != null) m[key].estoque = Number(p.estoque||0) || 0;
+      if(p?.preco != null) m[key].preco = Number(p.preco||0) || 0;
+      if(p?.situacao) m[key].situacao_catalogo = String(p.situacao||"");
+    });
+  }
+
   let prods = Object.values(m).sort((a,b)=>b.total-a.total);
   if(q) prods = prods.filter(p=>p.nome.toLowerCase().includes(q)||p.code.toLowerCase().includes(q));
   
   document.getElementById("prod-label").textContent = `${prods.length} produto${prods.length!==1?"s/sabores":""}`;
 
   // 1. Cards de KPI no Topo
-  const topVendido = prods.reduce((a, b) => (a.qty > b.qty ? a : b), {nome:"—", qty:0});
-  const topReceita = prods[0] || {nome:"—", total:0};
+  const prodsComVenda = prods.filter(p=>p.qty>0 || p.total>0);
+  const topVendido = prodsComVenda.length ? prodsComVenda.reduce((a, b) => (a.qty > b.qty ? a : b), {nome:"—", qty:0}) : {nome:"—", qty:0};
+  const topReceita = prodsComVenda.length ? (prodsComVenda.slice().sort((a,b)=>b.total-a.total)[0] || {nome:"—", total:0}) : {nome:"—", total:0};
   
   // Calcular crescimento (últimos 7 dias vs 7 dias anteriores)
   const calculateGrowth = (prod) => {
@@ -3950,14 +3978,16 @@ function renderProdutos(){
   document.getElementById("prod-rankings-row").innerHTML = rankingsHtml;
 
   // 6. Lista Detalhada
-  const avgQty = prods.reduce((s,p)=>s+p.qty,0)/prods.length || 1;
-  const avgTotal = prods.reduce((s,p)=>s+p.total,0)/prods.length || 1;
+  const avgBase = prodsComVenda.length ? prodsComVenda : prods;
+  const avgQty = avgBase.reduce((s,p)=>s+p.qty,0)/avgBase.length || 1;
+  const avgTotal = avgBase.reduce((s,p)=>s+p.total,0)/avgBase.length || 1;
 
   document.getElementById("prod-list-detailed").innerHTML = `
-    <table class="chiva-table" style="width:100%;min-width:900px">
+    <table class="chiva-table" style="width:100%;min-width:980px">
       <thead>
         <tr>
           <th>Produto</th>
+          <th style="text-align:right">Estoque</th>
           <th style="text-align:right">Vendas</th>
           <th style="text-align:right">Receita</th>
           <th style="text-align:right">Ticket Médio</th>
@@ -3969,7 +3999,7 @@ function renderProdutos(){
       </thead>
       <tbody>
         ${prods.map(p => {
-          const tm = p.total / p.peds.size;
+          const tm = p.peds.size ? (p.total / p.peds.size) : 0;
           let status = '<span class="chiva-badge chiva-badge-amber">MÉDIO</span>';
           if(p.total > avgTotal * 1.5 || p.qty > avgQty * 1.5) status = '<span class="chiva-badge chiva-badge-green">🟢 LÍDER</span>';
           else if(p.total < avgTotal * 0.5) status = '<span class="chiva-badge chiva-badge-red">🔴 BAIXO</span>';
@@ -3985,6 +4015,7 @@ function renderProdutos(){
                 <div style="font-weight:700">${escapeHTML(p.nome)}</div>
                 <div style="font-size:10px;color:var(--text-3)">${escapeHTML(p.code)}</div>
               </td>
+              <td style="text-align:right;font-weight:700">${p.estoque==null?"—":Number(p.estoque||0).toLocaleString("pt-BR")}</td>
               <td style="text-align:right;font-weight:700">${p.qty.toLocaleString("pt-BR")}</td>
               <td style="text-align:right;font-weight:800;color:var(--green)">${fmtBRL(p.total)}</td>
               <td style="text-align:right;font-size:11px">${fmtBRL(tm)}</td>
@@ -4007,6 +4038,7 @@ function renderProdutos(){
 async function renderCidades(){
   const q = (document.getElementById("search-city")?.value||"").toLowerCase();
   const ufFilter = document.getElementById("fil-uf")?.value||"";
+  const canalFilter = String(document.getElementById("fil-geo-canal")?.value||"").toLowerCase().trim();
   const typeFilter = document.getElementById("fil-geo-venda")?.value||"all";
   
   // 1. Carregar estados do Supabase se ainda não carregados
@@ -4027,6 +4059,7 @@ async function renderCidades(){
   geoEstados.forEach(e => { stateMap[e.sigla] = { ...e, total: 0, clis: new Set(), peds: 0 }; });
 
   allOrders.forEach(o => {
+    if(canalFilter && detectCh(o)!==canalFilter) return;
     const ci = String(o?.cidade_entrega || o.contato?.endereco?.municipio || o.contato?.municipio || "").trim();
     const es = normalizeUF(o?.uf_entrega || o.contato?.endereco?.uf || o.contato?.uf || "");
     if(!ci || !es) return;
@@ -4102,7 +4135,7 @@ async function renderCidades(){
   renderGeoChart(Object.values(stateMap));
 
   // 7. Mapa Heatmap (SVG)
-  renderBrazilMap(stateMap);
+  renderBrazilMap(stateMap, { canal: canalFilter });
 
   // 8. Tabela Detalhada
   const maxTotal = finalCities[0]?.total || 1;
@@ -4184,42 +4217,165 @@ function renderGeoChart(data){
   });
 }
 
-function renderBrazilMap(stateMap){
+let brazilMapSvgEl = null;
+let brazilMapSvgPromise = null;
+let brazilMapBound = false;
+let geoMapTooltipEl = null;
+let geoMapStateNameByUf = {};
+let geoMapCanalLabel = "";
+
+function clamp01(n){ return Math.max(0, Math.min(1, Number(n)||0)); }
+function hexToRgb(hex){
+  const h = String(hex||"").replace("#","").trim();
+  if(h.length===3){
+    const r=parseInt(h[0]+h[0],16), g=parseInt(h[1]+h[1],16), b=parseInt(h[2]+h[2],16);
+    return {r,g,b};
+  }
+  if(h.length===6){
+    const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
+    return {r,g,b};
+  }
+  return {r:0,g:0,b:0};
+}
+function rgbToHex(r,g,b){
+  const hx = (v)=>Math.round(Number(v)||0).toString(16).padStart(2,"0");
+  return "#"+hx(r)+hx(g)+hx(b);
+}
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpColor(aHex,bHex,t){
+  const a = hexToRgb(aHex), b = hexToRgb(bHex);
+  const tt = clamp01(t);
+  return rgbToHex(lerp(a.r,b.r,tt), lerp(a.g,b.g,tt), lerp(a.b,b.b,tt));
+}
+
+async function ensureBrazilMapSvg(container){
+  if(brazilMapSvgEl) return brazilMapSvgEl;
+  if(!brazilMapSvgPromise){
+    brazilMapSvgPromise = (async()=>{
+      const url = new URL("./assets/brazil-states.svg", window.location.href).toString();
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error("Falha ao carregar SVG do mapa do Brasil");
+      const text = await resp.text();
+      const tmp = document.createElement("div");
+      tmp.innerHTML = String(text||"").trim();
+      const svg = tmp.querySelector("svg");
+      if(!svg) throw new Error("SVG inválido do mapa do Brasil");
+      svg.removeAttribute("width");
+      svg.removeAttribute("height");
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svg.setAttribute("aria-label", "Mapa do Brasil por estado");
+      svg.querySelectorAll(".state").forEach(el=>{
+        if(!el.getAttribute("id")) return;
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("role", "img");
+      });
+      brazilMapSvgEl = svg;
+      if(container && !container.contains(svg)) container.appendChild(svg);
+    })();
+  }
+  await brazilMapSvgPromise;
+  return brazilMapSvgEl;
+}
+
+function renderBrazilMap(stateMap, options){
   const container = document.getElementById("brazil-map-container");
   if(!container) return;
-  
-  const maxTotal = Math.max(...Object.values(stateMap).map(s => s.total), 1);
-  
-  // Cores de intensidade (escala de azul/ciano)
-  const getColor = (val) => {
-    if(val === 0) return "#e5e7eb";
-    const intensity = Math.min(1, val / maxTotal);
-    const opacity = 0.2 + (intensity * 0.8);
-    return `rgba(34, 211, 238, ${opacity})`;
+
+  const canal = String(options?.canal||"").toLowerCase().trim();
+  const canalLabel = canal ? (CH[canal] || canal) : "Todos os canais";
+
+  const stateNameByUf = {};
+  Object.values(stateMap||{}).forEach(s=>{
+    const uf = String(s?.sigla||"").trim().toUpperCase();
+    if(uf) stateNameByUf[uf] = String(s?.nome||"").trim();
+  });
+  geoMapStateNameByUf = stateNameByUf;
+  geoMapCanalLabel = canalLabel;
+
+  const totals = Object.values(stateMap||{}).map(s=>Number(s?.total||0)||0);
+  const maxTotal = Math.max(1, ...totals);
+  const getFill = (val)=>{
+    const v = Number(val||0) || 0;
+    if(v<=0) return "#eef2f7";
+    const t = Math.sqrt(v / maxTotal);
+    return lerpColor("#dbeafe", "#1e1b4b", t);
   };
 
-  // Simplificação: Vamos usar um SVG Inline do mapa do Brasil
-  // Para economizar espaço, vou usar um placeholder visual estilizado ou carregar um SVG externo.
-  // Aqui vou injetar um SVG básico via código.
-  
-  container.innerHTML = `
-    <div style="width:100%;text-align:center">
-      <div style="display:grid;grid-template-columns:repeat(9, 1fr);gap:4px;width:280px;margin:0 auto">
-        ${["RR","AP","AM","PA","MA","CE","RN","PB","PE",
-           "AC","RO","TO","PI","BA","AL","SE","MT","GO",
-           "DF","MG","ES","MS","SP","RJ","PR","SC","RS"].map(sigla => {
-             const s = stateMap[sigla] || { total: 0 };
-             return `
-               <div title="${sigla}: ${fmtBRL(s.total)}" 
-                    style="width:28px;height:28px;background:${getColor(s.total)};border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:${s.total > 0 ? '#083344' : '#9ca3af'};cursor:help">
-                 ${sigla}
-               </div>
-             `;
-           }).join("")}
-      </div>
-      <p style="font-size:10px;color:var(--text-3);margin-top:12px">Distribuição por intensidade de vendas</p>
-    </div>
-  `;
+  container.innerHTML = "";
+  ensureBrazilMapSvg(container).then(svg=>{
+    if(!svg) return;
+    if(!container.contains(svg)) container.appendChild(svg);
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "geo-map-tooltip";
+    tooltip.style.display = "none";
+    geoMapTooltipEl = tooltip;
+
+    const legend = document.createElement("div");
+    legend.className = "geo-map-legend";
+    legend.innerHTML = `<span class="lbl">${escapeHTML(fmtBRL(0))}</span><span class="bar"></span><span class="lbl">${escapeHTML(fmtBRL(maxTotal))}</span>`;
+
+    container.appendChild(tooltip);
+    container.appendChild(legend);
+
+    const stateEls = svg.querySelectorAll(".state[id]");
+    stateEls.forEach(el=>{
+      const uf = String(el.getAttribute("id")||"").trim().toUpperCase();
+      const s = stateMap?.[uf] || { total: 0, peds: 0, clis: new Set() };
+      const total = Number(s?.total||0) || 0;
+      const peds = Number(s?.peds||0) || 0;
+      const clisCount = s?.clis && typeof s.clis.size === "number" ? s.clis.size : (Number(s?.clisCount||0)||0);
+      el.style.fill = getFill(total);
+      el.style.opacity = total>0 ? "1" : "0.7";
+      el.setAttribute("data-total", String(total));
+      el.setAttribute("data-peds", String(peds));
+      el.setAttribute("data-clis", String(clisCount));
+      el.setAttribute("aria-label", `${uf}: ${fmtBRL(total)}`);
+    });
+
+    if(!brazilMapBound){
+      brazilMapBound = true;
+      const show = (target, clientX, clientY)=>{
+        if(!geoMapTooltipEl) return;
+        const uf = String(target?.getAttribute("id")||"").trim().toUpperCase();
+        const total = Number(target?.getAttribute("data-total")||0) || 0;
+        const peds = Number(target?.getAttribute("data-peds")||0) || 0;
+        const clis = Number(target?.getAttribute("data-clis")||0) || 0;
+        const name = geoMapStateNameByUf[uf] || uf;
+        geoMapTooltipEl.innerHTML =
+          `<div class="tt-title">${escapeHTML(uf)} — ${escapeHTML(name)}</div>`+
+          `<div>${escapeHTML(fmtBRL(total))} • ${escapeHTML(String(peds))} pedidos • ${escapeHTML(String(clis))} clientes</div>`+
+          `<div>${escapeHTML(geoMapCanalLabel)}</div>`;
+        geoMapTooltipEl.style.display = "block";
+        const rect = container.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        geoMapTooltipEl.style.left = Math.max(0, Math.min(rect.width - 10, x)) + "px";
+        geoMapTooltipEl.style.top = Math.max(0, Math.min(rect.height - 10, y)) + "px";
+      };
+      const hide = ()=>{
+        if(geoMapTooltipEl) geoMapTooltipEl.style.display = "none";
+      };
+      svg.addEventListener("mousemove",(e)=>{
+        const t = e.target;
+        if(t && t.classList && t.classList.contains("state") && t.getAttribute("id")){
+          show(t, e.clientX, e.clientY);
+        }
+      });
+      svg.addEventListener("mouseleave", hide);
+      svg.addEventListener("blur", hide, true);
+      svg.addEventListener("focusin",(e)=>{
+        const t = e.target;
+        if(t && t.classList && t.classList.contains("state") && t.getAttribute("id")){
+          const rect = t.getBoundingClientRect();
+          show(t, rect.left + rect.width/2, rect.top + rect.height/2);
+        }
+      });
+      svg.addEventListener("focusout", hide);
+    }
+  }).catch(()=>{
+    container.innerHTML = `<div style="font-size:11px;color:var(--text-3);padding:10px">Mapa indisponível.</div>`;
+  });
 }
 
 async function seedCidadesIBGE(){
@@ -4610,6 +4766,32 @@ async function loadReceitasProdutosFromSupabase(){
   }catch(_e){}
 }
 
+async function loadBlingProductsFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  try{
+    const {data, error} = await supaClient
+      .from("v2_produtos")
+      .select("id,codigo,nome,estoque,preco,situacao,origem,updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    if(error || !Array.isArray(data)) return;
+    blingProducts = (data||[]).map(r=>({
+      id: String(r.id||""),
+      codigo: r.codigo || "",
+      nome: r.nome || "",
+      estoque: r.estoque == null ? null : Number(r.estoque||0) || 0,
+      preco: r.preco == null ? null : Number(r.preco||0) || 0,
+      situacao: r.situacao || "",
+      origem: r.origem || "bling",
+      updated_at: r.updated_at || null
+    })).filter(p=>p.id);
+    localStorage.setItem("crm_bling_products", JSON.stringify(blingProducts));
+    if(document.getElementById("page-produtos")?.classList.contains("active")) {
+      renderProdutos();
+    }
+  }catch(_e){}
+}
+
 async function syncReceitasToSupabase(list){
   if(!supaConnected || !supaClient) return;
   if(!Array.isArray(list) || !list.length) return;
@@ -4843,6 +5025,7 @@ async function loadSupabaseData(){
     await loadCarrinhosAbandonadosFromSupabase();
     await loadCanalLookup();
     await loadOrdersFromSupabaseForCRM();
+    await loadBlingProductsFromSupabase();
 
     updateBadge();
     renderDash();
@@ -4866,6 +5049,7 @@ async function auditSupabaseSchema(){
       { table:"interactions", cols:"id,customer_id,type,description,created_at,user_responsible,source,metadata" },
       { table:"v2_clientes", cols:"id,doc,nome,email,telefone,cidade,uf" },
       { table:"v2_pedidos", cols:"id,numero_pedido,bling_id,cliente_id,canal_id,data_pedido,total,status,source,created_at" },
+      { table:"v2_produtos", cols:"id,codigo,nome,estoque,preco,situacao,origem,updated_at" },
       { table:"customer_intelligence", cols:"cliente_id,score_final,next_best_action,updated_at" },
       { table:"carrinhos_abandonados", cols:"checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id,score_recuperacao,link_finalizacao,last_etapa_enviada,last_mensagem_at" },
       { table:"configuracoes", cols:"chave,valor_texto,updated_at" },

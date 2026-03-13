@@ -12,6 +12,9 @@ Para que o CRM funcione 100%, siga os passos abaixo no seu **Painel do Supabase*
 4. Clique em **Run**.
    - *Isso criará todas as tabelas e configurará as permissões de acesso (RLS).*
 
+Se você já rodou o schema inicial antes, rode também:
+- [004_create_v2_produtos.sql](./migrations/004_create_v2_produtos.sql)
+
 ---
 
 ## 2. Configuração de Segredos (Secrets)
@@ -50,6 +53,9 @@ supabase functions deploy bling-renew-token
 
 # Deploy da função de sincronização do Bling
 supabase functions deploy bling-sync
+
+# Deploy da função de catálogo de produtos do Bling
+supabase functions deploy bling-products-sync
 
 # Deploy da função do Webhook da Yampi
 supabase functions deploy yampi-webhook

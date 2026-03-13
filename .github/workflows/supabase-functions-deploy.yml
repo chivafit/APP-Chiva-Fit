@@ -37,3 +37,6 @@ jobs:
 
       - name: Deploy bling-sync
         run: supabase functions deploy bling-sync --project-ref $SUPABASE_PROJECT_ID
+
+      - name: Deploy bling-products-sync
+        run: supabase functions deploy bling-products-sync --project-ref $SUPABASE_PROJECT_ID

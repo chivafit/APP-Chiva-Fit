@@ -33,3 +33,13 @@ jobs:
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
             --data '{"persist":true,"maxPages":200}'
+
+      - name: Trigger bling-products-sync (persist)
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            --data '{"persist":true,"maxPages":200}'
