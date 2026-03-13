@@ -29,17 +29,99 @@ jobs:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-sync" \
-            -H "Content-Type: application/json" \
-            -H "x-cron-secret: ${CRON_SECRET}" \
-            --data '{"persist":true,"maxPages":200}'
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
+          payload='{"persist":true,"maxPages":200}'
+
+          call_fn () {
+            local url="$1"
+            local data="$2"
+            local resp
+            resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-secret: ${CRON_SECRET}" \
+              --data "${data}")"
+            local status
+            status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
+            local body
+            body="$(printf '%s' "${resp}" | sed '$d')"
+            echo "HTTP ${status}"
+            echo "${body}" | head -c 2000
+            echo
+            if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+              echo "Request failed (HTTP ${status})"
+              exit 1
+            fi
+            printf '%s' "${body}"
+          }
+
+          max_batches=80
+          batch=1
+          while [ "${batch}" -le "${max_batches}" ]; do
+            echo "=== bling-sync batch ${batch}/${max_batches} ==="
+            body="$(call_fn "${BASE}/bling-sync" "${payload}")"
+            has_more="$(python3 - <<'PY'
+import json,sys
+try:
+  obj=json.loads(sys.stdin.read() or "{}")
+  v=obj.get("hasMore", False)
+  print("true" if bool(v) else "false")
+except Exception:
+  print("false")
+PY
+<<< "${body}")"
+            count="$(python3 - <<'PY'
+import json,sys
+try:
+  obj=json.loads(sys.stdin.read() or "{}")
+  v=obj.get("count", 0)
+  print(int(v) if isinstance(v,(int,float,str)) and str(v).strip().isdigit() else 0)
+except Exception:
+  print(0)
+PY
+<<< "${body}")"
+            next_offset="$(python3 - <<'PY'
+import json,sys
+try:
+  obj=json.loads(sys.stdin.read() or "{}")
+  v=obj.get("nextOffset", "")
+  print("" if v is None else str(v))
+except Exception:
+  print("")
+PY
+<<< "${body}")"
+            echo "Summary: count=${count} nextOffset=${next_offset} hasMore=${has_more}"
+            if [ "${has_more}" != "true" ]; then
+              echo "bling-sync completed"
+              break
+            fi
+            batch="$((batch+1))"
+            sleep 2
+          done
+
+          if [ "${has_more:-false}" = "true" ]; then
+            echo "bling-sync still hasMore after ${max_batches} batches (possible backlog or bug)."
+            exit 1
+          fi
 
       - name: Trigger bling-products-sync (persist)
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync" \
+          set -euo pipefail
+          url="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync"
+          payload='{"persist":true,"maxPages":200}'
+          resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
-            --data '{"persist":true,"maxPages":200}'
+            --data "${payload}")"
+          status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
+          body="$(printf '%s' "${resp}" | sed '$d')"
+          echo "HTTP ${status}"
+          echo "${body}" | head -c 2000
+          echo
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "Request failed (HTTP ${status})"
+            exit 1
+          fi
