@@ -146,11 +146,45 @@ window.CRMStore = CRMStore;
 // ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", ()=>{
-  const loggedIn = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
-  if(!loggedIn) return;
+document.addEventListener("DOMContentLoaded", async ()=>{
   const shell = document.getElementById("app-shell");
   if(shell && shell.classList.contains("visible")) return;
+
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
+  const hasSupabase = !!(url && key);
+
+  if(hasSupabase){
+    try{
+      supaClient = getSupabaseClient(url, key);
+      try{
+        if(!supaAuthUnsub && supaClient.auth && typeof supaClient.auth.onAuthStateChange === "function"){
+          const res = supaClient.auth.onAuthStateChange((_event, session)=>{
+            supaSession = session || null;
+            supaAccessToken = session?.access_token ? String(session.access_token) : "";
+          });
+          supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
+        }
+      }catch(_e){}
+
+      const session = await refreshSupabaseSession();
+      const email = String(session?.user?.email || "").trim().toLowerCase();
+      if(session && session.access_token && email){
+        localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
+        localStorage.setItem(STORAGE_KEYS.sessionEmail, email);
+        enterApp(email);
+        return;
+      }
+      forceLogout("");
+      return;
+    }catch(_e){
+      forceLogout("");
+      return;
+    }
+  }
+
+  const loggedIn = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+  if(!loggedIn) return;
   const email = localStorage.getItem(STORAGE_KEYS.sessionEmail) || "admin@chivafit.com";
   enterApp(email);
 });
@@ -180,9 +214,6 @@ try{
     if(SHOPKEY){ const el=document.getElementById("inp-shopkey"); if(el) el.value=SHOPKEY; }
     
     localStorage.removeItem("crm_ai_key");
-    if(window.APP_CONFIG && (window.APP_CONFIG.supabaseUrl || window.APP_CONFIG.supabaseAnonKey)){
-      ["crm_supa_url", "crm_supa_key", "supa_url", "supa_key", "supabase_url", "supabase_key"].forEach(k => localStorage.removeItem(k));
-    }
     
     loadTemplatesUI();
   })();
@@ -302,7 +333,11 @@ async function refreshSupabaseSession(){
 }
 
 async function supaFnHeadersAsync(){
-  await refreshSupabaseSession();
+  const session = await refreshSupabaseSession();
+  if(!session?.access_token){
+    forceLogout("Sessão do Supabase expirada.");
+    throw new Error("Sessão do Supabase expirada. Faça login novamente.");
+  }
   return supaFnHeaders();
 }
 
@@ -310,7 +345,6 @@ function supaFnHeaders(){
   const anonKey = getSupabaseAnonKey();
   if(!anonKey) throw new Error("Supabase não configurado: informe a chave pública (anon) em Configurações.");
   if(!supaAccessToken){
-    forceLogout("Sessão do Supabase expirada.");
     throw new Error("Sessão do Supabase expirada. Faça login novamente.");
   }
   return {
@@ -368,19 +402,15 @@ async function handleLoginSubmit(e){
     const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
     const isAdmin = ADMIN_EMAILS.has(email);
     const canonicalEmail = (email === "admin" || email === "admin@chivafit.com.br") ? "admin@chivafit.com" : email;
-    
-    let ok = await verifyAccessUser(canonicalEmail, pass);
-    if(!ok){
-      const hydrated = await hydrateAccessUsersFromSupabaseForLogin();
-      if(hydrated) ok = await verifyAccessUser(canonicalEmail, pass);
-    }
-    
-    if(ok){
-      const url = getSupabaseProjectUrl();
-      const key = getSupabaseAnonKey();
-      if(url && key){
+
+    const url = getSupabaseProjectUrl();
+    const key = getSupabaseAnonKey();
+    const hasSupabase = !!(url && key);
+
+    if(hasSupabase){
+      try{
+        supaClient = getSupabaseClient(url, key);
         try{
-          supaClient = getSupabaseClient(url, key);
           if(!supaAuthUnsub && supaClient.auth && typeof supaClient.auth.onAuthStateChange === "function"){
             const res = supaClient.auth.onAuthStateChange((_event, session)=>{
               supaSession = session || null;
@@ -389,25 +419,56 @@ async function handleLoginSubmit(e){
             supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
           }
         }catch(_e){}
+      }catch(_e){
+        if(errEl) errEl.textContent = "Supabase JS não carregou corretamente neste ambiente.";
+        return false;
+      }
 
-        if(!supaClient || !supaClient.auth || typeof supaClient.auth.signInWithPassword !== "function"){
-          if(errEl) errEl.textContent = "Supabase Auth não está disponível neste ambiente.";
-          return false;
-        }
-        const { data, error } = await supaClient.auth.signInWithPassword({ email: canonicalEmail, password: pass });
-        if(error || !data?.session?.access_token){
-          if(errEl) errEl.textContent = "Falha ao autenticar no Supabase (Auth). Crie este usuário no Supabase Auth ou revise a senha.";
-          return false;
-        }
-        supaSession = data.session;
-        supaAccessToken = String(data.session.access_token || "");
+      if(!supaClient?.auth || typeof supaClient.auth.signInWithPassword !== "function"){
+        if(errEl) errEl.textContent = "Supabase Auth não está disponível neste ambiente.";
+        return false;
+      }
 
-        const connected = await initSupabase();
-        if(!connected){
-          if(errEl) errEl.textContent = "Supabase não está conectado. Verifique a URL, a chave (anon) e as políticas (RLS).";
+      let allowUsers = loadAccessUsers();
+      if(!allowUsers.length){
+        const hydrated = await hydrateAccessUsersFromSupabaseForLogin();
+        if(hydrated) allowUsers = loadAccessUsers();
+      }
+      if(allowUsers.length && !isAdmin){
+        const allowed = allowUsers.some(u => normalizeAccessEmail(u?.email) === canonicalEmail);
+        if(!allowed){
+          if(errEl) errEl.textContent = "Acesso não autorizado para este e-mail.";
           return false;
         }
       }
+
+      const { data, error } = await supaClient.auth.signInWithPassword({ email: canonicalEmail, password: pass });
+      if(error || !data?.session?.access_token){
+        if(errEl) errEl.textContent = error?.message ? String(error.message) : "Falha ao autenticar no Supabase (Auth).";
+        return false;
+      }
+
+      supaSession = data.session;
+      supaAccessToken = String(data.session.access_token || "");
+
+      const connected = await initSupabase();
+      if(!connected){
+        if(errEl) errEl.textContent = "Supabase não está conectado. Verifique a URL, a chave (anon) e as políticas (RLS).";
+        return false;
+      }
+
+      localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
+      localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
+      enterApp(canonicalEmail);
+      return false;
+    }
+
+    let ok = await verifyAccessUser(canonicalEmail, pass);
+    if(!ok){
+      const hydrated = await hydrateAccessUsersFromSupabaseForLogin();
+      if(hydrated) ok = await verifyAccessUser(canonicalEmail, pass);
+    }
+    if(ok){
       localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
       localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
       enterApp(canonicalEmail);
@@ -814,6 +875,9 @@ function showBootstrapHintIfNeeded(pass){
 
 async function ensureBootstrapAdminUser(){
   if(!globalThis.crypto?.getRandomValues || !globalThis.crypto?.subtle) return;
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
+  if(url && key) return;
   const users = loadAccessUsers();
   if(users.length) return;
 
@@ -6124,6 +6188,13 @@ async function initSupabase(){
       }
     }catch(_e){}
     await refreshSupabaseSession();
+
+    if(!supaSession?.access_token){
+      if(st){ st.textContent="⚠ Faça login novamente (Supabase Auth)."; st.className="setup-status s-err"; }
+      supaConnected = false;
+      setSyncDot(false);
+      return false;
+    }
     
     const { error } = await supaClient.from('configuracoes').select('chave').limit(1);
     
