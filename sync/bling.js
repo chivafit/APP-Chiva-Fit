@@ -16,6 +16,13 @@ export async function maybeRunAutoBlingSync(ctx){
   if(document.hidden) return;
   await syncBling(ctx, { silent: true, auto: true, omitDates: true });
   localStorage.setItem("crm_bling_autosync_day", today);
+  try{
+    const lastProdDay = String(localStorage.getItem("crm_bling_autosync_products_day") || "");
+    if(lastProdDay !== today){
+      await syncBlingProdutos(ctx);
+      localStorage.setItem("crm_bling_autosync_products_day", today);
+    }
+  }catch(_e){}
 }
 
 export async function syncBling(ctx, options){

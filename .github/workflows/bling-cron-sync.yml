@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
-          payload='{"persist":true,"maxPages":200}'
+          payload='{"persist":true,"maxPages":200,"syncProducts":true}'
 
           call_fn () {
             local url="$1"
@@ -78,24 +78,3 @@ jobs:
             exit 1
           fi
 
-      - name: Trigger bling-products-sync (persist)
-        env:
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          set -euo pipefail
-          url="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync"
-          payload='{"persist":true,"maxPages":200}'
-          resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
-            -H "Content-Type: application/json" \
-            -H "x-cron-secret: ${CRON_SECRET}" \
-            --data "${payload}")"
-          status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
-          body="$(printf '%s' "${resp}" | sed '$d')"
-          echo "HTTP ${status}"
-          echo "${body}" | head -c 2000
-          echo
-          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
-            echo "Request failed (HTTP ${status})"
-            exit 1
-          fi

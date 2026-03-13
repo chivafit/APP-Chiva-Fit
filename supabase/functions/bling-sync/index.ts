@@ -673,6 +673,88 @@ function mapBlingOrder(detail: any) {
   };
 }
 
+function mapBlingProduct(row: any) {
+  const data = row?.data ?? row ?? {};
+  const id = String(data?.id ?? "").trim();
+  const codigo = String(data?.codigo ?? data?.codigoItem ?? data?.codigoProduto ?? data?.sku ?? "").trim();
+  const nome = String(data?.nome ?? data?.descricao ?? data?.descricaoCurta ?? "").trim();
+  const situacao = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? "").trim();
+  const preco = data?.preco ?? data?.precoVenda ?? data?.valor ?? data?.precoVenda1;
+  const estoqueRaw =
+    data?.estoque?.saldo ??
+    data?.estoque?.saldoFisico ??
+    data?.saldo ??
+    data?.saldoFisico ??
+    data?.estoque ??
+    data?.estoqueAtual ??
+    null;
+  const estoque = estoqueRaw == null ? null : Number(estoqueRaw) || 0;
+  const precoNum = preco == null ? null : Number(preco) || 0;
+  return {
+    id,
+    codigo: codigo || null,
+    nome: nome || null,
+    estoque,
+    preco: precoNum,
+    situacao: situacao || null,
+    origem: "bling",
+    updated_at: nowIso(),
+    raw: data,
+  };
+}
+
+async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, products: any[]) {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const now = nowIso();
+  const rows = products
+    .map((p) => ({
+      id: String(p?.id ?? "").trim(),
+      codigo: p?.codigo ?? null,
+      nome: p?.nome ?? null,
+      estoque: p?.estoque ?? null,
+      preco: p?.preco ?? null,
+      situacao: p?.situacao ?? null,
+      origem: "bling",
+      updated_at: now,
+      raw: p?.raw ?? {},
+    }))
+    .filter((p) => p.id);
+
+  for (let i = 0; i < rows.length; i += 200) {
+    const batch = rows.slice(i, i + 200);
+    const { error } = await supabase.from("v2_produtos").upsert(batch, { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling_produtos", valor_texto: now, updated_at: now }], {
+    onConflict: "chave",
+  });
+}
+
+async function syncBlingProductsToSupabase(
+  tokenRef: { value: string },
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  limit: number,
+  maxPages: number,
+) {
+  const base = "https://api.bling.com.br/Api/v3/produtos";
+  const out: any[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `${base}?pagina=${page}&limite=${limit}`;
+    const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+    const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+    if (!data.length) break;
+    data.forEach((r: any) => {
+      const mapped = mapBlingProduct(r);
+      if (mapped.id) out.push(mapped);
+    });
+    if (data.length < limit) break;
+  }
+  if (out.length) await persistProductsToDb(supabaseUrl, serviceRoleKey, out);
+  return out.length;
+}
+
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   let idx = 0;
@@ -701,6 +783,9 @@ serve(async (req: Request) => {
     if (parsed === null) return jsonResponse({ error: "Invalid JSON" }, 400);
     const body = (parsed && typeof parsed === "object" ? parsed : {}) as any;
     const persist = body?.persist === true;
+    const syncProducts = body?.syncProducts === true;
+    const prodLimit = Math.min(100, Math.max(1, Number(body?.productsLimit ?? 100) || 100));
+    const prodMaxPages = Math.min(500, Math.max(1, Number(body?.productsMaxPages ?? 200) || 200));
 
     if (persist) {
       const headerSecret = String(req.headers.get("x-cron-secret") || "").trim();
@@ -848,6 +933,14 @@ serve(async (req: Request) => {
           valor_texto: now,
           updated_at: now,
         }], { onConflict: "chave" });
+      }
+      if (!hasMore && syncProducts) {
+        try {
+          const count = await syncBlingProductsToSupabase(tokenRef, supabaseUrl, serviceRoleKey, prodLimit, prodMaxPages);
+          console.log("[bling-sync] products synced", { count });
+        } catch (e) {
+          console.log("[bling-sync] product sync failed", { message: (e as any)?.message || String(e) });
+        }
       }
       return jsonResponse({ ok: true, persisted: true, count: details.length, from, to, limit, offset, nextOffset, hasMore });
     }

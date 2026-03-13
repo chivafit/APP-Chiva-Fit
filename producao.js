@@ -569,6 +569,7 @@ function renderOrdens(){
         '<option value="em_producao" '+(sf==='em_producao'?'selected':'')+'>Em produção</option>'+
         '<option value="concluida" '+(sf==='concluida'?'selected':'')+'>Concluída</option>'+
       '</select>'+
+      '<button class="btn" onclick="exportOrdensCustoCSV()" style="white-space:nowrap">Exportar CSV</button>'+
     '</div>';
 
   if(!list.length){
@@ -614,6 +615,42 @@ function renderOrdens(){
         '</tbody>'+
       '</table>'+
     '</div>';
+}
+
+function exportOrdensCustoCSV(){
+  var list=[].concat(allOrdens||[]).map(function(o){
+    var obj=o||{};
+    var produto = String(obj.produto_id||'').trim();
+    var lote = String(obj.lote||'').trim();
+    var data = String(obj.data_producao||'').slice(0,10);
+    var qtd = Number(obj.quantidade_produzida||0) || Number(obj.quantidade_planejada||0) || 0;
+    var custoTotal = Number(obj.custo_total_lote||0) || 0;
+    var custoUnit = qtd>0 ? (custoTotal/qtd) : 0;
+    return { produto: produto || '—', lote: lote || '—', data: data || '—', qtd, custoUnit, custoTotal };
+  });
+  if(!list.length){ toast('Nenhuma ordem para exportar'); return; }
+  var esc=function(v){
+    var s=String(v==null?'':v);
+    if(/[;"\n\r]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+    return s;
+  };
+  var csv = ['Produto;Lote;Data;Quantidade;Custo_Unitario;Custo_Total']
+    .concat(list.map(function(r){
+      return [
+        esc(r.produto),
+        esc(r.lote),
+        esc(r.data),
+        esc(fmtNum(r.qtd,2)),
+        esc(fmtNum(r.custoUnit,4)),
+        esc(fmtNum(r.custoTotal,2))
+      ].join(';');
+    })).join('\n');
+  var blob = new Blob(["\ufeff"+csv], { type: 'text/csv;charset=utf-8;' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'custos_producao_'+new Date().toISOString().slice(0,10)+'.csv';
+  link.click();
+  toast('✅ CSV exportado');
 }
 
 function renderMovimentosEstoque(){
@@ -1480,6 +1517,7 @@ export {
   renderSimuladorInputs,
   calcularSimulador,
   salvarOrdemDeSimulacao,
+  exportOrdensCustoCSV,
   renderReceitaDetalhe,
   novoProdutoReceita,
   adicionarIngredienteReceita,
@@ -1526,3 +1564,4 @@ window.setOrdemStatusQuick = setOrdemStatusQuick;
 window.baixarEstoqueDaOrdem = baixarEstoqueDaOrdem;
 window.setProdTab = setProdTab;
 window.abrirMovimentosDoLote = abrirMovimentosDoLote;
+window.exportOrdensCustoCSV = exportOrdensCustoCSV;

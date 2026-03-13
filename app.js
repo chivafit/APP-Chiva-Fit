@@ -206,6 +206,53 @@ function mergeOrders(){
   recomputeCarrinhosScoresAndPersist().catch(()=>{});
 }
 
+function checkEstoqueCritico(){
+  const list = Array.isArray(allInsumos) ? allInsumos : [];
+  const crit = list.filter(i=>{
+    const atual = Number(i?.estoque_atual ?? i?.estoque ?? 0) || 0;
+    const min = Number(i?.estoque_minimo ?? i?.minimo ?? 0) || 0;
+    return min > 0 && atual < min;
+  });
+  const badge = document.getElementById("badge-producao");
+  if(badge){
+    if(crit.length){
+      badge.style.display = "";
+      badge.textContent = String(crit.length);
+    }else{
+      badge.style.display = "none";
+    }
+  }
+  if(!crit.length) return;
+
+  const today = new Date().toISOString().slice(0,10);
+  const hash = crit
+    .map(i=>`${String(i?.id||"")}:${String(i?.nome||"")}:${Number(i?.estoque_atual ?? i?.estoque ?? 0) || 0}:${Number(i?.estoque_minimo ?? i?.minimo ?? 0) || 0}`)
+    .sort()
+    .join("|");
+  const prevHash = String(localStorage.getItem("crm_estoque_critico_hash") || "");
+  const prevDay = String(localStorage.getItem("crm_estoque_critico_day") || "");
+  if(hash === prevHash && prevDay === today) return;
+
+  localStorage.setItem("crm_estoque_critico_hash", hash);
+  localStorage.setItem("crm_estoque_critico_day", today);
+
+  const names = crit.map(i=>String(i?.nome||"").trim()).filter(Boolean);
+  const head = names.slice(0,6).join(", ");
+  toast(`🚨 Estoque crítico: ${head}${names.length>6?` (+${names.length-6})`:``}`);
+
+  if(supaConnected && supaClient){
+    const lastLogged = String(localStorage.getItem("crm_estoque_critico_logged_day") || "");
+    if(lastLogged !== today){
+      localStorage.setItem("crm_estoque_critico_logged_day", today);
+      supaClient.from("v2_alertas").insert({
+        tipo: "estoque_critico",
+        conteudo: { itens: crit.map(i=>({ id: i?.id, nome: i?.nome, estoque_atual: i?.estoque_atual ?? i?.estoque ?? 0, estoque_minimo: i?.estoque_minimo ?? i?.minimo ?? 0 })) },
+        created_at: new Date().toISOString()
+      }).then(()=>{}).catch(()=>{});
+    }
+  }
+}
+
 function iso(d){ return d.toISOString().slice(0,10); }
 function blng(d){ if(!d)return""; const[y,m,dd]=d.split("-"); return`${dd}/${m}/${y}`; }
 
@@ -942,11 +989,15 @@ function scheduleAutoBlingSync(){
 }
 
 async function syncBling(){
-  return syncBlingImpl(getSyncCtx(), arguments?.[0]);
+  const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
+  checkEstoqueCritico();
+  return res;
 }
 
 async function syncBlingProdutos(){
-  return syncBlingProdutosImpl(getSyncCtx());
+  const res = await syncBlingProdutosImpl(getSyncCtx());
+  checkEstoqueCritico();
+  return res;
 }
 
 async function backfillBlingEnderecos(){
@@ -957,7 +1008,9 @@ async function backfillBlingEnderecos(){
 //  YAMPI
 // ═══════════════════════════════════════════════════
 async function syncYampi(){
-  return syncYampiImpl(getSyncCtx());
+  const res = await syncYampiImpl(getSyncCtx());
+  checkEstoqueCritico();
+  return res;
 }
 
 function normalizeYampiOrder(o){
@@ -1345,7 +1398,9 @@ async function fetchYampiAbandoned(){
 }
 
 async function syncCarrinhosAbandonadosYampi(){
-  return syncCarrinhosAbandonadosYampiImpl(getSyncCtx());
+  const res = await syncCarrinhosAbandonadosYampiImpl(getSyncCtx());
+  checkEstoqueCritico();
+  return res;
 }
 
 function buildCarrinhoWaMessage(c, ctx){
@@ -5627,6 +5682,7 @@ async function loadInsumosFromSupabase(){
       if(typeof window.renderInsumos === "function") window.renderInsumos();
       if(typeof window.renderProdKpis === "function") window.renderProdKpis();
     }
+    checkEstoqueCritico();
   }catch(_e){}
 }
 
