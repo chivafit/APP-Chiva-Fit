@@ -2657,9 +2657,12 @@ function renderDash(){
   ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
 
   renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
-  renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders); setTimeout(()=>{renderDashChartsCrescimento(orders);renderDashChartsCidades(orders);},150);
+  renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders);
+  setTimeout(()=>{ renderDashChartsCidades(orders); }, 150);
   if(supaConnected && supaClient){
-    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{}); }, 10);
+    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{ renderDashChartsCrescimento(orders); }); }, 10);
+  }else{
+    setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
   }
 }
 
@@ -2843,12 +2846,14 @@ function renderTopProd(ordersOverride){
   const m={}; orders.forEach(o=>{
     const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
     itens.filter(Boolean).forEach(it=>{
-      const k = it?.codigo||it?.descricao||"?";
-      if(!m[k]) m[k] = { n: it?.descricao||k, t: 0 };
+      const desc = String(it?.descricao || it?.title || it?.name || "").trim();
+      const code = String(it?.codigo || it?.sku || it?.id || "").trim();
+      const k = desc || code || "?";
+      if(!m[k]) m[k] = { n: desc || code || "—", t: 0 };
       m[k].t += (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
     });
   });
-  const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
+  const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,5); const max=top[0]?.t||1;
   document.getElementById("top-produtos-dash").innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div style="padding:10px;font-size:11px;color:var(--text-3)">Nenhum produto</div>`;
 }
 
