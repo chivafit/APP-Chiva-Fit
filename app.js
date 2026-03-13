@@ -1367,7 +1367,9 @@ async function loadCarrinhosAbandonadosFromSupabase(){
 
 async function upsertCarrinhosAbandonadosToSupabase(list){
   if(!supaConnected || !supaClient) return;
-  const rowsWithUpdatedAt = (Array.isArray(list) ? list : []).filter(x=>x && x.checkout_id).map(c=>({
+  if(!Array.isArray(list) || !list.length) return;
+  const nowIso = new Date().toISOString();
+  const baseRows = list.filter(x=>x && x.checkout_id).map(c=>({
     checkout_id: String(c.checkout_id),
     cliente_nome: c.cliente_nome || null,
     telefone: c.telefone || null,
@@ -1381,24 +1383,72 @@ async function upsertCarrinhosAbandonadosToSupabase(list){
     score_recuperacao: c.score_recuperacao == null ? null : (Number(c.score_recuperacao||0) || 0),
     link_finalizacao: c.link_finalizacao || null,
     last_etapa_enviada: c.last_etapa_enviada || null,
-    last_mensagem_at: c.last_mensagem_at || null,
-    updated_at: new Date().toISOString()
+    last_mensagem_at: c.last_mensagem_at || null
   }));
-  const rowsFallback = rowsWithUpdatedAt.map(({updated_at, ...rest})=>rest);
+  if(!baseRows.length) return;
+  const rowsWithUpdatedAt = baseRows.map(r=>({ ...r, updated_at: nowIso }));
+  const rowsFallback = baseRows;
   const rowsFallbackCore = rowsFallback.map(({score_recuperacao, link_finalizacao, last_etapa_enviada, last_mensagem_at, ...rest})=>rest);
-  if(!rowsWithUpdatedAt.length) return;
   try{
-    for(let i=0;i<rowsWithUpdatedAt.length;i+=200){
-      const chunk = rowsWithUpdatedAt.slice(i,i+200);
-      const {error} = await supaClient.from("carrinhos_abandonados").upsert(chunk, { onConflict: "checkout_id" });
-      if(error){
+    if(globalThis.__carrinhosHasUpdatedAt == null){
+      try{
+        const {error} = await supaClient.from("carrinhos_abandonados").select("checkout_id,updated_at").limit(1);
+        globalThis.__carrinhosHasUpdatedAt = !error;
+      }catch(_e){
+        globalThis.__carrinhosHasUpdatedAt = false;
+      }
+    }
+    const useUpdatedAt = !!globalThis.__carrinhosHasUpdatedAt;
+    for(let i=0;i<baseRows.length;i+=200){
+      const {error} = await supaClient
+        .from("carrinhos_abandonados")
+        .upsert((useUpdatedAt ? rowsWithUpdatedAt : rowsFallback).slice(i,i+200), { onConflict: "checkout_id" });
+      if(error && useUpdatedAt){
+        globalThis.__carrinhosHasUpdatedAt = false;
         const {error: e2} = await supaClient.from("carrinhos_abandonados").upsert(rowsFallback.slice(i,i+200), { onConflict: "checkout_id" });
         if(e2){
           await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+200), { onConflict: "checkout_id" });
         }
+      }else if(error){
+        await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+200), { onConflict: "checkout_id" });
       }
     }
   }catch(_e){}
+}
+
+async function fetchYampiAbandoned(){
+  if(supaConnected && supaClient){
+    let data=null, error=null;
+    try{
+      ({data, error} = await supaClient
+        .from("yampi_orders")
+        .select("external_id,total,created_at,updated_at,status,is_abandoned_cart,customer_name,customer_email,customer_phone,raw")
+        .eq("is_abandoned_cart", true)
+        .order("created_at", { ascending: false })
+        .limit(2000));
+    }catch(e){
+      throw e;
+    }
+    if(error) throw error;
+    return (Array.isArray(data) ? data : []).map(r=>{
+      const raw = (r && typeof r.raw === "object" && r.raw) ? r.raw : {};
+      const items = raw.items || raw.itens || raw.products || raw.line_items || raw.produtos || [];
+      const url = raw.checkout_url || raw.recovery_url || raw.recover_url || raw.url || raw.link_finalizacao || "";
+      return {
+        checkout_id: String(r.external_id||""),
+        cliente_nome: r.customer_name || "",
+        email: r.customer_email || "",
+        telefone: r.customer_phone || "",
+        valor: Number(r.total||0) || 0,
+        produtos: items,
+        criado_em: r.created_at || r.updated_at || null,
+        status: r.status || null,
+        link_finalizacao: url || null,
+        canal: "yampi"
+      };
+    });
+  }
+  return (safeJsonParse("crm_carrinhos_abandonados", []) || []).filter(Boolean);
 }
 
 async function syncCarrinhosAbandonadosYampi(){
@@ -4796,18 +4846,50 @@ async function syncReceitasToSupabase(list){
   if(!supaConnected || !supaClient) return;
   if(!Array.isArray(list) || !list.length) return;
   try{
-    const rows = list.map(r=>({
-      id: String(r.id),
-      produto_id: r.produto_id || null,
-      insumo_id: String(r.insumo_id||""),
-      quantidade_por_unidade: Number(r.quantidade_por_unidade||0) || 0,
-      unidade: r.unidade || "g",
-      updated_at: new Date().toISOString()
-    }));
+    const isUuidLike = (v)=>{
+      const s = String(v||"").trim();
+      if(!s) return false;
+      if(/^[0-9a-f]{32}$/i.test(s)) return true;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    };
+    const parseNum = (v)=>{
+      const s = String(v==null?"":v).trim().replace(",",".").replace(/[^0-9.\-]/g,"");
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const nowIso = new Date().toISOString();
+    const invalid = [];
+    const rows = list.map(r=>{
+      const id = String(r?.id||"").trim();
+      const produto_id = String(r?.produto_id||"").trim();
+      const insumo_id = String(r?.insumo_id||"").trim();
+      const quantidade_por_unidade = parseNum(r?.quantidade_por_unidade);
+      const unidade = String(r?.unidade||"g").trim() || "g";
+      if(!id) invalid.push({ reason: "id", row: r });
+      if(!produto_id || !isUuidLike(produto_id)) invalid.push({ reason: "produto_id", row: r });
+      if(!insumo_id || !isUuidLike(insumo_id)) invalid.push({ reason: "insumo_id", row: r });
+      return {
+        id,
+        produto_id: produto_id || null,
+        insumo_id: insumo_id || null,
+        quantidade_por_unidade,
+        unidade,
+        updated_at: nowIso
+      };
+    }).filter(r=>r.id && r.produto_id && r.insumo_id);
+    if(invalid.length) throw new Error("invalid_payload_receitas_produtos");
     for(let i=0;i<rows.length;i+=500){
-      await supaClient.from("receitas_produtos").upsert(rows.slice(i,i+500), { onConflict: "id" });
+      const batch = rows.slice(i,i+500);
+      const {error} = await supaClient.from("receitas_produtos").upsert(batch, { onConflict: "id" });
+      if(error){
+        logSupabaseUpsertError("syncReceitasToSupabase", error, batch);
+        throw error;
+      }
     }
-  }catch(_e){}
+    return true;
+  }catch(e){
+    throw e;
+  }
 }
 
 async function loadOrdensProducaoFromSupabase(){
@@ -6366,6 +6448,7 @@ Object.assign(window,{
   backfillBlingEnderecos,
   syncYampi,
   syncCarrinhosAbandonadosYampi,
+  fetchYampiAbandoned,
   renderCarrinhosAbandonados,
   openWhatsAppCarrinho,
   saveAIKey,

@@ -165,8 +165,23 @@ function saveOrdens(){
 function saveMovInsumos(){ localStorage.setItem('crm_insumo_movs', JSON.stringify(allMovInsumos)); }
 function saveMovimentosEstoque(){ localStorage.setItem('crm_movimentos_estoque', JSON.stringify(allMovimentosEstoque)); }
 function saveReceitasProdutos(){
+  var prev = localStorage.getItem('crm_receitas_produtos');
   localStorage.setItem('crm_receitas_produtos', JSON.stringify(allReceitasProdutos));
-  if(typeof globalThis.syncReceitasToSupabase === "function") globalThis.syncReceitasToSupabase(allReceitasProdutos);
+  if(typeof globalThis.syncReceitasToSupabase === "function"){
+    try{
+      Promise.resolve(globalThis.syncReceitasToSupabase(allReceitasProdutos)).catch(function(){
+        if(prev != null) localStorage.setItem('crm_receitas_produtos', prev);
+        else localStorage.removeItem('crm_receitas_produtos');
+        try{
+          allReceitasProdutos = safeJsonParse('crm_receitas_produtos', null) || [];
+        }catch(_e){
+          allReceitasProdutos = [];
+        }
+        toast('❌ Erro ao salvar receita no Supabase. Alterações revertidas.');
+        renderReceitaDetalhe();
+      });
+    }catch(_e){}
+  }
 }
 function saveProdutosReceitas(){
   localStorage.setItem('crm_receitas_produtos_produtos', JSON.stringify(allProdutosReceitas));
@@ -241,14 +256,15 @@ function getRecipeLinesForProduct(produtoId){
     var nome = String(e[0]||"");
     var g = Number(e[1]||0) || 0;
     var ins = byName[nome.toLowerCase()] || null;
+    if(!ins || !ins.id) return null;
     return {
       id: null,
       produto_id: pid,
-      insumo_id: ins ? String(ins.id) : nome,
+      insumo_id: String(ins.id),
       quantidade_por_unidade: g,
       unidade: 'g'
     };
-  });
+  }).filter(Boolean);
 }
 
 function computeNeedsForOrderUnits(o, qtyUnits){
@@ -877,6 +893,19 @@ function renderReceitaDetalhe(){
   var rows = (allReceitasProdutos||[])
     .filter(function(rp){ return rp && String(rp.produto_id||"")===String(prod); })
     .slice();
+  if(rows.length){
+    var byInsumo = {};
+    rows.forEach(function(rp){
+      var k = String(rp.insumo_id||"").trim();
+      if(!k) return;
+      if(!byInsumo[k]){ byInsumo[k] = rp; return; }
+      var a = byInsumo[k];
+      var ad = String(a.updated_at||"");
+      var bd = String(rp.updated_at||"");
+      if(bd && (!ad || bd > ad)) byInsumo[k] = rp;
+    });
+    rows = Object.values(byInsumo);
+  }
 
   var idxInsumoById={};
   insumosSorted.forEach(function(i){ idxInsumoById[String(i.id)] = i; });
@@ -948,11 +977,30 @@ function novoProdutoReceita(){
   renderReceitaDetalhe();
 }
 
+function isUuidLike(v){
+  var s = String(v||"").trim();
+  if(!s) return false;
+  if(/^[0-9a-f]{32}$/i.test(s)) return true;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 function adicionarIngredienteReceita(){
   var sel=document.getElementById('sel-receita-produto');
   if(!sel || !sel.value){ toast('Selecione um produto'); return; }
   var prod=String(sel.value);
-  var first=allInsumos && allInsumos[0] ? String(allInsumos[0].id) : '';
+  var used = {};
+  (allReceitasProdutos||[]).forEach(function(rp){
+    if(rp && String(rp.produto_id||"")===String(prod)){
+      used[String(rp.insumo_id||"")] = true;
+    }
+  });
+  var first='';
+  (allInsumos||[]).some(function(i){
+    var id = i ? String(i.id||"") : "";
+    if(id && !used[id]){ first = id; return true; }
+    return false;
+  });
+  if(!first) first = allInsumos && allInsumos[0] ? String(allInsumos[0].id) : '';
   if(!first){ toast('Cadastre insumos primeiro'); return; }
   var id = randomUUIDCompat();
   allReceitasProdutos.push({
@@ -977,9 +1025,12 @@ function salvarReceitaProduto(){
   var sel=document.getElementById('sel-receita-produto');
   var prod=sel?String(sel.value||""):"";
   if(!prod){ toast('Selecione um produto'); return; }
+  if(!isUuidLike(prod)){ toast('⚠ Produto inválido. Selecione um produto válido.'); return; }
   var host=document.getElementById('receita-detalhe');
   if(!host){ return; }
   var trs=host.querySelectorAll('tr[data-rp-id]');
+  var seen = {};
+  var toRemoveIds = [];
   trs.forEach(function(tr){
     var rid=String(tr.getAttribute('data-rp-id')||"");
     var ins=tr.querySelector('[data-f="insumo"]');
@@ -988,10 +1039,19 @@ function salvarReceitaProduto(){
     var rp=allReceitasProdutos.find(function(x){ return String(x.id||"")===rid; });
     if(!rp) return;
     rp.produto_id = prod;
-    rp.insumo_id = String(ins?ins.value:"");
-    rp.quantidade_por_unidade = parseFloat(qtyEl?qtyEl.value:"") || 0;
+    rp.insumo_id = String(ins?ins.value:"").trim();
+    if(!rp.insumo_id || !isUuidLike(rp.insumo_id)){ toRemoveIds.push(rid); return; }
+    var rawQty = String(qtyEl?qtyEl.value:"").trim().replace(",",".");
+    rp.quantidade_por_unidade = parseFloat(rawQty) || 0;
     rp.unidade = String(unitEl?unitEl.value:"g");
+    var key = prod + "|" + rp.insumo_id;
+    if(seen[key]) toRemoveIds.push(rid);
+    else seen[key] = true;
   });
+
+  if(toRemoveIds.length){
+    allReceitasProdutos = allReceitasProdutos.filter(function(rp){ return toRemoveIds.indexOf(String(rp.id||""))<0; });
+  }
   allReceitasProdutos.forEach(function(rp){
     if(String(rp.produto_id||"")===prod) rp.updated_at = new Date().toISOString();
   });

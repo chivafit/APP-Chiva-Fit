@@ -1,4 +1,5 @@
 let customerIntelSyncTimer = null;
+let customerIntelUpsertMode = null;
 
 export function definirNextBestAction(cli){
   const dias = cli.dias_desde_ultima_compra ?? 9999;
@@ -290,7 +291,7 @@ async function upsertCustomerIntelligenceToSupabase(ctx, intel){
     if(id && phone) byPhone[phone] = id;
   });
 
-  const rows = intel.map(c=>{
+  const rowsBase = intel.map(c=>{
     const rawId = String(c?.cliente_id||"").trim();
     let customerId = null;
     if(isUuid(rawId)) customerId = rawId;
@@ -310,14 +311,34 @@ async function upsertCustomerIntelligenceToSupabase(ctx, intel){
       next_best_action: c?.next_best_action != null ? String(c.next_best_action).trim() : null,
     };
   }).filter(Boolean);
-  if(!rows.length) return;
-  for(let i=0;i<rows.length;i+=100){
-    const batch = rows.slice(i,i+100);
-    const {error} = await ctx.supaClient.from("customer_intelligence").upsert(batch, { onConflict: "cliente_id" });
-    if(error){
-      console.warn("customer_intelligence upsert error:", error);
-      return;
+  if(!rowsBase.length) return;
+  const nowIso = new Date().toISOString();
+  const buildBatch = (mode, batch)=>{
+    if(mode==="full") return batch.map(r=>({ ...r, updated_at: nowIso }));
+    if(mode==="no_updated_at") return batch;
+    if(mode==="score_only") return batch.map(r=>({ cliente_id: r.cliente_id, score_final: r.score_final }));
+    return batch;
+  };
+  const tryModes = customerIntelUpsertMode ? [customerIntelUpsertMode, "full", "no_updated_at", "score_only"] : ["full", "no_updated_at", "score_only"];
+
+  for(let i=0;i<rowsBase.length;i+=100){
+    const batchBase = rowsBase.slice(i,i+100);
+    let ok = false;
+    for(let m=0;m<tryModes.length;m++){
+      const mode = tryModes[m];
+      if(mode==null) continue;
+      const payload = buildBatch(mode, batchBase);
+      const {error} = await ctx.supaClient.from("customer_intelligence").upsert(payload, { onConflict: "cliente_id" });
+      if(!error){
+        customerIntelUpsertMode = mode;
+        ok = true;
+        break;
+      }
+      if(m===tryModes.length-1){
+        console.warn("customer_intelligence upsert error:", error);
+      }
     }
+    if(!ok) return;
   }
 }
 
