@@ -44,11 +44,11 @@ serve(async (req: Request) => {
   const maxTokens = Math.min(2048, Math.max(128, Number(body?.max_tokens ?? body?.maxTokens ?? 900) || 900));
 
   const apiKey =
-    String(body?.apiKey ?? body?.key ?? "").trim() ||
-    String(req.headers.get("x-anthropic-key") || req.headers.get("x-api-key") || "").trim();
+    String(Deno.env.get("ANTHROPIC_API_KEY") || "").trim() ||
+    String(Deno.env.get("CLAUDE_API_KEY") || "").trim();
 
   if (!pergunta) return jsonResponse({ error: "Missing pergunta" }, 400);
-  if (!apiKey) return jsonResponse({ error: "Missing apiKey" }, 400);
+  if (!apiKey) return jsonResponse({ error: "Missing ANTHROPIC_API_KEY secret" }, 500);
 
   const prompt = `CONTEXTO_JSON:\n${JSON.stringify(contexto)}\n\nPERGUNTA:\n${pergunta}`.trim();
   const system = String(body?.system ?? "Responda estritamente em JSON válido. Não inclua texto fora do JSON.").trim();

@@ -44,11 +44,11 @@ serve(async (req: Request) => {
   const maxTokens = Math.min(2048, Math.max(64, Number(body?.max_tokens ?? body?.maxTokens ?? 900) || 900));
 
   const apiKey =
-    String(body?.apiKey ?? body?.key ?? "").trim() ||
-    String(req.headers.get("x-anthropic-key") || req.headers.get("x-api-key") || "").trim();
+    String(Deno.env.get("ANTHROPIC_API_KEY") || "").trim() ||
+    String(Deno.env.get("CLAUDE_API_KEY") || "").trim();
 
   if (!prompt) return jsonResponse({ error: "Missing prompt" }, 400);
-  if (!apiKey) return jsonResponse({ error: "Missing apiKey" }, 400);
+  if (!apiKey) return jsonResponse({ error: "Missing ANTHROPIC_API_KEY secret" }, 500);
 
   const upstream = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",

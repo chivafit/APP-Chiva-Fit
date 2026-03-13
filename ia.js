@@ -1037,9 +1037,7 @@ Personalização: use o primeiro nome do cliente quando possível (${firstName||
   `.trim();
 
   try{
-    const apiKey = String(localStorage.getItem("crm_ai_key") || "").trim();
-    if(!apiKey) throw new Error("Chave da IA não configurada em Configurações.");
-    const resp=await fetch(ctx.getSupaFnBase()+"/ia-commercial",{method:"POST",headers:await ctx.supaFnHeadersAsync(),body:JSON.stringify({contexto,pergunta,apiKey})});
+    const resp=await fetch(ctx.getSupaFnBase()+"/ia-commercial",{method:"POST",headers:await ctx.supaFnHeadersAsync(),body:JSON.stringify({contexto,pergunta})});
     if(!resp.ok){ const txt=await resp.text(); throw new Error(txt||"Erro na IA comercial"); }
     const data=await resp.json();
     const parsed=parseCommercialAIResponse(data);

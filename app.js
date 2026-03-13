@@ -101,7 +101,6 @@ let CID     = localStorage.getItem("crm_cid")||"";
 let CSEC    = localStorage.getItem("crm_csec")||"";
 let SHOP    = localStorage.getItem("crm_shop")||"";
 let SHOPKEY = localStorage.getItem("crm_shopkey")||"";
-let AI_KEY  = "";
 
 let cliMeta = safeJsonParse("crm_climeta", {});
 let cliMetaCache = {};
@@ -918,10 +917,6 @@ function hydrateConfigPage(){
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl) urlEl.value = u;
   if(keyEl) keyEl.value = k;
-
-  const ai = localStorage.getItem("crm_ai_key") || "";
-  const aiEl = document.getElementById("inp-ai-key");
-  if(aiEl) aiEl.value = ai;
 
   const from = localStorage.getItem("crm_shopify_from") || "";
   const to = localStorage.getItem("crm_shopify_to") || "";
