@@ -6595,7 +6595,7 @@ async function loadOrdersFromSupabaseForCRM(){
       const cli = cliById[p.cliente_id] || null;
       const pid = String(p.id || "");
       const o = {
-        id: String(p.bling_id || p.id || p.numero_pedido || ""),
+        id: String(p.id || p.bling_id || p.numero_pedido || ""),
         numero: String(p.numero_pedido || p.id || ""),
         cliente_id: p.cliente_id || null,
         pedido_uuid: pid || null,
@@ -6765,6 +6765,32 @@ async function upsertOrdersToSupabase(orders){
     const docToUuid = {};
     (cliRefresh||[]).forEach(c => { if(c.doc) docToUuid[c.doc] = c.id; });
 
+    const yampiLegacyIds = Array.from(new Set(
+      (Array.isArray(orders) ? orders : [])
+        .filter(o => String(o?._source || "").toLowerCase() === "yampi")
+        .map(o => String(o?.id || o?.numero || "").trim())
+        .filter(Boolean)
+        .filter(id => !id.includes(":"))
+    )).slice(0, 1200);
+    const existingLegacyYampiIds = new Set();
+    if(yampiLegacyIds.length){
+      for(let i=0;i<yampiLegacyIds.length;i+=200){
+        const batch = yampiLegacyIds.slice(i,i+200);
+        const {data, error} = await supaClient
+          .from("v2_pedidos")
+          .select("id")
+          .eq("source","yampi")
+          .in("id", batch)
+          .limit(2000);
+        if(!error && Array.isArray(data)){
+          data.forEach(r=>{
+            const id = String(r?.id || "").trim();
+            if(id) existingLegacyYampiIds.add(id);
+          });
+        }
+      }
+    }
+
     const pedRows = orders.map(o => {
       const docDigits = String(o.contato?.cpfCnpj||o.contato?.numeroDocumento||"").replace(/\D/g,"");
       const doc =
@@ -6774,18 +6800,22 @@ async function upsertOrdersToSupabase(orders){
         String(o.contato?.nome||"");
       const canalSlug = detectCh(o);
       const canalId = canaisLookup[canalSlug] || canaisLookup["outros"] || null;
+      const source = String(o._source||"bling").toLowerCase().trim() || "bling";
       const baseId = String(o.id || o.numero || "").trim();
-      const id = baseId || "";
+      let id = baseId || "";
+      if(source === "yampi" && id && !id.includes(":")){
+        id = existingLegacyYampiIds.has(id) ? id : ("yampi:" + id);
+      }
       const row = {
         id,
-        bling_id: String(o.id||o.numero),
+        bling_id: source === "bling" ? String(o.id||o.numero) : null,
         numero_pedido: String(o.numero||o.id),
         cliente_id: docToUuid[doc] || null,
         canal_id: canalId,
         data_pedido: o.data,
         total: val(o),
         status: normSt(o.situacao),
-        source: o._source||'bling',
+        source,
         created_at: o.dataCriacao||o.data||new Date().toISOString()
       };
       return row;
