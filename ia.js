@@ -4,7 +4,7 @@ let customerIntelUpsertMode = null;
 export function definirNextBestAction(cli){
   const dias = cli.dias_desde_ultima_compra ?? 9999;
   const total = cli.total_pedidos ?? 0;
-  const valor = cli.valor_total ?? 0;
+  const valor = cli.ltv ?? cli.total_gasto ?? cli.total ?? cli.valor_total ?? 0;
   const score = cli.score_final ?? 0;
   const intervalo = cli.intervalo_medio_recompra || null;
 

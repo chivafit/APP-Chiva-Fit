@@ -709,12 +709,13 @@ serve(async (req: Request) => {
     if (!from || !to) return jsonResponse({ error: "Missing from/to (YYYY-MM-DD)" }, 400);
     ({ from, to } = clampDateRange(from, to, 365));
 
-    const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 100) || 100));
+    const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 50) || 50));
+    const offset = Math.max(0, Number(body?.offset ?? 0) || 0);
     const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
     const concurrency = Math.min(10, Math.max(1, Number(body?.concurrency ?? 6) || 6));
 
     try {
-      console.log("[bling-sync] request", { from, to, limit, maxPages, concurrency });
+      console.log("[bling-sync] request", { from, to, limit, offset, maxPages, concurrency });
     } catch (_e) {}
 
     const lojaIdMap = await getBlingLojaIdMap(supabaseUrl, serviceRoleKey).catch(() => ({}));
@@ -722,22 +723,45 @@ serve(async (req: Request) => {
 
     const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
     const ids: string[] = [];
+    const seen = new Set<string>();
+    const startPage = Math.floor(offset / limit) + 1;
+    let skipInFirst = offset % limit;
+    let lastPageLen = 0;
+    let page = startPage;
+    let hadExtraInPage = false;
+    let pagesFetched = 0;
 
-    for (let page = 1; page <= maxPages; page++) {
+    while (ids.length < limit && pagesFetched < maxPages) {
       const url = `${base}?dataInicial=${encodeURIComponent(from)}&dataFinal=${encodeURIComponent(to)}&pagina=${page}&limite=${limit}`;
       const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
       const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+      lastPageLen = data.length;
       if (!data.length) break;
-      data.forEach((r: any) => {
+      let slice = data;
+      if (skipInFirst > 0) {
+        slice = slice.slice(skipInFirst);
+        skipInFirst = 0;
+      }
+      const remaining = limit - ids.length;
+      if (slice.length > remaining) {
+        hadExtraInPage = true;
+        slice = slice.slice(0, remaining);
+      }
+      slice.forEach((r: any) => {
         const id = String(r?.id ?? "").trim();
-        if (id) ids.push(id);
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        ids.push(id);
       });
       if (data.length < limit) break;
+      if (ids.length >= limit) break;
+      page += 1;
+      pagesFetched += 1;
     }
 
-    const uniqueIds = Array.from(new Set(ids));
+    const uniqueIds = ids;
     try {
-      console.log("[bling-sync] ids", { total: ids.length, unique: uniqueIds.length });
+      console.log("[bling-sync] ids", { total: uniqueIds.length, limit, offset, startPage, fetched: pagesFetched + 1 });
     } catch (_e) {}
 
     const details = await mapWithConcurrency(uniqueIds, concurrency, async (id) => {
@@ -753,13 +777,16 @@ serve(async (req: Request) => {
       return mapped;
     });
 
+    const nextOffset = offset + uniqueIds.length;
+    const hasMore = uniqueIds.length === limit && (hadExtraInPage || lastPageLen === limit);
+
     if (persist) {
       const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
       await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap);
-      return jsonResponse({ ok: true, persisted: true, count: details.length, from, to });
+      return jsonResponse({ ok: true, persisted: true, count: details.length, from, to, limit, offset, nextOffset, hasMore });
     }
 
-    return jsonResponse({ orders: details, count: details.length, from, to });
+    return jsonResponse({ orders: details, count: details.length, from, to, limit, offset, nextOffset, hasMore });
   } catch (e) {
     const err = e as any;
     try {

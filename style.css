@@ -3810,6 +3810,7 @@ html.light .compare-card{
   gap: 12px;
   overflow:auto;
   padding-bottom: 6px;
+  align-items: stretch;
 }
 @media (max-width: 980px){
   .kanban{ grid-template-columns: 1fr; }
@@ -3820,6 +3821,9 @@ html.light .compare-card{
   border-radius: 16px;
   padding: 12px;
   min-height: 220px;
+  display:flex;
+  flex-direction:column;
+  height: clamp(420px, 70vh, 760px);
 }
 .kanban-col-title{
   display:flex;
@@ -3840,6 +3844,9 @@ html.light .compare-card{
   display:flex;
   flex-direction:column;
   gap: 10px;
+  overflow:auto;
+  flex: 1 1 auto;
+  padding-right: 2px;
 }
 .opp-card{
   border: 1px solid var(--border);
@@ -3860,10 +3867,32 @@ html.light .compare-card{
   letter-spacing: -.2px;
   color: var(--text);
 }
+.opp-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 10px;
+}
+.opp-badges{
+  display:flex;
+  gap: 6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
 .opp-meta{
   font-size: 10px;
   color: var(--text-3);
   margin-top: 3px;
+}
+.opp-next{
+  font-size: 10px;
+  color: var(--text-2);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+.opp-next b{
+  color: var(--text);
+  font-weight: 900;
 }
 .opp-val{
   margin-top: 10px;
@@ -3908,6 +3937,232 @@ html.light .compare-card{
   color: var(--red);
   background: var(--red-bg);
   border: 1px solid rgba(248,113,113,.25);
+}
+
+.seg-badge{
+  display:inline-flex;
+  align-items:center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.seg-vip{
+  border-color: rgba(251,191,36,.28);
+  background: rgba(251,191,36,.10);
+  color: var(--amber);
+}
+.seg-risco{
+  border-color: rgba(248,113,113,.28);
+  background: rgba(248,113,113,.10);
+  color: var(--red);
+}
+.seg-churn{
+  border-color: rgba(248,113,113,.35);
+  background: rgba(248,113,113,.14);
+  color: #fecaca;
+}
+.seg-novo{
+  border-color: rgba(96,165,250,.28);
+  background: rgba(96,165,250,.10);
+  color: var(--blue);
+}
+.sla-badge{
+  display:inline-flex;
+  align-items:center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  border: 1px solid rgba(251,191,36,.28);
+  background: rgba(251,191,36,.10);
+  color: var(--amber);
+}
+
+.opp-filterbar{
+  margin-bottom: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.opp-commandbar{
+  margin-bottom: 12px;
+}
+.cmdbar{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  backdrop-filter: blur(10px);
+}
+.cmdbar-ico{
+  width: 30px;
+  height: 30px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius: 10px;
+  background: rgba(15,167,101,.12);
+  border: 1px solid rgba(15,167,101,.25);
+  color: var(--chiva-primary-light);
+  font-weight: 900;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.cmdbar-input{
+  flex: 1 1 auto;
+  min-width: 200px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.cmdbar-input::placeholder{
+  color: var(--text-3);
+  font-weight: 600;
+}
+.cmdbar-btn{
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+  color: var(--text-2);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.cmdbar-btn:hover{
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+}
+
+.opp-card{
+  position: relative;
+}
+.opp-card.opp-health-churn{
+  background: linear-gradient(135deg, rgba(248,113,113,.14), rgba(17,26,20,1) 55%);
+  border-color: rgba(248,113,113,.22);
+}
+.opp-card.opp-health-vip{
+  background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(17,26,20,1) 60%);
+  border-color: rgba(251,191,36,.18);
+}
+.vip-crown{
+  width: 26px;
+  height: 26px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 8px 20px rgba(0,0,0,.35);
+  backdrop-filter: blur(10px);
+  color: rgba(251,191,36,.95);
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+
+.opp-primary-btn{
+  width: 100%;
+  margin-top: 10px;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--chiva-primary), var(--chiva-primary-light));
+  color: #04130b;
+  box-shadow: 0 8px 20px rgba(15,167,101,.22);
+}
+.opp-primary-btn:hover{
+  filter: brightness(1.03);
+}
+
+.opp-skeleton .opp-title,
+.opp-skeleton .opp-meta,
+.opp-skeleton .opp-next,
+.opp-skeleton .opp-actions{
+  display:none;
+}
+.skel{
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  height: 10px;
+}
+.skel::after{
+  content:"";
+  position:absolute;
+  top:0;left:-60%;
+  width:60%;
+  height:100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+  animation: skel-shimmer 1.2s infinite;
+}
+@keyframes skel-shimmer{
+  0%{ transform: translateX(0); }
+  100%{ transform: translateX(220%); }
+}
+.opp-skel-block{
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  padding: 2px 0;
+}
+.opp-skel-row{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+}
+.opp-skel-ico{
+  width: 26px;
+  height: 26px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.06);
+  position: relative;
+  overflow: hidden;
+}
+.opp-skel-ico::after{
+  content:"";
+  position:absolute;
+  top:0;left:-60%;
+  width:60%;
+  height:100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+  animation: skel-shimmer 1.2s infinite;
+}
+
+.opp-drag-clone{
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  transform-origin: 0 0;
+  opacity: .95;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+}
+.kanban-col.drop-target{
+  border-color: rgba(15,167,101,.35);
+  box-shadow: 0 0 0 1px rgba(15,167,101,.18), var(--shadow-sm);
 }
 
 .auto-insights{

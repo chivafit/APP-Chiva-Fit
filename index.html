@@ -172,6 +172,9 @@
   </div>
   <div class="saas-filterbar" style="margin-bottom:12px">
     <div class="saas-chips">
+      <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
+        <option value="">Ano</option>
+      </select>
       <select id="dash-canal-filter" class="saas-chip saas-chip-select" onchange="renderDash()">
         <option value="">Canal</option>
         <option value="ml">Mercado Livre</option>
@@ -220,17 +223,17 @@
       <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">💡 Oportunidades</h1>
       <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Clientes que precisam de ação agora</p>
     </div>
-    <button class="btn" onclick="renderOportunidades()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn" onclick="oppLoadMore()" style="padding:8px 12px;font-size:11px">＋ Mais</button>
+      <button class="btn" onclick="renderOportunidades()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
+    </div>
   </div>
-  <div class="filter-bar" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">
-    <select id="opp-resp-filter" onchange="renderOportunidades()">
-      <option value="">Todos responsáveis</option>
-    </select>
-    <input id="opp-sla-days" type="number" min="0" value="3" placeholder="SLA (dias)" oninput="renderOportunidades()" style="max-width:140px"/>
-    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-      <input type="checkbox" id="opp-only-sla" onchange="renderOportunidades()"/>
-      Só SLA estourado
-    </label>
+  <div class="opp-commandbar">
+    <div class="cmdbar">
+      <div class="cmdbar-ico">⌘</div>
+      <input id="opp-cmd" class="cmdbar-input" placeholder="Filtrar VIPs · Churn · Responsável Ana · SLA 3 · Só SLA · Limpar" oninput="renderOportunidades()"/>
+      <button class="cmdbar-btn" onclick="document.getElementById('opp-cmd').value='';renderOportunidades()">Limpar</button>
+    </div>
   </div>
   <div class="kanban" id="opp-kanban"></div>
 </div>

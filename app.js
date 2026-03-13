@@ -452,6 +452,7 @@ function enterApp(userEmail){
       if(connected) await loadSupabaseData();
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
+      try{ scheduleAutoBlingSync(); }catch(_e){}
     }catch(e){
       console.warn("Erro no bootstrap, usando cache local:", e.message);
       // Fallback: usar dados locais se existirem
@@ -469,6 +470,7 @@ function enterApp(userEmail){
       safeInvokeName("populateUFs");
       safeInvokeName("renderAll");
       safeInvokeName("updateBadge");
+      try{ scheduleAutoBlingSync(); }catch(_e){}
     }finally{
       clearTimeout(overlayKill);
       if(overlay){ overlay.style.display="none"; overlay.style.pointerEvents="none"; }
@@ -939,6 +941,19 @@ document.addEventListener("DOMContentLoaded", ()=>{
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl){ urlEl.value = u; }
   if(keyEl){ keyEl.value = k; }
+
+  try{
+    const fromEl = document.getElementById("date-from");
+    const toEl = document.getElementById("date-to");
+    if(fromEl && !fromEl.value){
+      const d = new Date();
+      d.setDate(d.getDate() - 365);
+      fromEl.value = d.toISOString().slice(0,10);
+    }
+    if(toEl && !toEl.value){
+      toEl.value = new Date().toISOString().slice(0,10);
+    }
+  }catch(_e){}
 });
 
 function saveAIKey(){
@@ -952,40 +967,118 @@ function saveAIKey(){
 // ═══════════════════════════════════════════════════
 //  BLING
 // ═══════════════════════════════════════════════════
+let blingAutoSyncTimer = null;
+
+function scheduleAutoBlingSync(){
+  if(blingAutoSyncTimer) clearInterval(blingAutoSyncTimer);
+  blingAutoSyncTimer = setInterval(()=>{
+    maybeRunAutoBlingSync().catch(()=>{});
+  }, 20*60*1000);
+  maybeRunAutoBlingSync().catch(()=>{});
+}
+
+async function maybeRunAutoBlingSync(){
+  if(!supaConnected || !supaClient) return;
+  const today = new Date().toISOString().slice(0,10);
+  const lastDay = String(localStorage.getItem("crm_bling_autosync_day") || "");
+  if(lastDay === today) return;
+  if(document.hidden) return;
+  await syncBling({ silent: true, auto: true, omitDates: true });
+  localStorage.setItem("crm_bling_autosync_day", today);
+}
+
 async function syncBling(){
+  const options = arguments?.[0] && typeof arguments[0] === "object" ? arguments[0] : {};
+  const silent = options.silent === true;
+  const omitDates = options.omitDates === true;
+  const batchLimit = Math.max(1, Math.min(100, Number(options.batchLimit ?? 50) || 50));
   const st=document.getElementById("bling-status");
-  const from=document.getElementById("date-from").value;
-  const to=document.getElementById("date-to").value;
-  if(!from||!to){
-    st.textContent="⚠ Preencha o período de importação";
-    st.className="setup-status s-err";
-    return;
+  const fromEl=document.getElementById("date-from");
+  const toEl=document.getElementById("date-to");
+  let from=String(fromEl?.value||"").slice(0,10);
+  let to=String(toEl?.value||"").slice(0,10);
+  if((!from || !to) && !omitDates){
+    try{
+      if(!from){
+        const d = new Date();
+        d.setDate(d.getDate() - 365);
+        from = d.toISOString().slice(0,10);
+        if(fromEl) fromEl.value = from;
+      }
+      if(!to){
+        to = new Date().toISOString().slice(0,10);
+        if(toEl) toEl.value = to;
+      }
+    }catch(_e){}
   }
-  st.textContent="Importando...";
-  st.className="setup-status";
   try{
-    const resp=await fetch(getSupaFnBase()+"/bling-sync",{
-      method:"POST",
-      headers:supaFnHeaders(),
-      body:JSON.stringify({from,to})
-    });
-    if(!resp.ok){
-      const txt=await resp.text();
-      throw new Error(txt||"Erro na função Bling");
+    let offset = 0;
+    let batch = 0;
+    let imported = 0;
+    const out = [];
+
+    const setStatus = (html, ok)=>{
+      if(!st || silent) return;
+      st.innerHTML = html;
+      st.className = ok === true ? "setup-status s-ok" : ok === false ? "setup-status s-err" : "setup-status";
+    };
+
+    setStatus(
+      `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span>Iniciando importação…</span><span class="chiva-table-mono">0</span></div>`+
+      `<div style="height:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:8px"><div style="height:100%;width:30%;background:linear-gradient(90deg, rgba(15,167,101,.2), rgba(164,233,107,.7), rgba(15,167,101,.2));animation:skel-shimmer 1.1s infinite"></div></div>`
+    );
+
+    let hasMore = true;
+    while(hasMore){
+      batch += 1;
+      setStatus(
+        `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span>Processando lote ${batch}…</span><span class="chiva-table-mono">${imported}</span></div>`+
+        `<div style="font-size:10px;color:var(--text-3);margin-top:6px">limit ${batchLimit} · offset ${offset}</div>`+
+        `<div style="height:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:8px"><div style="height:100%;width:30%;background:linear-gradient(90deg, rgba(15,167,101,.2), rgba(164,233,107,.7), rgba(15,167,101,.2));animation:skel-shimmer 1.1s infinite"></div></div>`
+      );
+
+      const payload = omitDates ? { limit: batchLimit, offset } : { from, to, limit: batchLimit, offset };
+      const resp=await fetch(getSupaFnBase()+"/bling-sync",{
+        method:"POST",
+        headers:supaFnHeaders(),
+        body:JSON.stringify(payload)
+      });
+
+      const txt = await resp.text().catch(()=> "");
+      let data = null;
+      try{ data = txt ? JSON.parse(txt) : null; }catch(_e){ data = null; }
+      if(!resp.ok){
+        const msg = (data && (data.message || data.error)) ? String(data.message || data.error) : (txt || "Erro na função Bling");
+        throw new Error(msg);
+      }
+
+      const orders = Array.isArray(data?.orders) ? data.orders : [];
+      orders.forEach(o=>out.push(normalizeOrderForCRM(o,"bling")));
+      imported += orders.length;
+
+      const nextOffset = Number(data?.nextOffset);
+      offset = Number.isFinite(nextOffset) ? nextOffset : (offset + orders.length);
+      hasMore = data?.hasMore === true && orders.length > 0;
+      if(!orders.length) hasMore = false;
+      if(batch > 400) throw new Error("Importação interrompida (muitos lotes). Ajuste o período ou aumente o limit.");
     }
-    const data=await resp.json();
-    const nextBling = (data.orders||[]).map(o=>normalizeOrderForCRM(o,"bling"));
+
     blingOrders.length = 0;
-    blingOrders.push(...nextBling);
+    blingOrders.push(...out);
     localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
     mergeOrders(); populateUFs();
     upsertOrdersToSupabase(blingOrders).catch(e=>console.warn(e)); renderAll(); startTimers();
     try{ if(supaConnected) await sbSetConfig('ultima_sync_bling',new Date().toISOString()); }catch(e){}
-    st.textContent=`✓ ${blingOrders.length} pedidos importados`; st.className="setup-status s-ok";
-    toast("✓ Bling sincronizado!");
+    if(st){
+      st.textContent=`✓ ${blingOrders.length} pedidos importados (lotes: ${batch})`;
+      st.className="setup-status s-ok";
+    }
+    if(!silent) toast("✓ Bling sincronizado!");
   }catch(e){
-    st.textContent="⚠ "+e.message;
-    st.className="setup-status s-err";
+    if(st){
+      st.textContent="⚠ "+e.message;
+      st.className="setup-status s-err";
+    }
   }
 }
 
@@ -2363,7 +2456,166 @@ function populateUFs(){
 // ═══════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════
+let dashRevenueCache = { at: 0, rows: null };
+
+async function renderDashRevenueFromSupabase(){
+  if(!supaConnected || !supaClient) return false;
+  const yearSel = document.getElementById("dash-year");
+  const nowTs = Date.now();
+  if(!dashRevenueCache.rows || (nowTs - dashRevenueCache.at) > 3*60*1000){
+    const {data, error} = await supaClient
+      .from("vw_dashboard_revenue_growth")
+      .select("*")
+      .limit(5000);
+    if(error) throw error;
+    dashRevenueCache = { at: nowTs, rows: Array.isArray(data) ? data : [] };
+  }
+  const rows = Array.isArray(dashRevenueCache.rows) ? dashRevenueCache.rows : [];
+
+  const pickNum = (row, keys)=>{
+    for(const k of keys){
+      const v = row?.[k];
+      if(v == null) continue;
+      const n = Number(v);
+      if(Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
+
+  const pickYear = (row)=>{
+    const y = row?.ano ?? row?.year ?? row?.yyyy;
+    const yn = Number(y);
+    if(Number.isFinite(yn) && yn > 1900 && yn < 2200) return yn;
+    const ref = row?.mes ?? row?.month ?? row?.periodo ?? row?.period;
+    const s = String(ref || "");
+    const m = s.match(/(20\d{2})/);
+    if(m) return Number(m[1]);
+    return null;
+  };
+
+  const pickMonth = (row)=>{
+    const m = row?.mes_num ?? row?.mes ?? row?.month ?? row?.mm;
+    const mn = Number(m);
+    if(Number.isFinite(mn) && mn >= 1 && mn <= 12) return mn;
+    const ref = row?.periodo ?? row?.period ?? row?.mes ?? "";
+    const s = String(ref || "");
+    const mm = s.match(/(?:20\d{2})[-/](\d{1,2})/);
+    if(mm){
+      const n = Number(mm[1]);
+      if(Number.isFinite(n) && n >= 1 && n <= 12) return n;
+    }
+    return null;
+  };
+
+  const revenueKeys = ["faturamento", "receita", "revenue", "total", "valor", "valor_total", "total_revenue"];
+  const years = Array.from(new Set(rows.map(pickYear).filter(Boolean))).sort((a,b)=>b-a);
+  const storedYear = Number(localStorage.getItem("crm_dash_year") || "");
+  const defaultYear = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : (years[0] || new Date().getFullYear());
+  const selectedYear = yearSel ? (Number(yearSel.value||storedYear||defaultYear) || defaultYear) : (storedYear || defaultYear);
+
+  if(yearSel){
+    const current = String(yearSel.value || storedYear || "");
+    yearSel.innerHTML = `<option value="">Ano</option>` + years.map(y=>`<option value="${y}">${y}</option>`).join("");
+    yearSel.value = years.includes(Number(current)) ? String(Number(current)) : String(selectedYear);
+    localStorage.setItem("crm_dash_year", yearSel.value || String(selectedYear));
+  }
+
+  const byMonth = new Array(12).fill(0);
+  rows.forEach(r=>{
+    const y = pickYear(r);
+    if(y !== selectedYear) return;
+    const m = pickMonth(r);
+    if(m == null) return;
+    byMonth[m-1] += pickNum(r, revenueKeys);
+  });
+
+  const labels = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const growth = byMonth.map((v,i)=>{
+    if(i===0) return 0;
+    const prev = byMonth[i-1] || 0;
+    if(prev <= 0) return 0;
+    return ((v - prev) / prev) * 100;
+  });
+
+  const canvasMes = document.getElementById("chart-mes");
+  if(canvasMes && canvasMes.getContext){
+    const ctx = canvasMes.getContext("2d");
+    if(ctx){
+      if(charts.mes) charts.mes.destroy();
+      const grad = ctx.createLinearGradient(0,0,0,180);
+      grad.addColorStop(0, "rgba(164,233,107,.35)");
+      grad.addColorStop(1, "rgba(15,167,101,0)");
+      charts.mes = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            label: "Faturamento",
+            data: byMonth,
+            tension: 0.35,
+            fill: true,
+            backgroundColor: grad,
+            borderColor: "#A4E96B",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+          }
+        }
+      });
+    }
+  }
+
+  const canvasGrow = document.getElementById("chart-crescimento");
+  if(canvasGrow && canvasGrow.getContext){
+    const ctx = canvasGrow.getContext("2d");
+    if(ctx){
+      if(charts.crescimento) charts.crescimento.destroy();
+      charts.crescimento = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            label: "Crescimento",
+            data: growth,
+            tension: 0.35,
+            fill: false,
+            borderColor: "#60a5fa",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>(Number(c.parsed.y||0).toFixed(1)+"%") } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>String(v)+"%" } }
+          }
+        }
+      });
+    }
+  }
+
+  return true;
+}
+
 function renderDash(){
+  const yearSel = document.getElementById("dash-year");
+  if(yearSel){
+    const stored = String(localStorage.getItem("crm_dash_year")||"").trim();
+    if(stored && !yearSel.value) yearSel.value = stored;
+  }
   const dashSel = document.getElementById("dash-canal-filter");
   if(dashSel){
     const stored = String(localStorage.getItem("crm_dash_canal")||"").toLowerCase().trim();
@@ -2492,6 +2744,9 @@ function renderDash(){
 
   renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
   renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders); setTimeout(()=>{renderDashChartsCrescimento(orders);renderDashChartsCidades(orders);},150);
+  if(supaConnected && supaClient){
+    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{}); }, 10);
+  }
 }
 
 function renderMeta(v){
@@ -3530,6 +3785,9 @@ const OPP_STAGES = [
   { id: "fechado", label: "Fechado" }
 ];
 
+let oppRemoteLimit = 600;
+const OPP_REMOTE_PAGE_STEP = 600;
+
 function saveOppPipeline(){
   localStorage.setItem("crm_opp_pipeline", JSON.stringify(oppPipeline || []));
 }
@@ -3629,32 +3887,150 @@ async function renderOportunidadesFromSupabase(){
     host.innerHTML = `<div class="empty">Conecte o Supabase para ver o pipeline real.</div>`;
     return;
   }
-  const respSel = document.getElementById("opp-resp-filter");
-  const slaDays = Math.max(0, parseInt(document.getElementById("opp-sla-days")?.value||"0")||0);
-  const onlySla = !!document.getElementById("opp-only-sla")?.checked;
+
+  const parseOppCommand = (raw)=>{
+    const txt = String(raw||"").trim();
+    const lower = txt.toLowerCase();
+    const out = {
+      segment: "",
+      statusSaude: "",
+      responsible: "",
+      onlySla: false,
+      slaDays: 3,
+      q: ""
+    };
+    if(!lower) return out;
+    if(/\blimpar\b/.test(lower)) return out;
+    if(/\bs[oó]\s*sla\b/.test(lower) || /\bonly\s*sla\b/.test(lower)) out.onlySla = true;
+    const mSla = lower.match(/\bsla\s*([0-9]{1,3})\b/);
+    if(mSla) out.slaDays = Math.max(0, parseInt(mSla[1]||"0")||0);
+    const mResp = lower.match(/\brespons[aá]vel\s+(.+)$/);
+    if(mResp) out.responsible = String(mResp[1]||"").trim();
+    if(/\bvip\b/.test(lower)) out.segment = "VIP";
+    if(/\bem\s*risco\b/.test(lower) || /\brisco\b/.test(lower)) out.segment = "Em Risco";
+    if(/\bchurn\b/.test(lower)) out.segment = "Churn";
+    if(/\bnovo\b/.test(lower)) out.segment = "Novo";
+    if(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/.test(lower)){
+      const mm = lower.match(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/);
+      const v = String(mm?.[1]||"").trim();
+      if(v === "vip") out.statusSaude = "VIP";
+      else if(v === "churn") out.statusSaude = "Churn";
+      else if(v === "novo") out.statusSaude = "Novo";
+      else out.statusSaude = "Em Risco";
+    }
+    const cleaned = lower
+      .replace(/\brespons[aá]vel\s+.+$/,"")
+      .replace(/\bs[oó]\s*sla\b/g,"")
+      .replace(/\bsla\s*[0-9]{1,3}\b/g,"")
+      .replace(/\bfiltrar\b/g,"")
+      .replace(/\b(vip|churn|novo|risco|em\s*risco)\b/g,"")
+      .replace(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/g,"")
+      .trim();
+    out.q = cleaned;
+    return out;
+  };
+
+  const cmdText = String(document.getElementById("opp-cmd")?.value || "").trim();
+  const cmd = parseOppCommand(cmdText);
+
+  const renderOppSkeleton = ()=>{
+    return OPP_STAGES.map(s=>{
+      const sk = Array.from({length:6}).map(()=>{
+        return `
+          <div class="opp-card opp-skeleton">
+            <div class="opp-skel-block">
+              <div class="opp-skel-row">
+                <div class="opp-skel-ico"></div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+                  <div class="skel" style="width:72%;height:12px"></div>
+                  <div class="skel" style="width:56%;height:10px"></div>
+                </div>
+              </div>
+              <div class="skel" style="width:88%;height:10px"></div>
+              <div class="skel" style="width:78%;height:10px"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
+          <div class="kanban-col-title">
+            <span>${escapeHTML(s.label)}</span>
+            <span class="kanban-col-count">—</span>
+          </div>
+          <div class="kanban-drop">${sk}</div>
+        </div>
+      `;
+    }).join("");
+  };
+
+  host.innerHTML = renderOppSkeleton();
+
   try{
+    let healthMap = {};
+    let intelMap = {};
+    try{
+      const {data:hRows, error:hErr} = await supaClient
+        .from("vw_customer_health_score")
+        .select("*")
+        .range(0, Math.max(0, oppRemoteLimit - 1));
+      if(!hErr && Array.isArray(hRows)){
+        hRows.forEach(r=>{
+          const id = String(r?.cliente_id || r?.cliente_uuid || r?.id || r?.customer_id || "").trim();
+          if(!id) return;
+          healthMap[id] = r;
+        });
+      }
+    }catch(_e){}
+
+    if(!Object.keys(healthMap).length){
+      try{
+        const {data:ciRows, error:ciErr} = await supaClient
+          .from("customer_intelligence")
+          .select("cliente_id,segmento,next_best_action,score_final,updated_at")
+          .limit(5000);
+        if(!ciErr && Array.isArray(ciRows)){
+          ciRows.forEach(r=>{
+            const id = String(r?.cliente_id||"").trim();
+            if(!id) return;
+            intelMap[id] = {
+              segmento: String(r?.segmento||"").trim(),
+              next_best_action: String(r?.next_best_action||"").trim(),
+              score_final: r?.score_final == null ? null : Number(r.score_final)||0
+            };
+          });
+        }
+      }catch(_e){}
+    }
+
     const {data, error} = await supaClient
       .from("v2_clientes")
       .select("id,doc,nome,cidade,uf,pipeline_stage,last_interaction_at,last_interaction_type,last_interaction_desc,last_contact_at,responsible_user")
-      .limit(2000);
+      .range(0, Math.max(0, oppRemoteLimit - 1));
     if(error) throw error;
     const rows = Array.isArray(data) ? data : [];
-    if(respSel){
-      const current = respSel.value || "";
-      const users = Array.from(new Set(rows.map(r=>String(r.responsible_user||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-      respSel.innerHTML = `<option value="">Todos responsáveis</option>` + users.map(u=>`<option value="${escapeHTML(u)}">${escapeHTML(u)}</option>`).join("");
-      respSel.value = users.includes(current) ? current : "";
-    }
-    const respFilter = String(respSel?.value || "").trim();
+
     const byStage = {};
     OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
     rows.forEach(r=>{
       const st = byStage[r.pipeline_stage] ? r.pipeline_stage : "novo_lead";
       const resp = String(r.responsible_user||"").trim();
-      if(respFilter && resp !== respFilter) return;
+      if(cmd.responsible && !resp.toLowerCase().includes(cmd.responsible.toLowerCase())) return;
+      const health = healthMap[String(r.id||"").trim()] || {};
+      const intel = intelMap[String(r.id||"").trim()] || {};
+      const segment = String(health?.segmento || health?.segment || intel?.segmento || "").trim();
+      const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
+      if(cmd.segment && segment.toLowerCase() !== cmd.segment.toLowerCase()) return;
+      if(cmd.statusSaude && statusSaude.toLowerCase() !== cmd.statusSaude.toLowerCase()) return;
+      if(cmd.q){
+        const q = cmd.q.toLowerCase();
+        const nm = String(r.nome||"").toLowerCase();
+        const loc = [r.cidade, r.uf].filter(Boolean).join(" ").toLowerCase();
+        if(!nm.includes(q) && !loc.includes(q) && !resp.toLowerCase().includes(q)) return;
+      }
       const dsContact = daysSince(r.last_contact_at || r.last_interaction_at);
-      const slaHit = slaDays>0 && dsContact<9999 && dsContact>slaDays && (st==="contato_iniciado" || st==="negociacao");
-      if(onlySla && !slaHit) return;
+      const slaHit = cmd.slaDays>0 && dsContact<9999 && dsContact>cmd.slaDays && (st==="contato_iniciado" || st==="negociacao");
+      if(cmd.onlySla && !slaHit) return;
       r.__dsContact = dsContact;
       r.__slaHit = slaHit;
       byStage[st].push(r);
@@ -3681,6 +4057,39 @@ async function renderOportunidadesFromSupabase(){
       nota: "Nota"
     };
 
+    const fmtHours = (h)=>{
+      const n = Number(h);
+      if(!Number.isFinite(n) || n < 0) return "—";
+      if(n < 24) return `${Math.floor(n)}h`;
+      const d = Math.floor(n/24);
+      const r = Math.floor(n%24);
+      return r ? `${d}d ${r}h` : `${d}d`;
+    };
+
+    const hoursSinceIso = (iso)=>{
+      const t = iso ? new Date(String(iso)).getTime() : NaN;
+      if(!t || isNaN(t)) return null;
+      return (Date.now() - t) / 3600000;
+    };
+
+    const segMeta = (seg)=>{
+      const s = String(seg||"").trim().toLowerCase();
+      if(s === "vip") return { cls: "seg-vip", label: "VIP" };
+      if(s === "em risco" || s === "risco") return { cls: "seg-risco", label: "Em Risco" };
+      if(s === "churn") return { cls: "seg-churn", label: "Churn" };
+      if(s === "novo") return { cls: "seg-novo", label: "Novo" };
+      return { cls: "seg-unk", label: (seg||"—") };
+    };
+
+    const fallbackNextAction = (seg)=>{
+      const s = String(seg||"").trim().toLowerCase();
+      if(s === "em risco" || s === "risco") return "Enviar cupom de desconto";
+      if(s === "churn") return "Reativar com oferta forte + mensagem pessoal";
+      if(s === "vip") return "Oferta VIP: lançamento/kit exclusivo";
+      if(s === "novo") return "Boas-vindas + sugestão do best-seller";
+      return "Registrar próxima ação";
+    };
+
     host.innerHTML = OPP_STAGES.map(s=>{
       const list = byStage[s.id] || [];
       return `
@@ -3693,6 +4102,7 @@ async function renderOportunidadesFromSupabase(){
             ${list.map(r=>{
               const key = String(r.doc || r.id || "");
               const safeKey = escapeJsSingleQuote(key);
+              const uuid = String(r.id || "").trim();
               const nm = String(r.nome || "Cliente");
               const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
               const lastAt = r.last_interaction_at ? new Date(r.last_interaction_at) : null;
@@ -3706,12 +4116,35 @@ async function renderOportunidadesFromSupabase(){
               const localCust = allCustomers.find(c=>String(c.id||"")===key);
               const phone = rawPhone(localCust?.telefone||"");
               const slaHit = !!r.__slaHit;
+              const health = healthMap[uuid] || {};
+              const intel = intelMap[uuid] || {};
+              const segment = String(health?.segmento || health?.segment || intel?.segmento || localCust?.status || "").trim();
+              const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
+              const seg = segMeta(segment || statusSaude);
+              const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
+              const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? dsContact) || 0;
+              const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? 0) || 0;
+              const recomendacao = (diasSemComprar > 45 && String(segment||statusSaude).toLowerCase()==="vip") ? "ligar_agora" : "";
+              const hs = hoursSinceIso(r.last_interaction_at || r.last_contact_at);
+              const slaNovoLead = (s.id === "novo_lead") && hs != null && hs > 24;
+              const healthCls = String(statusSaude||"").toLowerCase()==="churn" ? "opp-health-churn" : (String(segment||"").toLowerCase()==="vip" ? "opp-health-vip" : "");
               return `
-                <div class="opp-card ${slaHit?"opp-sla":""}" onclick="openClientePage('${safeKey}')">
-                  <div class="opp-title">${escapeHTML(nm)}</div>
-                  <div class="opp-meta">Estágio: ${escapeHTML(stageLabel[r.pipeline_stage]||stageLabel[s.id]||"—")}</div>
+                <div class="opp-card ${slaHit?"opp-sla":""} ${healthCls}" data-client-uuid="${escapeHTML(uuid)}" data-customer-key="${escapeHTML(key)}" onclick="openOppClienteResumo('${safeKey}')">
+                  <div class="opp-head">
+                    <div class="opp-title">${escapeHTML(nm)}</div>
+                    <div class="opp-badges">
+                      ${String(segment||"").toLowerCase()==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+                      ${segment?`<span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>`:""}
+                      ${slaNovoLead?`<span class="sla-badge">⏱ ${escapeHTML(fmtHours(hs))}</span>`:""}
+                      ${slaHit?`<span class="opp-sla-tag">SLA</span>`:""}
+                    </div>
+                  </div>
+                  <div class="opp-meta">${escapeHTML(loc||"—")}</div>
+                  <div class="opp-meta">Faturamento: <span class="chiva-table-mono">${escapeHTML(fmtBRL(ltv||0))}</span> · ${escapeHTML(Math.max(0, Math.round(diasSemComprar||0)))}d sem comprar</div>
                   <div class="opp-meta">Última: ${escapeHTML(lastLabel)} · ${escapeHTML(lastTime)}${descMini?` · ${escapeHTML(descMini)}`:""}</div>
-                  <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}${slaHit?` · <span class="opp-sla-tag">SLA</span>`:""}</div>
+                  <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}</div>
+                  <div class="opp-next">Próxima ação: <b>${escapeHTML(nextAction)}</b></div>
+                  ${recomendacao==="ligar_agora" ? `<button class="opp-primary-btn" onclick="event.stopPropagation();openInteractionModal('${safeKey}','ligacao')">Ação: Ligar Agora</button>` : ``}
                   <div class="opp-actions" onclick="event.stopPropagation()">
                     ${phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WA</button>`:""}
                     <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','ligacao')">Lig</button>
@@ -3726,9 +4159,210 @@ async function renderOportunidadesFromSupabase(){
         </div>
       `;
     }).join("");
+
+    try{ enableOppDragAndSpring(host); }catch(_e){}
   }catch(_e){
     host.innerHTML = `<div class="empty">Pipeline indisponível no momento.</div>`;
   }
+}
+
+function enableOppDragAndSpring(host){
+  if(!host) return;
+  if(host.__oppDragBound) return;
+  host.__oppDragBound = true;
+
+  const springProgress = (t)=>{
+    const stiffness = 220;
+    const damping = 24;
+    const mass = 1;
+    const w0 = Math.sqrt(stiffness / mass);
+    const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+    if(zeta >= 1){
+      return 1 - Math.exp(-w0 * t);
+    }
+    const wd = w0 * Math.sqrt(1 - zeta * zeta);
+    const a = zeta * w0;
+    const b = (zeta / Math.sqrt(1 - zeta * zeta));
+    return 1 - Math.exp(-a * t) * (Math.cos(wd * t) + b * Math.sin(wd * t));
+  };
+
+  const buildSpringKeyframes = (fromX, fromY, toX, toY)=>{
+    const frames = [];
+    const n = 26;
+    for(let i=0;i<n;i++){
+      const t = (i/(n-1)) * 1.1;
+      const p = springProgress(t);
+      const x = fromX + (toX - fromX) * p;
+      const y = fromY + (toY - fromY) * p;
+      frames.push({ transform: `translate3d(${x}px, ${y}px, 0)` });
+    }
+    return frames;
+  };
+
+  host.addEventListener("pointerdown", (ev)=>{
+    const e = ev;
+    const target = e.target;
+    if(target && target.closest && target.closest("button")) return;
+    const card = target && target.closest ? target.closest(".opp-card") : null;
+    if(!card) return;
+    const uuid = card.getAttribute("data-client-uuid") || "";
+    if(!uuid) return;
+    e.preventDefault();
+    const startRect = card.getBoundingClientRect();
+    const clone = card.cloneNode(true);
+    clone.classList.add("opp-drag-clone");
+    clone.style.left = `${startRect.left}px`;
+    clone.style.top = `${startRect.top}px`;
+    clone.style.width = `${startRect.width}px`;
+    clone.style.height = `${startRect.height}px`;
+    clone.style.transform = `translate3d(0,0,0)`;
+    document.body.appendChild(clone);
+    card.style.opacity = "0.15";
+
+    let lastDx = 0;
+    let lastDy = 0;
+    let activeCol = null;
+
+    const clearTarget = ()=>{
+      document.querySelectorAll(".kanban-col.drop-target").forEach(el=>el.classList.remove("drop-target"));
+    };
+
+    const move = (mv)=>{
+      const dx = mv.clientX - (startRect.left + startRect.width/2);
+      const dy = mv.clientY - (startRect.top + startRect.height/2);
+      lastDx = dx;
+      lastDy = dy;
+      clone.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${Math.max(-2, Math.min(2, dx/180))}deg)`;
+      const el = document.elementFromPoint(mv.clientX, mv.clientY);
+      const col = el && el.closest ? el.closest(".kanban-col") : null;
+      if(col !== activeCol){
+        clearTarget();
+        activeCol = col;
+        if(activeCol) activeCol.classList.add("drop-target");
+      }
+    };
+
+    const end = async (up)=>{
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      clearTarget();
+
+      const el = document.elementFromPoint(up.clientX, up.clientY);
+      const col = el && el.closest ? el.closest(".kanban-col") : null;
+      const stage = col ? String(col.getAttribute("data-stage")||"").trim() : "";
+
+      const cleanup = ()=>{
+        try{ clone.remove(); }catch(_e){}
+        card.style.opacity = "";
+      };
+
+      if(!stage){
+        const anim = clone.animate(buildSpringKeyframes(lastDx, lastDy, 0, 0), { duration: 520, easing: "linear" });
+        anim.onfinish = cleanup;
+        return;
+      }
+
+      const targetRect = col.getBoundingClientRect();
+      const toX = (targetRect.left + 18) - startRect.left;
+      const toY = (targetRect.top + 54) - startRect.top;
+
+      const anim = clone.animate(buildSpringKeyframes(lastDx, lastDy, toX, toY), { duration: 560, easing: "linear" });
+      anim.onfinish = cleanup;
+
+      try{
+        await supaClient.from("v2_clientes").update({ pipeline_stage: stage, updated_at: new Date().toISOString() }).eq("id", uuid);
+      }catch(_e){}
+      setTimeout(()=>{ try{ renderOportunidades(); }catch(_e){} }, 80);
+    };
+
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", end, { passive: true });
+  });
+}
+
+function oppLoadMore(){
+  oppRemoteLimit += OPP_REMOTE_PAGE_STEP;
+  renderOportunidades();
+}
+
+async function openOppClienteResumo(customerKey){
+  const key = String(customerKey||"").trim();
+  if(!key){ toast("⚠ Cliente inválido"); return; }
+  if(!supaConnected || !supaClient){
+    openClientePage(key);
+    return;
+  }
+  const uuid = await resolveCustomerUuid(key).catch(()=>null);
+  if(!uuid){
+    openClientePage(key);
+    return;
+  }
+
+  let pedidos = [];
+  try{
+    const {data, error} = await supaClient
+      .from("v2_pedidos")
+      .select("id,total,data_pedido")
+      .eq("cliente_id", uuid)
+      .order("data_pedido", { ascending: false })
+      .limit(1200);
+    if(error) throw error;
+    pedidos = Array.isArray(data) ? data : [];
+  }catch(_e){}
+
+  const pedidoIds = pedidos.map(p=>p.id).filter(Boolean);
+  const itemsAgg = {};
+  try{
+    const okItems = await ensureV2PedidosItemsAvailable();
+    if(okItems && pedidoIds.length){
+      for(let i=0;i<pedidoIds.length;i+=200){
+        const batch = pedidoIds.slice(i,i+200);
+        const {data, error} = await supaClient
+          .from("v2_pedidos_items")
+          .select("produto_nome,quantidade,valor_total")
+          .in("pedido_id", batch)
+          .limit(20000);
+        if(error) throw error;
+        (data||[]).forEach(r=>{
+          const nome = String(r.produto_nome||"").trim();
+          if(!nome) return;
+          if(!itemsAgg[nome]) itemsAgg[nome] = { nome, qty: 0, total: 0 };
+          itemsAgg[nome].qty += Number(r.quantidade||0) || 0;
+          itemsAgg[nome].total += Number(r.valor_total||0) || 0;
+        });
+      }
+    }
+  }catch(_e){}
+
+  const top = Object.values(itemsAgg).sort((a,b)=>b.qty-a.qty || b.total-a.total).slice(0,8);
+  const totalPedidos = pedidos.length;
+  const totalGasto = pedidos.reduce((s,p)=>s+(Number(p.total||0)||0),0);
+
+  const nm = (allCustomers.find(c=>String(c.id||"")===key)?.nome) || "Cliente";
+  const body = `
+    <div class="drawer-section">
+      <div class="drawer-section-title">Resumo</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Pedidos</span><span class="chiva-table-mono">${escapeHTML(String(totalPedidos||0))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Total gasto</span><span style="font-weight:900;color:var(--green)">${escapeHTML(fmtBRL(totalGasto||0))}</span></div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">Itens mais comprados</div>
+      ${top.length ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${top.map(it=>`
+            <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid var(--border);background:var(--card);border-radius:12px;padding:10px">
+              <div style="min-width:0">
+                <div style="font-weight:900;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHTML(it.nome)}</div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:2px">Qtd: ${escapeHTML(String(Math.round(it.qty*1000)/1000))}</div>
+              </div>
+              <div style="font-family:var(--mono);font-weight:900;color:var(--green);font-size:12px">${escapeHTML(fmtBRL(it.total||0))}</div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div style="font-size:12px;color:var(--text-3)">Sem itens disponíveis ainda.</div>`}
+    </div>
+  `;
+  openDrawer(`💡 ${escapeHTML(nm)}`, "Resumo de compras", body, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button><button class="drawer-btn drawer-btn-primary" onclick="openClientePage('${escapeJsSingleQuote(key)}')">Abrir perfil</button>`);
 }
 
 function renderOportunidades(){
@@ -6635,6 +7269,8 @@ Object.assign(window,{
   renderCidades,
   renderPedidosPage,
   recarregar,
+  oppLoadMore,
+  openOppClienteResumo,
   saveAlertDays,
   renderAlertas,
   saveSupabaseConfig,
