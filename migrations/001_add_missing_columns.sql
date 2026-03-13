@@ -11,6 +11,9 @@ ALTER TABLE public.carrinhos_abandonados
 ADD COLUMN IF NOT EXISTS recuperado_em timestamp with time zone;
 
 DO $$
+DECLARE
+  viewdef text;
+  fk_name text;
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -20,7 +23,29 @@ BEGIN
       AND column_name = 'pedido_id'
       AND data_type = 'uuid'
   ) THEN
-    EXECUTE 'DROP TABLE public.v2_pedidos_items';
+    IF to_regclass('public.vw_vendas_por_produto') IS NOT NULL THEN
+      SELECT pg_get_viewdef('public.vw_vendas_por_produto'::regclass, true) INTO viewdef;
+      EXECUTE 'DROP VIEW public.vw_vendas_por_produto';
+    END IF;
+
+    SELECT conname
+    INTO fk_name
+    FROM pg_constraint
+    WHERE conrelid = 'public.v2_pedidos_items'::regclass
+      AND contype = 'f'
+    LIMIT 1;
+
+    IF fk_name IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.v2_pedidos_items DROP CONSTRAINT %I', fk_name);
+    END IF;
+
+    EXECUTE 'ALTER TABLE public.v2_pedidos_items ALTER COLUMN pedido_id TYPE text USING pedido_id::text';
+
+    EXECUTE 'ALTER TABLE public.v2_pedidos_items ADD CONSTRAINT v2_pedidos_items_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.v2_pedidos(id) ON DELETE CASCADE';
+
+    IF viewdef IS NOT NULL AND viewdef <> '' THEN
+      EXECUTE 'CREATE VIEW public.vw_vendas_por_produto AS ' || viewdef;
+    END IF;
   END IF;
 END $$;
 
