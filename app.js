@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-1";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-2";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260313-1";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-1";
-import { CRMStore } from "./store.js?v=20260313-1";
-import { STORAGE_KEYS } from "./constants.js?v=20260313-1";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260313-1";
+} from "./ia.js?v=20260313-2";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-2";
+import { CRMStore } from "./store.js?v=20260313-2";
+import { STORAGE_KEYS } from "./constants.js?v=20260313-2";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260313-2";
 import {
   getDashboardKpis as getDashboardKpisView,
   getVendasPorDia as getVendasPorDiaView,
@@ -25,17 +25,17 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260313-1";
+} from "./viewsApi.js?v=20260313-2";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260313-1";
+} from "./sync/bling.js?v=20260313-2";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl
-} from "./sync/yampi.js?v=20260313-1";
+} from "./sync/yampi.js?v=20260313-2";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
