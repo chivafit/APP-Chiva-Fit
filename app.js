@@ -8270,7 +8270,6 @@ Object.assign(window,{
   backToClientes,
   clienteWhatsApp,
   clienteAddTask,
-  clienteAddCall,
   clienteAddNote,
   clienteAddNegotiation,
   openInteractionModal,
