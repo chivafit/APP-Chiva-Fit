@@ -212,9 +212,25 @@ async function persistSyncResultToDb(
   serviceRoleKey: string,
   orders: any[],
   canaisMap: Record<string, string>,
+  updateLastSync: boolean,
 ) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = nowIso();
+
+  let pedidosItemsTotalCol: "valor_total" | "total" = "valor_total";
+  try {
+    const t1 = await supabase.from("v2_pedidos_items").select("valor_total").limit(1);
+    if (t1?.error) throw t1.error;
+    pedidosItemsTotalCol = "valor_total";
+  } catch (_e) {
+    try {
+      const t2 = await supabase.from("v2_pedidos_items").select("total").limit(1);
+      if (t2?.error) throw t2.error;
+      pedidosItemsTotalCol = "total";
+    } catch (_e2) {
+      pedidosItemsTotalCol = "valor_total";
+    }
+  }
 
   const customersByDoc: Record<string, any> = {};
   orders.forEach((o) => {
@@ -354,14 +370,15 @@ async function persistSyncResultToDb(
       const quantidade = Number(it?.quantidade ?? 0) || 0;
       const valorUnitario = Number(it?.valor ?? 0) || 0;
       const valorTotal = quantidade * valorUnitario;
-      itemRows.push({
+      const row: any = {
         pedido_id: pid,
         produto_nome: produtoNome,
         quantidade,
         valor_unitario: valorUnitario,
-        valor_total: valorTotal,
         created_at: now,
-      });
+      };
+      row[pedidosItemsTotalCol] = valorTotal;
+      itemRows.push(row);
     });
   });
 
@@ -379,9 +396,11 @@ async function persistSyncResultToDb(
     }
   }
 
-  await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling", valor_texto: now, updated_at: now }], {
-    onConflict: "chave",
-  });
+  if (updateLastSync) {
+    await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling", valor_texto: now, updated_at: now }], {
+      onConflict: "chave",
+    });
+  }
 }
 
 function isoToday(): string {
@@ -710,9 +729,34 @@ serve(async (req: Request) => {
     ({ from, to } = clampDateRange(from, to, 365));
 
     const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 50) || 50));
-    const offset = Math.max(0, Number(body?.offset ?? 0) || 0);
+    const hasExplicitOffset = body?.offset != null;
+    let offset = Math.max(0, Number(body?.offset ?? 0) || 0);
     const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
     const concurrency = Math.min(10, Math.max(1, Number(body?.concurrency ?? 6) || 6));
+
+    if (persist && !hasExplicitOffset) {
+      let cursorText = "";
+      try {
+        cursorText = await getConfigValue(supabaseUrl, serviceRoleKey, "bling_sync_cursor");
+      } catch (_e) {}
+      const parsedCursor: any = safeJsonParse(String(cursorText || ""));
+      const curFrom = String(parsedCursor?.from ?? "").slice(0, 10);
+      const curTo = String(parsedCursor?.to ?? "").slice(0, 10);
+      const curOffset = Number(parsedCursor?.offset ?? NaN);
+      if (curFrom === from && curTo === to && Number.isFinite(curOffset) && curOffset >= 0) {
+        offset = Math.floor(curOffset);
+      } else {
+        offset = 0;
+        try {
+          const supabase = createClient(supabaseUrl, serviceRoleKey);
+          await supabase.from("configuracoes").upsert([{
+            chave: "bling_sync_cursor",
+            valor_texto: JSON.stringify({ from, to, offset, limit }),
+            updated_at: nowIso(),
+          }], { onConflict: "chave" });
+        } catch (_e) {}
+      }
+    }
 
     try {
       console.log("[bling-sync] request", { from, to, limit, offset, maxPages, concurrency });
@@ -782,7 +826,27 @@ serve(async (req: Request) => {
 
     if (persist) {
       const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
-      await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap);
+      await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap, false);
+      const supabase = createClient(supabaseUrl, serviceRoleKey);
+      const now = nowIso();
+      if (hasMore) {
+        await supabase.from("configuracoes").upsert([{
+          chave: "bling_sync_cursor",
+          valor_texto: JSON.stringify({ from, to, offset: nextOffset, limit }),
+          updated_at: now,
+        }], { onConflict: "chave" });
+      } else {
+        await supabase.from("configuracoes").upsert([{
+          chave: "bling_sync_cursor",
+          valor_texto: "",
+          updated_at: now,
+        }], { onConflict: "chave" });
+        await supabase.from("configuracoes").upsert([{
+          chave: "ultima_sync_bling",
+          valor_texto: now,
+          updated_at: now,
+        }], { onConflict: "chave" });
+      }
       return jsonResponse({ ok: true, persisted: true, count: details.length, from, to, limit, offset, nextOffset, hasMore });
     }
 

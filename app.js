@@ -4315,11 +4315,12 @@ async function openOppClienteResumo(customerKey){
   try{
     const okItems = await ensureV2PedidosItemsAvailable();
     if(okItems && pedidoIds.length){
+      const totalCol = v2PedidosItemsTotalColumn || "valor_total";
       for(let i=0;i<pedidoIds.length;i+=200){
         const batch = pedidoIds.slice(i,i+200);
         const {data, error} = await supaClient
           .from("v2_pedidos_items")
-          .select("produto_nome,quantidade,valor_total")
+          .select(`produto_nome,quantidade,${totalCol}`)
           .in("pedido_id", batch)
           .limit(20000);
         if(error) throw error;
@@ -4328,7 +4329,7 @@ async function openOppClienteResumo(customerKey){
           if(!nome) return;
           if(!itemsAgg[nome]) itemsAgg[nome] = { nome, qty: 0, total: 0 };
           itemsAgg[nome].qty += Number(r.quantidade||0) || 0;
-          itemsAgg[nome].total += Number(r.valor_total||0) || 0;
+          itemsAgg[nome].total += Number(r?.[totalCol] ?? r?.valor_total ?? r?.total ?? 0) || 0;
         });
       }
     }
@@ -5294,6 +5295,7 @@ let upsertOrdersInFlight = false;
 const resolveUuidAutocreateTried = new Set();
 const resolveUuidAutocreateInFlight = new Set();
 let v2PedidosItemsAvailable = null;
+let v2PedidosItemsTotalColumn = null;
 
 async function ensureV2PedidosItemsAvailable(){
   if(v2PedidosItemsAvailable === false) return false;
@@ -5302,6 +5304,21 @@ async function ensureV2PedidosItemsAvailable(){
   try{
     const {error} = await supaClient.from("v2_pedidos_items").select("id").limit(1);
     if(error) throw error;
+    if(!v2PedidosItemsTotalColumn){
+      try{
+        const {error: e1} = await supaClient.from("v2_pedidos_items").select("valor_total").limit(1);
+        if(e1) throw e1;
+        v2PedidosItemsTotalColumn = "valor_total";
+      }catch(_e){
+        try{
+          const {error: e2} = await supaClient.from("v2_pedidos_items").select("total").limit(1);
+          if(e2) throw e2;
+          v2PedidosItemsTotalColumn = "total";
+        }catch(_e2){
+          v2PedidosItemsTotalColumn = "valor_total";
+        }
+      }
+    }
     v2PedidosItemsAvailable = true;
     return true;
   }catch(_e){
@@ -5365,14 +5382,15 @@ async function upsertV2PedidosItemsFromOrders(orders){
       const valorUnitario = getUnit(it);
       const valorTotal = getTotal(it, quantidade, valorUnitario);
       if(!produtoNome) return;
-      rows.push({
+      const row = {
         pedido_id: pid,
         produto_nome: produtoNome,
         quantidade,
         valor_unitario: valorUnitario,
-        valor_total: valorTotal,
         created_at: new Date().toISOString()
-      });
+      };
+      row[v2PedidosItemsTotalColumn || "valor_total"] = valorTotal;
+      rows.push(row);
     });
   });
   if(!rows.length) return;
