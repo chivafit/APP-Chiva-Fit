@@ -13,31 +13,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.example.js"></script>
-<script>
-(function(){
-  try{
-    fetch("./config.js", { method: "HEAD", cache: "no-store" })
-      .then(function(r){
-        if(!r || !r.ok) return null;
-        return new Promise(function(resolve){
-          var s = document.createElement("script");
-          s.src = "./config.js?v=" + Date.now();
-          s.onload = function(){ resolve(true); };
-          s.onerror = function(){ resolve(false); };
-          document.head.appendChild(s);
-        });
-      })
-      .catch(function(){ return null; })
-      .finally(function(){
-        var m = document.createElement("script");
-        m.type = "module";
-        m.src = "./main.js?v=20260313-1";
-        document.head.appendChild(m);
-      });
-  }catch(_e){}
-})();
-</script>
+<script src="./config.js?v=20260313-1"></script>
+<script type="module" src="./main.js?v=20260313-1"></script>
 <link rel="stylesheet" href="./main.css?v=20260313-1">
 </head>
 <body>

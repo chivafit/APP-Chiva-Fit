@@ -18,4 +18,5 @@ pnpm-debug.log*
 .vscode/
 
 # Configuração sensível
-config.js
+config.local.js
+config.private.js
