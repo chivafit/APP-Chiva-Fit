@@ -2430,6 +2430,25 @@ html.light #topbar {
   background: rgba(255,255,255,.92);
   backdrop-filter: blur(12px);
 }
+html.light .cmdbar, body.light .cmdbar {
+  background: rgba(0,0,0,.03);
+  border-color: rgba(0,0,0,.10);
+}
+html.light .cmdbar-input, body.light .cmdbar-input { color: var(--text); }
+html.light .cmdbar-btn, body.light .cmdbar-btn { border-color: rgba(0,0,0,.10); color: var(--text-2); }
+
+html.light .geo-map-tooltip, body.light .geo-map-tooltip {
+  background: rgba(255,255,255,.96);
+  color: #111827;
+  border-color: rgba(0,0,0,.12);
+}
+
+html.light .opp-card.opp-health-churn, body.light .opp-card.opp-health-churn {
+  background: linear-gradient(135deg,rgba(248,113,113,.08),var(--bg) 55%);
+}
+html.light .opp-card.opp-health-vip, body.light .opp-card.opp-health-vip {
+  background: linear-gradient(135deg,rgba(251,191,36,.08),var(--bg) 60%);
+}
 html.light .stat::before {
   background: linear-gradient(90deg, transparent, rgba(15,167,101,.15), transparent);
 }
