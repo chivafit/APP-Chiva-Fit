@@ -301,6 +301,84 @@ async function persistSyncResultToDb(
     if (error) throw error;
   }
 
+  const productsById: Record<string, any> = {};
+  const pedidoIds: string[] = [];
+  pedidosRows.forEach((p: any) => {
+    const pid = String(p?.id ?? "").trim();
+    if (pid) pedidoIds.push(pid);
+    const itens = Array.isArray(p?.itens) ? p.itens : [];
+    itens.forEach((it: any) => {
+      const codigo = String(it?.codigo ?? "").trim();
+      const nome = String(it?.descricao ?? "").trim();
+      const key = String(codigo || nome).trim();
+      if (!key) return;
+      if (!productsById[key]) {
+        productsById[key] = {
+          id: key,
+          codigo: codigo || null,
+          nome: nome || null,
+          estoque: null,
+          preco: null,
+          situacao: null,
+          origem: "bling",
+          updated_at: now,
+          raw: { codigo: codigo || null, nome: nome || null, source: "bling-sync" },
+        };
+      } else {
+        if (codigo && !productsById[key].codigo) productsById[key].codigo = codigo;
+        if (nome && !productsById[key].nome) productsById[key].nome = nome;
+      }
+    });
+  });
+
+  const productRows = Object.values(productsById).filter((r: any) => String(r?.id ?? "").trim());
+  if (productRows.length) {
+    for (let i = 0; i < productRows.length; i += 200) {
+      const batch = productRows.slice(i, i + 200);
+      const { error } = await supabase.from("v2_produtos").upsert(batch, { onConflict: "id" });
+      if (error) throw error;
+    }
+    await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling_produtos", valor_texto: now, updated_at: now }], {
+      onConflict: "chave",
+    });
+  }
+
+  const itemRows: any[] = [];
+  pedidosRows.forEach((p: any) => {
+    const pid = String(p?.id ?? "").trim();
+    if (!pid) return;
+    const itens = Array.isArray(p?.itens) ? p.itens : [];
+    itens.forEach((it: any) => {
+      const produtoNome = String(it?.descricao ?? it?.codigo ?? "").trim();
+      if (!produtoNome) return;
+      const quantidade = Number(it?.quantidade ?? 0) || 0;
+      const valorUnitario = Number(it?.valor ?? 0) || 0;
+      const valorTotal = quantidade * valorUnitario;
+      itemRows.push({
+        pedido_id: pid,
+        produto_nome: produtoNome,
+        quantidade,
+        valor_unitario: valorUnitario,
+        valor_total: valorTotal,
+        created_at: now,
+      });
+    });
+  });
+
+  if (itemRows.length) {
+    const uniquePedidoIds = Array.from(new Set(pedidoIds)).filter(Boolean);
+    for (let i = 0; i < uniquePedidoIds.length; i += 200) {
+      const batch = uniquePedidoIds.slice(i, i + 200);
+      const { error } = await supabase.from("v2_pedidos_items").delete().in("pedido_id", batch);
+      if (error) throw error;
+    }
+    for (let i = 0; i < itemRows.length; i += 1000) {
+      const batch = itemRows.slice(i, i + 1000);
+      const { error } = await supabase.from("v2_pedidos_items").insert(batch);
+      if (error) throw error;
+    }
+  }
+
   await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling", valor_texto: now, updated_at: now }], {
     onConflict: "chave",
   });
