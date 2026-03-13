@@ -33,16 +33,16 @@ jobs:
           fi
 
       - name: Deploy bling-renew-token
-        run: supabase functions deploy bling-renew-token --project-ref $SUPABASE_PROJECT_ID
+        run: supabase functions deploy bling-renew-token --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
 
       - name: Deploy bling-sync
-        run: supabase functions deploy bling-sync --project-ref $SUPABASE_PROJECT_ID
+        run: supabase functions deploy bling-sync --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
 
       - name: Deploy bling-products-sync
-        run: supabase functions deploy bling-products-sync --project-ref $SUPABASE_PROJECT_ID
+        run: supabase functions deploy bling-products-sync --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
 
       - name: Deploy yampi-webhook
-        run: supabase functions deploy yampi-webhook --project-ref $SUPABASE_PROJECT_ID
+        run: supabase functions deploy yampi-webhook --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
 
       - name: Deploy ia-claude
         run: supabase functions deploy ia-claude --project-ref $SUPABASE_PROJECT_ID
