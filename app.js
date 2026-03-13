@@ -14,6 +14,19 @@ import { CRMStore } from "./store.js?v=20260313-1";
 import { STORAGE_KEYS } from "./constants.js?v=20260313-1";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260313-1";
 import {
+  getDashboardKpis as getDashboardKpisView,
+  getVendasPorDia as getVendasPorDiaView,
+  getVendasPorCanal as getVendasPorCanalView,
+  getFunilRecompra as getFunilRecompraView,
+  getTopCidades as getTopCidadesView,
+  getProdutosFavoritos as getProdutosFavoritosView,
+  getClientesVipRisco as getClientesVipRiscoView,
+  getClientesReativacao as getClientesReativacaoView,
+  getClientesSemContato as getClientesSemContatoView,
+  getClientesInteligencia as getClientesInteligenciaView,
+  normalizeClienteIntel
+} from "./viewsApi.js?v=20260313-1";
+import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
@@ -52,6 +65,9 @@ let supaSession = null;
 let supaAccessToken = "";
 let supaAuthUnsub = null;
 let canaisLookup = {};
+let clientesIntelCache = [];
+let clientesIntelLoadedAt = 0;
+let clientesIntelInFlight = false;
 
 // ═══════════════════════════════════════════════════
 //  THEME SYSTEM
@@ -1054,6 +1070,7 @@ function saveSupabaseConfig(){
 }
 // Load supa config into form on page open
 document.addEventListener("DOMContentLoaded", ()=>{
+  bindDateMasks(document);
   const u =
     localStorage.getItem("crm_supa_url") ||
     localStorage.getItem("supa_url") ||
@@ -2025,7 +2042,7 @@ function openTaskModal(id, cliente, customerId){
             <option value="concluida" ${t?.status==="concluida"?"selected":""}>✅ Concluída</option>
           </select>
         </div>
-        <input id="tm-data" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" value="${escapeHTML(fmtDate(t?.data||new Date().toISOString().slice(0,10)))}"
+        <input id="tm-data" type="text" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa" value="${escapeHTML(fmtDate(t?.data||new Date().toISOString().slice(0,10)))}"
           style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:14px;box-sizing:border-box"/>
         <div style="display:flex;gap:8px">
           <button onclick="document.getElementById('task-modal-overlay').remove()" 
@@ -2036,6 +2053,7 @@ function openTaskModal(id, cliente, customerId){
       </div>
     </div>`;
   document.body.insertAdjacentHTML("beforeend", html);
+  bindDateMasks(document.getElementById("task-modal-overlay"));
 }
 
 function saveTask(id){
@@ -2584,11 +2602,58 @@ function fmtDate(d){
 function parseDateToIso(v){
   const s = String(v || "").trim();
   if(!s) return "";
+  const onlyDigits = s.replace(/\D/g,"");
+  if(/^\d{8}$/.test(onlyDigits) && !s.includes("-")){
+    const dd = onlyDigits.slice(0,2);
+    const mm = onlyDigits.slice(2,4);
+    const yyyy = onlyDigits.slice(4,8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(iso) return s;
-  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if(br) return `${br[3]}-${br[2]}-${br[1]}`;
   return "";
+}
+
+function formatDateMaskValue(raw){
+  const digits = String(raw || "").replace(/\D/g,"").slice(0,8);
+  if(!digits) return "";
+  const dd = digits.slice(0,2);
+  const mm = digits.slice(2,4);
+  const yyyy = digits.slice(4,8);
+  if(digits.length <= 2) return dd;
+  if(digits.length <= 4) return `${dd}/${mm}`;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function attachDateMask(el){
+  if(!el || el.dataset?.dateMaskBound === "1") return;
+  el.dataset.dateMaskBound = "1";
+  el.addEventListener("input", ()=>{
+    const next = formatDateMaskValue(el.value);
+    if(el.value !== next) el.value = next;
+  });
+  el.addEventListener("blur", ()=>{
+    const iso = parseDateToIso(el.value);
+    if(!iso){
+      if(String(el.value||"").trim()) el.value = "";
+      return;
+    }
+    el.value = fmtDate(iso);
+  });
+  if(String(el.value||"").trim()){
+    const next = formatDateMaskValue(el.value);
+    if(el.value !== next) el.value = next;
+  }
+}
+
+function bindDateMasks(root){
+  try{
+    const scope = root && root.querySelectorAll ? root : document;
+    const els = scope.querySelectorAll('input[data-date-mask="1"]');
+    els.forEach(attachDateMask);
+  }catch(_e){}
 }
 function fmtDoc(d){ d=(d||"").replace(/\D/g,""); if(d.length===11)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4"); if(d.length===14)return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5"); return d; }
 function fmtPhone(p){ p=(p||"").replace(/\D/g,""); if(!p)return""; if(p.length===11)return`(${p.slice(0,2)}) ${p.slice(2,7)}-${p.slice(7)}`; if(p.length===10)return`(${p.slice(0,2)}) ${p.slice(2,6)}-${p.slice(6)}`; return p; }
@@ -2892,6 +2957,28 @@ function renderDash(){
     const stored = String(localStorage.getItem("crm_dash_canal")||"").toLowerCase().trim();
     if(stored && !dashSel.value) dashSel.value = stored;
   }
+  const fromEl = document.getElementById("dash-from");
+  const toEl = document.getElementById("dash-to");
+  if(fromEl && toEl){
+    const storedFrom = String(localStorage.getItem("crm_dash_from") || "").trim();
+    const storedTo = String(localStorage.getItem("crm_dash_to") || "").trim();
+    if(storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
+    if(storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
+    if(!fromEl.value || !toEl.value){
+      const to = new Date();
+      const from = new Date();
+      from.setDate(to.getDate() - 29);
+      fromEl.value = fmtDate(iso(from));
+      toEl.value = fmtDate(iso(to));
+      localStorage.setItem("crm_dash_from", iso(from));
+      localStorage.setItem("crm_dash_to", iso(to));
+    }else{
+      const fromIso = parseDateToIso(fromEl.value);
+      const toIso = parseDateToIso(toEl.value);
+      if(fromIso) localStorage.setItem("crm_dash_from", fromIso);
+      if(toIso) localStorage.setItem("crm_dash_to", toIso);
+    }
+  }
   const dashCh = String(dashSel?.value||"").toLowerCase().trim();
   if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
   const ordersBase = Array.isArray(allOrders) ? allOrders : [];
@@ -3018,9 +3105,398 @@ function renderDash(){
   setTimeout(()=>{ renderDashChartsCidades(orders); }, 150);
   if(supaConnected && supaClient){
     setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{ renderDashChartsCrescimento(orders); }); }, 10);
+    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
   }else{
     setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
+    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
   }
+}
+
+function setDashRange(days){
+  const n = Math.max(1, Number(days) || 30);
+  const to = new Date();
+  const from = new Date();
+  from.setDate(to.getDate() - (n - 1));
+  const fromIso = iso(from);
+  const toIso = iso(to);
+  const fromEl = document.getElementById("dash-from");
+  const toEl = document.getElementById("dash-to");
+  if(fromEl) fromEl.value = fmtDate(fromIso);
+  if(toEl) toEl.value = fmtDate(toIso);
+  localStorage.setItem("crm_dash_from", fromIso);
+  localStorage.setItem("crm_dash_to", toIso);
+  renderDash();
+}
+
+function getDashRangeIso(){
+  const fromEl = document.getElementById("dash-from");
+  const toEl = document.getElementById("dash-to");
+  const fromIso = parseDateToIso(String(fromEl?.value || "")) || String(localStorage.getItem("crm_dash_from") || "");
+  const toIso = parseDateToIso(String(toEl?.value || "")) || String(localStorage.getItem("crm_dash_to") || "");
+  if(fromIso && toIso) return { fromIso, toIso };
+  const to = new Date();
+  const from = new Date();
+  from.setDate(to.getDate() - 29);
+  return { fromIso: iso(from), toIso: iso(to) };
+}
+
+function calcPrevRange(fromIso, toIso){
+  const from = new Date(fromIso + "T12:00:00");
+  const to = new Date(toIso + "T12:00:00");
+  const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86400000) + 1);
+  const prevTo = new Date(from.getTime() - 86400000);
+  const prevFrom = new Date(prevTo.getTime() - (days - 1) * 86400000);
+  return { prevFromIso: iso(prevFrom), prevToIso: iso(prevTo), days };
+}
+
+function pctDelta(cur, prev){
+  const a = Number(cur || 0) || 0;
+  const b = Number(prev || 0) || 0;
+  if(!b) return null;
+  return ((a - b) / b) * 100;
+}
+
+function dashDeltaBadge(delta){
+  if(delta == null || !isFinite(delta)) return "";
+  const up = delta >= 0;
+  const color = up ? "var(--green)" : "var(--red)";
+  return `<span style="color:${color}">${up ? "▲" : "▼"}${Math.abs(delta).toFixed(1)}%</span>`;
+}
+
+async function renderDashV2(){
+  const host = document.getElementById("dashv2-card");
+  if(!host) return;
+  const kpisEl = document.getElementById("dashv2-kpis");
+  const riskEl = document.getElementById("dashv2-risk");
+  const vipRiskEl = document.getElementById("dashv2-vip-risk");
+  if(!kpisEl) return;
+
+  const { fromIso, toIso } = getDashRangeIso();
+  const prev = calcPrevRange(fromIso, toIso);
+
+  const series = [];
+  const channelAgg = {};
+  let faturamento = 0;
+  let pedidos = 0;
+  let faturamentoPrev = 0;
+  let pedidosPrev = 0;
+  let novosClientes = 0;
+  let novosClientesPrev = 0;
+  let totalClientes = null;
+  let ltvMedio = null;
+
+  if(supaConnected && supaClient){
+    try{
+      const kpis = await getDashboardKpisView(supaClient);
+      if(kpis){
+        totalClientes = Number(kpis.total_clientes ?? kpis.totalClientes ?? null);
+        ltvMedio = Number(kpis.ltv_medio ?? kpis.ltvMedio ?? null);
+      }
+    }catch(_e){}
+
+    const daily = await getVendasPorDiaView(supaClient, fromIso, toIso);
+    (Array.isArray(daily) ? daily : []).forEach(r=>{
+      const diaIso = String(r?.dia || r?.data || r?.date || "").slice(0,10);
+      const v = Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
+      const q = Number(r?.pedidos ?? r?.total_pedidos ?? r?.qtd ?? r?.count ?? 0) || 0;
+      if(!diaIso) return;
+      series.push({ diaIso, faturamento: v, pedidos: q });
+      faturamento += v;
+      pedidos += q;
+    });
+
+    const dailyPrev = await getVendasPorDiaView(supaClient, prev.prevFromIso, prev.prevToIso);
+    (Array.isArray(dailyPrev) ? dailyPrev : []).forEach(r=>{
+      faturamentoPrev += Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
+      pedidosPrev += Number(r?.pedidos ?? r?.total_pedidos ?? r?.qtd ?? r?.count ?? 0) || 0;
+    });
+
+    const canalRows = await getVendasPorCanalView(supaClient, fromIso, toIso);
+    (Array.isArray(canalRows) ? canalRows : []).forEach(r=>{
+      const canal = String(r?.canal || r?.canal_principal || r?.slug || r?.channel || "outros").toLowerCase().trim() || "outros";
+      const v = Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
+      channelAgg[canal] = (channelAgg[canal] || 0) + v;
+    });
+
+    const fromTs = new Date(fromIso + "T00:00:00").getTime();
+    const toTs = new Date(toIso + "T23:59:59").getTime();
+    const prevFromTs = new Date(prev.prevFromIso + "T00:00:00").getTime();
+    const prevToTs = new Date(prev.prevToIso + "T23:59:59").getTime();
+    const baseClientes = clientesIntelCache.length ? clientesIntelCache : (await (async()=>{ try{ return (await getClientesInteligenciaView(supaClient, 12000)).map(normalizeClienteIntel); }catch(_e){ return []; } })());
+    baseClientes.forEach(c=>{
+      const fp = String(c?.primeiro_pedido || "").slice(0,10);
+      if(fp){
+        const ts = new Date(fp + "T12:00:00").getTime();
+        if(ts >= fromTs && ts <= toTs) novosClientes += 1;
+        if(ts >= prevFromTs && ts <= prevToTs) novosClientesPrev += 1;
+      }
+    });
+
+    const reativacaoEl = riskEl;
+    if(reativacaoEl){
+      const rows = await getClientesReativacaoView(supaClient, 8);
+      reativacaoEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+        const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+        const nome = String(c?.nome || "Cliente");
+        const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+        const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+        return `<div class="top-item" onclick="openClientePage('${id}')">
+          <div class="top-rank">${idx+1}</div>
+          <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+          <div class="top-val">${escapeHTML(ltv)}</div>
+          <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+        </div>`;
+      }).join("") || `<div class="empty">Sem reativação prioritária.</div>`;
+    }
+
+    if(vipRiskEl){
+      const rows = await getClientesVipRiscoView(supaClient, 8);
+      vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+        const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+        const nome = String(c?.nome || "VIP");
+        const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+        const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+        return `<div class="top-item" onclick="openClientePage('${id}')">
+          <div class="top-rank">${idx+1}</div>
+          <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+          <div class="top-val">${escapeHTML(ltv)}</div>
+          <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+        </div>`;
+      }).join("") || `<div class="empty">Sem VIPs em risco no período.</div>`;
+    }
+
+    try{
+      const funil = await getFunilRecompraView(supaClient);
+      renderDashV2Funil(funil);
+    }catch(_e){}
+    try{
+      const topProds = await getProdutosFavoritosView(supaClient, 10);
+      renderDashV2TopProdutos(topProds);
+    }catch(_e){}
+    try{
+      const topCities = await getTopCidadesView(supaClient, 10);
+      renderDashV2TopCidades(topCities);
+    }catch(_e){}
+    try{
+      const semContato = await getClientesSemContatoView(supaClient, 8);
+      renderDashV2SemContato(semContato);
+    }catch(_e){}
+  }else{
+    const orders = Array.isArray(allOrders) ? allOrders : [];
+    const fromTs = new Date(fromIso + "T00:00:00").getTime();
+    const toTs = new Date(toIso + "T23:59:59").getTime();
+    const inRange = orders.filter(o=>{
+      const d = String(o?.data || o?.data_pedido || o?.created_at || "").slice(0,10);
+      if(!d) return false;
+      const ts = new Date(d + "T12:00:00").getTime();
+      return ts >= fromTs && ts <= toTs;
+    });
+    const byDay = {};
+    inRange.forEach(o=>{
+      const d = String(o?.data || "").slice(0,10);
+      if(!d) return;
+      const v = val(o);
+      const ch = detectCh(o);
+      byDay[d] = byDay[d] || { pedidos: 0, faturamento: 0 };
+      byDay[d].pedidos += 1;
+      byDay[d].faturamento += v;
+      channelAgg[ch] = (channelAgg[ch] || 0) + v;
+      faturamento += v;
+      pedidos += 1;
+    });
+    Object.keys(byDay).sort().forEach(d=>{
+      series.push({ diaIso: d, faturamento: byDay[d].faturamento, pedidos: byDay[d].pedidos });
+    });
+  }
+
+  const ticket = pedidos ? (faturamento / pedidos) : 0;
+  const ticketPrev = pedidosPrev ? (faturamentoPrev / pedidosPrev) : 0;
+  const kpi = [
+    { l: "Faturamento", v: fmtBRL(faturamento), s: dashDeltaBadge(pctDelta(faturamento, faturamentoPrev)) },
+    { l: "Pedidos", v: String(pedidos), s: dashDeltaBadge(pctDelta(pedidos, pedidosPrev)) },
+    { l: "Ticket Médio", v: fmtBRL(ticket), s: dashDeltaBadge(pctDelta(ticket, ticketPrev)) },
+    { l: "Novos Clientes", v: String(novosClientes), s: dashDeltaBadge(pctDelta(novosClientes, novosClientesPrev)) },
+    { l: "Clientes (base)", v: totalClientes == null ? "—" : String(totalClientes), s: ltvMedio == null ? "" : `LTV médio ${fmtBRL(ltvMedio)}` },
+  ];
+
+  kpisEl.innerHTML = kpi.map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
+
+  const diaCanvas = document.getElementById("chart-v2-dia");
+  if(diaCanvas && diaCanvas.getContext){
+    const ctx = diaCanvas.getContext("2d");
+    if(ctx){
+      if(charts.v2dia) charts.v2dia.destroy();
+      const labels = series.map(r=>fmtDate(r.diaIso));
+      const values = series.map(r=>Number(r.faturamento || 0) || 0);
+      charts.v2dia = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            label: "Faturamento",
+            data: values,
+            tension: 0.35,
+            fill: true,
+            borderColor: "#0FA765",
+            backgroundColor: "rgba(15,167,101,.18)",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+          }
+        }
+      });
+    }
+  }
+
+  const canalCanvas = document.getElementById("chart-v2-canal");
+  if(canalCanvas && canalCanvas.getContext){
+    const ctx = canalCanvas.getContext("2d");
+    if(ctx){
+      if(charts.v2canal) charts.v2canal.destroy();
+      const sorted = Object.entries(channelAgg).sort((a,b)=>b[1]-a[1]).slice(0,10);
+      charts.v2canal = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: sorted.map(([c])=>CH[c] || c),
+          datasets: [{
+            label: "Faturamento",
+            data: sorted.map(([,v])=>v),
+            backgroundColor: sorted.map(([c])=>CH_COLOR[c] || "rgba(15,167,101,.6)"),
+            borderRadius: 10,
+            borderSkipped: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+          }
+        }
+      });
+    }
+  }
+}
+
+function renderDashV2Funil(rows){
+  const canvas = document.getElementById("chart-v2-funil");
+  if(!canvas || !canvas.getContext || !globalThis.Chart) return;
+  const list = Array.isArray(rows) ? rows : [];
+  const mapped = list.map(r=>{
+    const label = String(r?.etapa || r?.stage || r?.funil || r?.label || "").trim() || "Etapa";
+    const value = Number(r?.clientes ?? r?.qtd_clientes ?? r?.total_clientes ?? r?.count ?? r?.n ?? 0) || 0;
+    const ord = Number(r?.ordem ?? r?.ord ?? r?.idx ?? 0) || 0;
+    return { label, value, ord };
+  });
+  mapped.sort((a,b)=>a.ord-b.ord);
+  const labels = mapped.map(x=>x.label);
+  const values = mapped.map(x=>x.value);
+  const ctx = canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.v2funil) charts.v2funil.destroy();
+  charts.v2funil = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Clientes",
+        data: values,
+        backgroundColor: "rgba(164,233,107,.25)",
+        borderColor: "rgba(164,233,107,.45)",
+        borderWidth: 1,
+        borderRadius: 10,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>String(c.parsed.x||0) + " clientes" } } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+        y: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
+      }
+    }
+  });
+}
+
+function renderDashV2TopProdutos(rows){
+  const el = document.getElementById("dashv2-top-produtos");
+  if(!el) return;
+  const list = Array.isArray(rows) ? rows : [];
+  if(!list.length){
+    el.innerHTML = `<div class="empty">Sem dados.</div>`;
+    return;
+  }
+  el.innerHTML = list.slice(0,10).map((r, idx)=>{
+    const nome = String(r?.produto || r?.produto_nome || r?.nome || r?.sku || "Produto").trim();
+    const unidades = Number(r?.unidades_vendidas ?? r?.unidades ?? r?.qty ?? r?.quantidade ?? 0) || 0;
+    const clientes = Number(r?.total_clientes ?? r?.clientes ?? 0) || 0;
+    const pct = r?.pct_recompra ?? r?.percentual_recompra ?? r?.recompra_pct ?? null;
+    const pctNum = pct == null ? null : (Number(pct) || 0);
+    const right = pctNum == null ? `${unidades}` : `${unidades} · ${pctNum.toFixed(0)}%`;
+    const sub = clientes ? `${clientes} clientes` : "—";
+    return `<div class="top-item">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(sub)}</span></div>
+      <div class="top-val">${escapeHTML(right)}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashV2TopCidades(rows){
+  const el = document.getElementById("dashv2-top-cidades");
+  if(!el) return;
+  const list = Array.isArray(rows) ? rows : [];
+  if(!list.length){
+    el.innerHTML = `<div class="empty">Sem dados.</div>`;
+    return;
+  }
+  el.innerHTML = list.slice(0,10).map((r, idx)=>{
+    const cidade = String(r?.cidade || r?.municipio || r?.city || "Cidade").trim();
+    const uf = String(r?.uf || r?.estado || "").trim().toUpperCase();
+    const label = [cidade, uf].filter(Boolean).join(" / ");
+    const fat = fmtBRL(Number(r?.faturamento ?? r?.receita ?? r?.total ?? 0) || 0);
+    const pedidos = Number(r?.pedidos ?? r?.total_pedidos ?? 0) || 0;
+    return `<div class="top-item">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(label)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(String(pedidos))} pedidos</span></div>
+      <div class="top-val">${escapeHTML(fat)}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashV2SemContato(rows){
+  const el = document.getElementById("dashv2-sem-contato");
+  if(!el) return;
+  const list = Array.isArray(rows) ? rows : [];
+  if(!list.length){
+    el.innerHTML = `<div class="empty">Sem dados.</div>`;
+    return;
+  }
+  el.innerHTML = list.slice(0,8).map((r, idx)=>{
+    const id = escapeJsSingleQuote(String(r?.cliente_id || r?.id || ""));
+    const nome = String(r?.nome || "Cliente").trim();
+    const motivo = String(r?.motivo || r?.reason || "sem whatsapp/email").trim();
+    const ltv = fmtBRL(Number(r?.ltv ?? r?.total_gasto ?? 0) || 0);
+    return `<div class="top-item" onclick="openClientePage('${id}')">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(motivo)}</span></div>
+      <div class="top-val">${escapeHTML(ltv)}</div>
+    </div>`;
+  }).join("");
 }
 
 function renderMeta(v){
@@ -3469,18 +3945,79 @@ function renderInteligencia(){
 function setChCli(ch){ activeCh=ch; renderClientes(); }
 
 function renderClientes(){
+  const usingViews = !!(supaConnected && supaClient);
+  const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
+  const seg=document.getElementById("fil-status-pedido")?.value||"";
+  const uf=document.getElementById("fil-estado")?.value||"";
+  const pf=document.getElementById("fil-perfil")?.value||"";
+
+  if(usingViews){
+    if(!clientesIntelCache.length){
+      loadClientesInteligenciaCache().catch(()=>{});
+      document.getElementById("cli-label").textContent = "Carregando…";
+      document.getElementById("client-list").innerHTML = `<div class="empty">Carregando inteligência de clientes…</div>`;
+      document.getElementById("ch-pills-cli").innerHTML = "";
+      return;
+    }
+
+    const cc = {};
+    clientesIntelCache.forEach(c=>{
+      const ch = String(c.canal_principal || "outros").toLowerCase().trim() || "outros";
+      cc[ch] = (cc[ch]||0) + 1;
+    });
+    const pills = [{id:"all",l:"Todos",n:clientesIntelCache.length},...["cnpj","shopify","ml","shopee","amazon","yampi","outros"].filter(c=>cc[c]).map(c=>({id:c,l:CH[c]||c,n:cc[c]}))];
+    document.getElementById("ch-pills-cli").innerHTML = pills.map(p=>`<div class="ch-pill ${p.id} ${activeCh===p.id?"active":""}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`).join("");
+
+    let rows = clientesIntelCache.slice();
+    if(activeCh!=="all") rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===activeCh);
+    if(uf) rows = rows.filter(c=>String(c.uf||"").toUpperCase()===String(uf).toUpperCase());
+    if(seg) rows = rows.filter(c=>String(c.segmento_crm||c.status||"")===seg);
+    if(pf){
+      rows = rows.filter(c=>{
+        const segmento = String(c.segmento_crm||"");
+        const stage = String(c.pipeline_stage||"");
+        const dias = c.dias_desde_ultima_compra == null ? 9999 : Number(c.dias_desde_ultima_compra||0);
+        const risco = Number(c.risco_churn||0)||0;
+        const pedidos = Number(c.total_pedidos||0)||0;
+        if(pf==="vip") return segmento==="VIP" || stage==="vip";
+        if(pf==="alerta") return risco>=70 || (segmento==="VIP" && dias>=45);
+        if(pf==="inativo") return dias>=60 || stage==="reativacao";
+        if(pf==="ativo") return pedidos>=1 && dias<=30;
+        if(pf==="novo") return stage==="novo_lead" || pedidos===0;
+        return true;
+      });
+    }
+    if(q){
+      const qDigits = q.replace(/\D/g,"");
+      rows = rows.filter(c=>{
+        const hay = [
+          c.nome,
+          c.email,
+          c.telefone,
+          c.celular,
+          c.doc,
+          c.cidade,
+          c.uf
+        ].map(x=>String(x||"").toLowerCase()).join(" ");
+        if(hay.includes(q)) return true;
+        if(qDigits && (String(c.telefone||"").includes(qDigits) || String(c.celular||"").includes(qDigits) || String(c.doc||"").includes(qDigits))) return true;
+        return false;
+      });
+    }
+
+    rows.sort((a,b)=>(Number(b.total_gasto||b.ltv||0)||0)-(Number(a.total_gasto||a.ltv||0)||0));
+    document.getElementById("cli-label").textContent=`${rows.length} cliente${rows.length!==1?"s":""}`;
+    if(!rows.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
+    document.getElementById("client-list").innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+    return;
+  }
+
   const cc={}; allOrders.forEach(o=>{ const c=detectCh(o); cc[c]=(cc[c]||0)+1; });
   const pills=[{id:"all",l:"Todos",n:allOrders.length},...["cnpj","shopify","ml","shopee","amazon","yampi","outros"].filter(c=>cc[c]).map(c=>({id:c,l:CH[c]||c,n:cc[c]}))];
   document.getElementById("ch-pills-cli").innerHTML=pills.map(p=>`<div class="ch-pill ${p.id} ${activeCh===p.id?"active":""}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`).join("");
 
-  const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
-  const stP=document.getElementById("fil-status-pedido")?.value||"";
-  const uf=document.getElementById("fil-estado")?.value||"";
-  const pf=document.getElementById("fil-perfil")?.value||"";
-
   const filt=allOrders.filter(o=>{
     if(activeCh!=="all"&&detectCh(o)!==activeCh) return false;
-    if(stP&&normSt(o.situacao)!==stP) return false;
     const ufOrder = String(o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || o?.uf || "").toUpperCase().trim();
     if(uf && ufOrder !== uf) return false;
     if(q){ const n=(o.contato?.nome||"").toLowerCase(),e=(o.contato?.email||"").toLowerCase(),t=rawPhone(o.contato?.telefone||""); if(!n.includes(q)&&!e.includes(q)&&!t.includes(q.replace(/\D/g,"")))return false; }
@@ -3493,6 +4030,74 @@ function renderClientes(){
   document.getElementById("cli-label").textContent=`${clis.length} cliente${clis.length!==1?"s":""}`;
   if(!clis.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
+}
+
+function renderCliIntelCard(c, eid){
+  const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+  const nome = String(c?.nome || "Cliente").trim();
+  const canal = String(c?.canal_principal || "outros").toLowerCase().trim() || "outros";
+  const segmento = String(c?.segmento_crm || "").trim();
+  const faixaV = String(c?.faixa_valor || "").trim();
+  const faixaF = String(c?.faixa_frequencia || "").trim();
+  const dias = c?.dias_desde_ultima_compra == null ? null : Number(c.dias_desde_ultima_compra||0);
+  const score = Number(c?.score_recompra || 0) || 0;
+  const churn = Number(c?.risco_churn || 0) || 0;
+  const pedidos = Number(c?.total_pedidos || 0) || 0;
+  const ltv = Number(c?.ltv ?? c?.total_gasto ?? 0) || 0;
+  const next = String(c?.next_best_action || "").trim();
+  const phone = String(c?.celular || c?.telefone || "").replace(/\D/g,"");
+  const email = String(c?.email || "").trim();
+  const loc = [String(c?.cidade||"").trim(), String(c?.uf||"").trim().toUpperCase()].filter(Boolean).join(" — ");
+  const mainChClass=/^[a-z0-9_-]+$/i.test(String(canal||""))?String(canal):"outros";
+  const isVip = segmento === "VIP" || String(c?.pipeline_stage||"") === "vip";
+  const actionHot = (isVip && (dias||0) >= 45) || churn >= 70 || String(c?.pipeline_stage||"") === "reativacao";
+
+  const badge = (txt, bg, fg)=>`<span class="badge" style="background:${bg};color:${fg};border-color:transparent">${escapeHTML(txt)}</span>`;
+  const scoreColor=(s)=>s>70?"var(--green)":s>40?"var(--amber)":"var(--red)";
+  const churnColor=(s)=>s>60?"var(--red)":s>30?"var(--amber)":"var(--green)";
+
+  return `<div class="client-card" id="${eid}">
+    <div class="client-head" onclick="openClientePage('${id}')">
+      <div>
+        <div class="client-name-row">
+          <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
+          <span class="badge cli-channel-flag ${mainChClass}">${escapeHTML(CH[canal]||canal)}</span>
+          ${segmento ? badge(segmento, isVip ? "rgba(250,204,21,.12)" : "rgba(96,165,250,.10)", isVip ? "var(--amber)" : "var(--blue)") : ""}
+          ${faixaV ? badge(faixaV, "rgba(148,163,184,.10)", "var(--text-2)") : ""}
+          ${faixaF ? badge(faixaF, "rgba(148,163,184,.08)", "var(--text-3)") : ""}
+          ${actionHot ? `<span class="badge-hint churn">⚡ Ação</span>` : ""}
+        </div>
+        <div class="client-meta">${escapeHTML(loc||"—")}${dias!=null?` · ${escapeHTML(String(dias))}d sem comprar`:""} · ${escapeHTML(String(pedidos))} pedidos</div>
+      </div>
+      <div class="client-right">
+        <div class="client-total">${fmtBRL(ltv)}</div>
+        <div class="client-count">${escapeHTML(String(pedidos))} ped.<span class="chevron">▾</span></div>
+      </div>
+    </div>
+    <div class="client-body">
+      <div class="score-bar-wrap">
+        <span class="score-label">Score Recompra</span>
+        <div class="score-track"><div class="score-fill" style="width:${score}%;background:${scoreColor(score)}"></div></div>
+        <span class="score-num" style="color:${scoreColor(score)}">${score.toFixed(0)}</span>
+      </div>
+      <div class="score-bar-wrap">
+        <span class="score-label">Risco de Churn</span>
+        <div class="score-track"><div class="score-fill" style="width:${churn}%;background:${churnColor(churn)}"></div></div>
+        <span class="score-num" style="color:${churnColor(churn)}">${churn.toFixed(0)}</span>
+      </div>
+      ${next ? `<div class="cli-marketing"><div class="cli-marketing-title">Próxima ação sugerida</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML(next)}</div></div>` : ""}
+      ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
+        <div class="contact-info">
+          ${phone?`<span>📱 ${escapeHTML(fmtPhone(phone))}</span>`:""}
+          ${email?`<span>✉️ ${escapeHTML(email)}</span>`:""}
+        </div>
+        <div class="contact-actions">
+          ${phone?`<a class="btn-wa" href="#" onclick="openWa('${escapeJsSingleQuote(phone)}','${escapeJsSingleQuote(nome)}','');return false;">💬 WA</a>`:""}
+          ${email?`<a class="btn-email" href="mailto:${encodeURIComponent(email)}">✉️</a>`:""}
+        </div>
+      </div>`:""}
+    </div>
+  </div>`;
 }
 
 function openClientePage(clienteId){
@@ -6293,11 +6898,36 @@ async function loadSupabaseData(){
     await loadCarrinhosAbandonadosFromSupabase();
     await loadCanalLookup();
     await loadOrdersFromSupabaseForCRM();
+    await loadClientesInteligenciaCache();
     await loadBlingProductsFromSupabase();
 
     updateBadge();
     renderDash();
   }catch(e){ console.warn('loadSupabaseData:', e.message); }
+}
+
+async function loadClientesInteligenciaCache(){
+  if(!supaConnected || !supaClient) return;
+  if(clientesIntelInFlight) return;
+  if(clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
+  clientesIntelInFlight = true;
+  try{
+    const raw = await getClientesInteligenciaView(supaClient, 7000);
+    const rows = (Array.isArray(raw) ? raw : []).map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
+    clientesIntelCache = rows;
+    clientesIntelLoadedAt = Date.now();
+    try{
+      const ufSel = document.getElementById("fil-estado");
+      if(ufSel){
+        const selected = String(ufSel.value || "");
+        const ufs = Array.from(new Set(rows.map(r=>String(r.uf||"").toUpperCase().trim()).filter(Boolean))).sort();
+        ufSel.innerHTML = `<option value="">Estado</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
+        if(selected) ufSel.value = selected;
+      }
+    }catch(_e){}
+  }catch(_e){}finally{
+    clientesIntelInFlight = false;
+  }
 }
 
 async function auditSupabaseSchema(){

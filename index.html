@@ -186,12 +186,36 @@
         <option value="cnpj">B2B/CNPJ</option>
         <option value="outros">Outros</option>
       </select>
+      <input id="dash-from" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="de (dd/mm/aaaa)" onchange="renderDash()"/>
+      <input id="dash-to" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="até (dd/mm/aaaa)" onchange="renderDash()"/>
+      <button class="saas-chip" onclick="setDashRange(30)">30d</button>
+      <button class="saas-chip" onclick="setDashRange(90)">90d</button>
     </div>
   </div>
     <div id="alert-banner"></div>
   <div id="source-row" style="display:flex;gap:var(--sp-1);flex-wrap:wrap;margin-bottom:var(--sp-4);font-size:10px;color:var(--text-3);font-weight:600"></div>
   <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
+  <div class="meta-card" id="dashv2-card">
+    <div class="card-hdr"><span class="card-title">🚀 Executivo v2</span></div>
+    <div class="stat-grid" id="dashv2-kpis"></div>
+    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="chart-card"><div class="chart-title">📆 Vendas por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-dia"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">🧩 Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
+    </div>
+    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="chart-card"><div class="chart-title">🧯 Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
+      <div class="chart-card"><div class="chart-title">🏆 VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
+    </div>
+    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="chart-card"><div class="chart-title">🧪 Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">📦 Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
+    </div>
+    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="chart-card"><div class="chart-title">📍 Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
+      <div class="chart-card"><div class="chart-title">⚡ Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
+    </div>
+  </div>
   <div class="meta-card">
     <div class="card-hdr"><span class="card-title">🎯 Meta Mensal</span><button class="btn-link" onclick="editMeta()">✏️ Editar</button></div>
     <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
@@ -355,10 +379,12 @@
     </div>
     <div class="saas-chips">
       <select id="fil-status-pedido" class="saas-chip saas-chip-select" onchange="renderClientes()">
-        <option value="">Status</option>
-        <option value="aprovado">Aprovados</option>
-        <option value="pendente">Pendentes</option>
-        <option value="cancelado">Cancelados</option>
+        <option value="">Segmento</option>
+        <option value="VIP">VIP</option>
+        <option value="Em Risco">Em Risco</option>
+        <option value="Churn">Churn</option>
+        <option value="Recompra">Recompra</option>
+        <option value="Novo Lead">Novo Lead</option>
       </select>
       <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">Estado</option></select>
       <select id="fil-perfil" class="saas-chip saas-chip-select" onchange="renderClientes()">
@@ -603,7 +629,7 @@
         As credenciais estão configuradas com segurança no servidor (Supabase).</p>
 
         <label>Período de importação</label>
-        <div class="date-row"><input type="text" class="inp" id="date-from" inputmode="numeric" placeholder="dd/mm/aaaa"/><span>até</span><input type="text" class="inp" id="date-to" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+        <div class="date-row"><input type="text" class="inp" id="date-from" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/><span>até</span><input type="text" class="inp" id="date-to" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
         <button class="btn-primary" onclick="syncBling()">Importar Pedidos do Bling</button>
         <div id="bling-status" class="setup-status"></div>
 
@@ -700,9 +726,9 @@
     </select>
     <div class="saas-chip saas-chip-range">
       <span class="saas-chip-label">Data</span>
-      <input id="ped-date-from" type="text" class="saas-chip-input" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
+      <input id="ped-date-from" type="text" class="saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
       <span class="saas-chip-sep">—</span>
-      <input id="ped-date-to" type="text" class="saas-chip-input" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
+      <input id="ped-date-to" type="text" class="saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa" onchange="renderPedidosPage()"/>
     </div>
     <div class="saas-chip saas-chip-number">
       <span class="saas-chip-label">Min</span>
@@ -1017,7 +1043,7 @@
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Fornecedor (opcional)</label><input id="en-fornecedor" placeholder="Fornecedor"/></div>
-      <div class="mod-field"><label>Data</label><input type="text" id="en-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Data</label><input type="text" id="en-data" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-actions">
       <button class="btn-mod-cancel" onclick="fecharModal('modal-entrada-insumo')">Cancelar</button>
@@ -1043,7 +1069,7 @@
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Produto</label><select id="or-produto" style="width:100%"></select></div>
-      <div class="mod-field"><label>Data de produção</label><input type="text" id="or-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Data de produção</label><input type="text" id="or-data" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Quantidade planejada</label><input type="number" id="or-qtd-planejada" placeholder="0" step="0.01"/></div>
@@ -1086,8 +1112,8 @@
       </div>
     </div>
     <div class="mod-row">
-      <div class="mod-field"><label>Início</label><input type="text" id="camp-inicio" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
-      <div class="mod-field"><label>Fim</label><input type="text" id="camp-fim" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Início</label><input type="text" id="camp-inicio" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Fim</label><input type="text" id="camp-fim" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
     </div>
     <div class="mod-row">
       <div class="mod-field"><label>Desconto / Oferta</label><input id="camp-oferta" placeholder="Ex: 20% off, frete grátis..."/></div>
@@ -1131,7 +1157,7 @@
       </div>
     </div>
     <div class="mod-row">
-      <div class="mod-field"><label>Data</label><input type="text" id="ev-data" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
+      <div class="mod-field"><label>Data</label><input type="text" id="ev-data" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
       <div class="mod-field"><label>Horário</label><input type="time" id="ev-hora"/></div>
     </div>
     <div class="mod-field"><label>Local / Plataforma</label><input id="ev-local" placeholder="Endereço ou link..."/></div>
