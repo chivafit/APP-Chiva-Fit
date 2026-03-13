@@ -13,9 +13,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.js?v=20260313-2"></script>
-<script type="module" src="./main.js?v=20260313-2"></script>
-<link rel="stylesheet" href="./main.css?v=20260313-2">
+<script src="./config.js?v=20260313-3"></script>
+<script type="module" src="./main.js?v=20260313-3"></script>
+<link rel="stylesheet" href="./main.css?v=20260313-3">
 </head>
 <body>
 
@@ -204,16 +204,20 @@
       <div class="chart-card"><div class="chart-title">🧩 Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="chart-card"><div class="chart-title">🆕 Novos Clientes por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-novos"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">🧪 Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
+    </div>
+    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
       <div class="chart-card"><div class="chart-title">🧯 Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
       <div class="chart-card"><div class="chart-title">🏆 VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">🧪 Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">📦 Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
+      <div class="chart-card"><div class="chart-title">� Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">📍 Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
       <div class="chart-card"><div class="chart-title">⚡ Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
+      <div class="chart-card"><div class="chart-title">🧭 Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
     </div>
   </div>
   <div class="meta-card">
@@ -378,23 +382,29 @@
       <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientes()"/>
     </div>
     <div class="saas-chips">
-      <select id="fil-status-pedido" class="saas-chip saas-chip-select" onchange="renderClientes()">
-        <option value="">Segmento</option>
+      <select id="fil-cli-status" class="saas-chip saas-chip-select" onchange="renderClientes()">
+        <option value="">Status</option>
         <option value="VIP">VIP</option>
         <option value="Em Risco">Em Risco</option>
         <option value="Churn">Churn</option>
         <option value="Recompra">Recompra</option>
         <option value="Novo Lead">Novo Lead</option>
+        <option value="Ativo">Ativo</option>
       </select>
-      <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">Estado</option></select>
-      <select id="fil-perfil" class="saas-chip saas-chip-select" onchange="renderClientes()">
-        <option value="">Perfil</option>
-        <option value="vip">⭐ VIP</option>
-        <option value="ativo">✅ Ativo</option>
-        <option value="inativo">😴 Inativo</option>
-        <option value="alerta">⚠️ Alerta</option>
-        <option value="novo">🆕 Novo</option>
+      <select id="fil-cli-seg" class="saas-chip saas-chip-select" onchange="renderClientes()">
+        <option value="">Segmento CRM</option>
       </select>
+      <select id="fil-cli-canal" class="saas-chip saas-chip-select" onchange="renderClientes()">
+        <option value="">Canal</option>
+        <option value="ml">Mercado Livre</option>
+        <option value="shopee">Shopee</option>
+        <option value="amazon">Amazon</option>
+        <option value="shopify">Shopify</option>
+        <option value="yampi">Yampi</option>
+        <option value="cnpj">B2B/CNPJ</option>
+        <option value="outros">Outros</option>
+      </select>
+      <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">UF</option></select>
       <button class="saas-chip saas-chip-btn" onclick="recarregar()" aria-label="Recarregar"><span id="ri">↻</span></button>
     </div>
   </div>

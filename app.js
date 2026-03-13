@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-2";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-3";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,15 +8,16 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260313-2";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-2";
-import { CRMStore } from "./store.js?v=20260313-2";
-import { STORAGE_KEYS } from "./constants.js?v=20260313-2";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260313-2";
+} from "./ia.js?v=20260313-3";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-3";
+import { CRMStore } from "./store.js?v=20260313-3";
+import { STORAGE_KEYS } from "./constants.js?v=20260313-3";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260313-3";
 import {
   getDashboardKpis as getDashboardKpisView,
-  getVendasPorDia as getVendasPorDiaView,
-  getVendasPorCanal as getVendasPorCanalView,
+  getDashboardDaily as getDashboardDailyView,
+  getDashboardDailyChannel as getDashboardDailyChannelView,
+  getNewCustomersDaily as getNewCustomersDailyView,
   getFunilRecompra as getFunilRecompraView,
   getTopCidades as getTopCidadesView,
   getProdutosFavoritos as getProdutosFavoritosView,
@@ -25,17 +26,17 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260313-2";
+} from "./viewsApi.js?v=20260313-3";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260313-2";
+} from "./sync/bling.js?v=20260313-3";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl
-} from "./sync/yampi.js?v=20260313-2";
+} from "./sync/yampi.js?v=20260313-3";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -3091,14 +3092,28 @@ function renderDash(){
     }
   }
 
-  document.getElementById("dash-stats").innerHTML=[
-    {l:"Volume Total",v:fmtBRL(total),s:"consolidado"},
-    {l:"Este Mês",v:fmtBRL(tMo),s:`<span style="color:${delta>=0?"var(--green)":"var(--red)"}">${delta>=0?"▲":"▼"}${Math.abs(delta).toFixed(1)}%</span>`},
-    {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
-    {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
-    {l:"Ticket Médio",v:fmtBRL(orders.length?total/orders.length:0),s:"por pedido"},
-    {l:"Pedidos Total",v:orders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
-  ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+  const dashStatsEl = document.getElementById("dash-stats");
+  if(dashStatsEl){
+    if(supaConnected && supaClient){
+      dashStatsEl.innerHTML=[
+        {l:"Faturamento Total",v:"—",s:"vw_dashboard_kpis"},
+        {l:"Pedidos",v:"—",s:"vw_dashboard_kpis"},
+        {l:"Ticket Médio",v:"—",s:"vw_dashboard_kpis"},
+        {l:"Clientes",v:"—",s:"vw_dashboard_kpis"},
+        {l:"LTV Médio",v:"—",s:"vw_dashboard_kpis"},
+      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+      updateDashMainKpisFromSupabase().catch(()=>{});
+    }else{
+      dashStatsEl.innerHTML=[
+        {l:"Volume Total",v:fmtBRL(total),s:"consolidado"},
+        {l:"Este Mês",v:fmtBRL(tMo),s:`<span style="color:${delta>=0?"var(--green)":"var(--red)"}">${delta>=0?"▲":"▼"}${Math.abs(delta).toFixed(1)}%</span>`},
+        {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
+        {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
+        {l:"Ticket Médio",v:fmtBRL(orders.length?total/orders.length:0),s:"por pedido"},
+        {l:"Pedidos Total",v:orders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
+      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+    }
+  }
 
   renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
   renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders);
@@ -3110,6 +3125,28 @@ function renderDash(){
     setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
     setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
   }
+}
+
+async function updateDashMainKpisFromSupabase(){
+  if(!supaConnected || !supaClient) return;
+  const el = document.getElementById("dash-stats");
+  if(!el) return;
+  try{
+    const k = await getDashboardKpisView(supaClient);
+    if(!k) return;
+    const faturamento = Number(k.faturamento_total || 0) || 0;
+    const pedidos = Number(k.total_pedidos || 0) || 0;
+    const ticket = Number(k.ticket_medio || 0) || 0;
+    const clientes = Number(k.total_clientes || 0) || 0;
+    const ltvMedio = Number(k.ltv_medio || 0) || 0;
+    el.innerHTML=[
+      {l:"Faturamento Total",v:fmtBRL(faturamento),s:""},
+      {l:"Pedidos",v:String(pedidos),s:""},
+      {l:"Ticket Médio",v:fmtBRL(ticket),s:""},
+      {l:"Clientes",v:String(clientes),s:""},
+      {l:"LTV Médio",v:fmtBRL(ltvMedio),s:""},
+    ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
+  }catch(_e){}
 }
 
 function setDashRange(days){
@@ -3176,6 +3213,7 @@ async function renderDashV2(){
 
   const series = [];
   const channelAgg = {};
+  const channelOrders = {};
   let faturamento = 0;
   let pedidos = 0;
   let faturamentoPrev = 0;
@@ -3194,43 +3232,42 @@ async function renderDashV2(){
       }
     }catch(_e){}
 
-    const daily = await getVendasPorDiaView(supaClient, fromIso, toIso);
+    const daily = await getDashboardDailyView(supaClient, fromIso, toIso);
     (Array.isArray(daily) ? daily : []).forEach(r=>{
-      const diaIso = String(r?.dia || r?.data || r?.date || "").slice(0,10);
-      const v = Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
-      const q = Number(r?.pedidos ?? r?.total_pedidos ?? r?.qtd ?? r?.count ?? 0) || 0;
+      const diaIso = String(r?.dia || "").slice(0,10);
+      const v = Number(r?.faturamento || 0) || 0;
+      const q = Number(r?.pedidos || 0) || 0;
+      const t = Number(r?.ticket_medio || 0) || 0;
       if(!diaIso) return;
-      series.push({ diaIso, faturamento: v, pedidos: q });
+      series.push({ diaIso, faturamento: v, pedidos: q, ticket_medio: t });
       faturamento += v;
       pedidos += q;
     });
 
-    const dailyPrev = await getVendasPorDiaView(supaClient, prev.prevFromIso, prev.prevToIso);
+    const dailyPrev = await getDashboardDailyView(supaClient, prev.prevFromIso, prev.prevToIso);
     (Array.isArray(dailyPrev) ? dailyPrev : []).forEach(r=>{
-      faturamentoPrev += Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
-      pedidosPrev += Number(r?.pedidos ?? r?.total_pedidos ?? r?.qtd ?? r?.count ?? 0) || 0;
+      faturamentoPrev += Number(r?.faturamento || 0) || 0;
+      pedidosPrev += Number(r?.pedidos || 0) || 0;
     });
 
-    const canalRows = await getVendasPorCanalView(supaClient, fromIso, toIso);
+    const canalRows = await getDashboardDailyChannelView(supaClient, fromIso, toIso);
     (Array.isArray(canalRows) ? canalRows : []).forEach(r=>{
-      const canal = String(r?.canal || r?.canal_principal || r?.slug || r?.channel || "outros").toLowerCase().trim() || "outros";
-      const v = Number(r?.faturamento ?? r?.receita ?? r?.total ?? r?.valor ?? 0) || 0;
+      const canal = String(r?.canal || "outros").toLowerCase().trim() || "outros";
+      const v = Number(r?.faturamento || 0) || 0;
+      const q = Number(r?.pedidos || 0) || 0;
       channelAgg[canal] = (channelAgg[canal] || 0) + v;
+      channelOrders[canal] = (channelOrders[canal] || 0) + q;
     });
 
-    const fromTs = new Date(fromIso + "T00:00:00").getTime();
-    const toTs = new Date(toIso + "T23:59:59").getTime();
-    const prevFromTs = new Date(prev.prevFromIso + "T00:00:00").getTime();
-    const prevToTs = new Date(prev.prevToIso + "T23:59:59").getTime();
-    const baseClientes = clientesIntelCache.length ? clientesIntelCache : (await (async()=>{ try{ return (await getClientesInteligenciaView(supaClient, 12000)).map(normalizeClienteIntel); }catch(_e){ return []; } })());
-    baseClientes.forEach(c=>{
-      const fp = String(c?.primeiro_pedido || "").slice(0,10);
-      if(fp){
-        const ts = new Date(fp + "T12:00:00").getTime();
-        if(ts >= fromTs && ts <= toTs) novosClientes += 1;
-        if(ts >= prevFromTs && ts <= prevToTs) novosClientesPrev += 1;
-      }
-    });
+    const novosDaily = await getNewCustomersDailyView(supaClient, fromIso, toIso);
+    const novosPrev = await getNewCustomersDailyView(supaClient, prev.prevFromIso, prev.prevToIso);
+    const novosSeries = (Array.isArray(novosDaily) ? novosDaily : []).map(r=>({
+      diaIso: String(r?.dia || "").slice(0,10),
+      novos: Number(r?.novos_clientes || 0) || 0
+    })).filter(r=>r.diaIso);
+    novosClientes = novosSeries.reduce((s,r)=>s + r.novos, 0);
+    novosClientesPrev = (Array.isArray(novosPrev) ? novosPrev : []).reduce((s,r)=>s + (Number(r?.novos_clientes||0)||0), 0);
+    renderDashV2NovosClientes(novosSeries);
 
     const reativacaoEl = riskEl;
     if(reativacaoEl){
@@ -3281,6 +3318,9 @@ async function renderDashV2(){
       const semContato = await getClientesSemContatoView(supaClient, 8);
       renderDashV2SemContato(semContato);
     }catch(_e){}
+    try{
+      renderDashV2NextActions((clientesIntelCache||[]));
+    }catch(_e){}
   }else{
     const orders = Array.isArray(allOrders) ? allOrders : [];
     const fromTs = new Date(fromIso + "T00:00:00").getTime();
@@ -3301,12 +3341,16 @@ async function renderDashV2(){
       byDay[d].pedidos += 1;
       byDay[d].faturamento += v;
       channelAgg[ch] = (channelAgg[ch] || 0) + v;
+      channelOrders[ch] = (channelOrders[ch] || 0) + 1;
       faturamento += v;
       pedidos += 1;
     });
     Object.keys(byDay).sort().forEach(d=>{
-      series.push({ diaIso: d, faturamento: byDay[d].faturamento, pedidos: byDay[d].pedidos });
+      const q = Number(byDay[d].pedidos || 0) || 0;
+      const v = Number(byDay[d].faturamento || 0) || 0;
+      series.push({ diaIso: d, faturamento: v, pedidos: q, ticket_medio: q ? (v / q) : 0 });
     });
+    renderDashV2NovosClientes([]);
   }
 
   const ticket = pedidos ? (faturamento / pedidos) : 0;
@@ -3328,6 +3372,8 @@ async function renderDashV2(){
       if(charts.v2dia) charts.v2dia.destroy();
       const labels = series.map(r=>fmtDate(r.diaIso));
       const values = series.map(r=>Number(r.faturamento || 0) || 0);
+      const ordersSeries = series.map(r=>Number(r.pedidos || 0) || 0);
+      const ticketSeries = series.map(r=>Number(r.ticket_medio || 0) || 0);
       charts.v2dia = new Chart(ctx, {
         type: "line",
         data: {
@@ -3342,15 +3388,47 @@ async function renderDashV2(){
             borderWidth: 2,
             pointRadius: 0,
             pointHitRadius: 12
+          },{
+            label: "Pedidos",
+            data: ordersSeries,
+            tension: 0.35,
+            fill: false,
+            borderColor: "#60a5fa",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12,
+            yAxisID: "y2"
+          },{
+            label: "Ticket médio",
+            data: ticketSeries,
+            tension: 0.35,
+            fill: false,
+            borderColor: "#a78bfa",
+            borderDash: [6,4],
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (c)=>{
+                  const ds = String(c.dataset?.label || "");
+                  if(ds === "Pedidos") return String(Number(c.parsed.y||0)||0) + " pedidos";
+                  return fmtBRL(c.parsed.y||0);
+                }
+              }
+            }
+          },
           scales: {
             x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
-            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
+            y2: { position: "right", grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
           }
         }
       });
@@ -3373,20 +3451,78 @@ async function renderDashV2(){
             backgroundColor: sorted.map(([c])=>CH_COLOR[c] || "rgba(15,167,101,.6)"),
             borderRadius: 10,
             borderSkipped: false
+          },{
+            label: "Pedidos",
+            data: sorted.map(([c])=>Number(channelOrders[c] || 0) || 0),
+            type: "line",
+            borderColor: "#60a5fa",
+            backgroundColor: "rgba(96,165,250,.18)",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 12,
+            tension: 0.35,
+            yAxisID: "y2"
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (c)=>{
+                  const ds = String(c.dataset?.label || "");
+                  if(ds === "Pedidos") return String(Number(c.parsed.y||0)||0) + " pedidos";
+                  return fmtBRL(c.parsed.y||0);
+                }
+              }
+            }
+          },
           scales: {
             x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
-            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+            y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
+            y2: { position: "right", grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
           }
         }
       });
     }
   }
+}
+
+function renderDashV2NovosClientes(series){
+  const canvas = document.getElementById("chart-v2-novos");
+  if(!canvas || !canvas.getContext || !globalThis.Chart) return;
+  const list = Array.isArray(series) ? series : [];
+  const labels = list.map(r=>fmtDate(r.diaIso));
+  const values = list.map(r=>Number(r.novos || 0) || 0);
+  const ctx = canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.v2novos) charts.v2novos.destroy();
+  charts.v2novos = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Novos clientes",
+        data: values,
+        backgroundColor: "rgba(96,165,250,.25)",
+        borderColor: "rgba(96,165,250,.5)",
+        borderWidth: 1,
+        borderRadius: 10,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>String(Number(c.parsed.y||0)||0) + " novos" } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
+        y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
+      }
+    }
+  });
 }
 
 function renderDashV2Funil(rows){
@@ -3495,6 +3631,45 @@ function renderDashV2SemContato(rows){
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(motivo)}</span></div>
       <div class="top-val">${escapeHTML(ltv)}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashV2NextActions(rows){
+  const el = document.getElementById("dashv2-next-actions");
+  if(!el) return;
+  const list = Array.isArray(rows) ? rows : [];
+  const actionable = list
+    .filter(r=>r && r.cliente_id && String(r.next_best_action||"").trim())
+    .slice()
+    .sort((a,b)=>{
+      const ar = Number(a.risco_churn||0)||0;
+      const br = Number(b.risco_churn||0)||0;
+      if(br !== ar) return br - ar;
+      const as = Number(a.score_recompra||0)||0;
+      const bs = Number(b.score_recompra||0)||0;
+      if(bs !== as) return bs - as;
+      const ag = Number(a.total_gasto||a.ltv||0)||0;
+      const bg = Number(b.total_gasto||b.ltv||0)||0;
+      return bg - ag;
+    })
+    .slice(0,8);
+
+  if(!actionable.length){
+    el.innerHTML = `<div class="empty">Sem ações sugeridas.</div>`;
+    return;
+  }
+  el.innerHTML = actionable.map((c, idx)=>{
+    const id = escapeJsSingleQuote(String(c.cliente_id));
+    const nome = String(c.nome || "Cliente");
+    const act = String(c.next_best_action || "").trim();
+    const dias = c.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+    const phone = String(c.celular || c.telefone || "").replace(/\D/g,"");
+    return `<div class="top-item" onclick="openClientePage('${id}')">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+      <div style="flex:1;font-size:10px;color:var(--text-3);margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHTML(act)}</div>
+      ${phone?`<button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>`:""}
     </div>`;
   }).join("");
 }
@@ -3947,9 +4122,10 @@ function setChCli(ch){ activeCh=ch; renderClientes(); }
 function renderClientes(){
   const usingViews = !!(supaConnected && supaClient);
   const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
-  const seg=document.getElementById("fil-status-pedido")?.value||"";
+  const statusFil=document.getElementById("fil-cli-status")?.value||"";
+  const segFil=document.getElementById("fil-cli-seg")?.value||"";
+  const canalFil=document.getElementById("fil-cli-canal")?.value||"";
   const uf=document.getElementById("fil-estado")?.value||"";
-  const pf=document.getElementById("fil-perfil")?.value||"";
 
   if(usingViews){
     if(!clientesIntelCache.length){
@@ -3969,24 +4145,11 @@ function renderClientes(){
     document.getElementById("ch-pills-cli").innerHTML = pills.map(p=>`<div class="ch-pill ${p.id} ${activeCh===p.id?"active":""}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`).join("");
 
     let rows = clientesIntelCache.slice();
-    if(activeCh!=="all") rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===activeCh);
+    if(canalFil) rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===String(canalFil).toLowerCase());
+    else if(activeCh!=="all") rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===activeCh);
     if(uf) rows = rows.filter(c=>String(c.uf||"").toUpperCase()===String(uf).toUpperCase());
-    if(seg) rows = rows.filter(c=>String(c.segmento_crm||c.status||"")===seg);
-    if(pf){
-      rows = rows.filter(c=>{
-        const segmento = String(c.segmento_crm||"");
-        const stage = String(c.pipeline_stage||"");
-        const dias = c.dias_desde_ultima_compra == null ? 9999 : Number(c.dias_desde_ultima_compra||0);
-        const risco = Number(c.risco_churn||0)||0;
-        const pedidos = Number(c.total_pedidos||0)||0;
-        if(pf==="vip") return segmento==="VIP" || stage==="vip";
-        if(pf==="alerta") return risco>=70 || (segmento==="VIP" && dias>=45);
-        if(pf==="inativo") return dias>=60 || stage==="reativacao";
-        if(pf==="ativo") return pedidos>=1 && dias<=30;
-        if(pf==="novo") return stage==="novo_lead" || pedidos===0;
-        return true;
-      });
-    }
+    if(statusFil) rows = rows.filter(c=>String(c.status||"")===statusFil);
+    if(segFil) rows = rows.filter(c=>String(c.segmento_crm||"")===segFil);
     if(q){
       const qDigits = q.replace(/\D/g,"");
       rows = rows.filter(c=>{
@@ -4005,7 +4168,17 @@ function renderClientes(){
       });
     }
 
-    rows.sort((a,b)=>(Number(b.total_gasto||b.ltv||0)||0)-(Number(a.total_gasto||a.ltv||0)||0));
+    rows.sort((a,b)=>{
+      const ar = Number(a.risco_churn||0)||0;
+      const br = Number(b.risco_churn||0)||0;
+      if(br !== ar) return br - ar;
+      const as = Number(a.score_recompra||0)||0;
+      const bs = Number(b.score_recompra||0)||0;
+      if(bs !== as) return bs - as;
+      const ag = Number(a.total_gasto||a.ltv||0)||0;
+      const bg = Number(b.total_gasto||b.ltv||0)||0;
+      return bg - ag;
+    });
     document.getElementById("cli-label").textContent=`${rows.length} cliente${rows.length!==1?"s":""}`;
     if(!rows.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
     document.getElementById("client-list").innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
@@ -4025,7 +4198,6 @@ function renderClientes(){
   });
 
   let clis=Object.values(buildCli(filt)).sort((a,b)=>b.orders.reduce((s,o)=>s+val(o),0)-a.orders.reduce((s,o)=>s+val(o),0));
-  if(pf) clis=clis.filter(c=>calcCliScores(c).status===pf);
 
   document.getElementById("cli-label").textContent=`${clis.length} cliente${clis.length!==1?"s":""}`;
   if(!clis.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
@@ -4036,9 +4208,11 @@ function renderCliIntelCard(c, eid){
   const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
   const nome = String(c?.nome || "Cliente").trim();
   const canal = String(c?.canal_principal || "outros").toLowerCase().trim() || "outros";
+  const status = String(c?.status || "").trim();
   const segmento = String(c?.segmento_crm || "").trim();
   const faixaV = String(c?.faixa_valor || "").trim();
   const faixaF = String(c?.faixa_frequencia || "").trim();
+  const pipeline = String(c?.pipeline_stage || "").trim();
   const dias = c?.dias_desde_ultima_compra == null ? null : Number(c.dias_desde_ultima_compra||0);
   const score = Number(c?.score_recompra || 0) || 0;
   const churn = Number(c?.risco_churn || 0) || 0;
@@ -4048,11 +4222,25 @@ function renderCliIntelCard(c, eid){
   const phone = String(c?.celular || c?.telefone || "").replace(/\D/g,"");
   const email = String(c?.email || "").trim();
   const loc = [String(c?.cidade||"").trim(), String(c?.uf||"").trim().toUpperCase()].filter(Boolean).join(" — ");
+  const lastIntAt = c?.last_interaction_at ? String(c.last_interaction_at).slice(0,10) : "";
+  const lastIntType = String(c?.last_interaction_type || "").trim();
+  const lastIntDesc = String(c?.last_interaction_desc || "").trim();
+  const respUser = String(c?.responsible_user || "").trim();
+  const scoreFinal = c?.score_final == null ? null : (Number(c.score_final||0)||0);
   const mainChClass=/^[a-z0-9_-]+$/i.test(String(canal||""))?String(canal):"outros";
   const isVip = segmento === "VIP" || String(c?.pipeline_stage||"") === "vip";
   const actionHot = (isVip && (dias||0) >= 45) || churn >= 70 || String(c?.pipeline_stage||"") === "reativacao";
 
   const badge = (txt, bg, fg)=>`<span class="badge" style="background:${bg};color:${fg};border-color:transparent">${escapeHTML(txt)}</span>`;
+  const statusBadge = (()=>{
+    if(status === "VIP") return `<span class="badge vip">⭐ VIP</span>`;
+    if(status === "Em Risco") return `<span class="badge alerta">⚠️ Em Risco</span>`;
+    if(status === "Churn") return `<span class="badge inativo">😴 Churn</span>`;
+    if(status === "Recompra") return `<span class="badge ativo">🎯 Recompra</span>`;
+    if(status === "Novo Lead") return `<span class="badge novo">🆕 Novo Lead</span>`;
+    if(status === "Ativo") return `<span class="badge ativo">✅ Ativo</span>`;
+    return status ? badge(status, "rgba(148,163,184,.10)", "var(--text-2)") : "";
+  })();
   const scoreColor=(s)=>s>70?"var(--green)":s>40?"var(--amber)":"var(--red)";
   const churnColor=(s)=>s>60?"var(--red)":s>30?"var(--amber)":"var(--green)";
 
@@ -4062,12 +4250,13 @@ function renderCliIntelCard(c, eid){
         <div class="client-name-row">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
           <span class="badge cli-channel-flag ${mainChClass}">${escapeHTML(CH[canal]||canal)}</span>
-          ${segmento ? badge(segmento, isVip ? "rgba(250,204,21,.12)" : "rgba(96,165,250,.10)", isVip ? "var(--amber)" : "var(--blue)") : ""}
+          ${statusBadge}
+          ${segmento && segmento !== status ? badge(segmento, isVip ? "rgba(250,204,21,.12)" : "rgba(96,165,250,.10)", isVip ? "var(--amber)" : "var(--blue)") : ""}
           ${faixaV ? badge(faixaV, "rgba(148,163,184,.10)", "var(--text-2)") : ""}
           ${faixaF ? badge(faixaF, "rgba(148,163,184,.08)", "var(--text-3)") : ""}
           ${actionHot ? `<span class="badge-hint churn">⚡ Ação</span>` : ""}
         </div>
-        <div class="client-meta">${escapeHTML(loc||"—")}${dias!=null?` · ${escapeHTML(String(dias))}d sem comprar`:""} · ${escapeHTML(String(pedidos))} pedidos</div>
+        <div class="client-meta">${escapeHTML(loc||"—")}${dias!=null?` · ${escapeHTML(String(dias))}d sem comprar`:""} · ${escapeHTML(String(pedidos))} pedidos${pipeline?` · Pipeline ${escapeHTML(pipeline)}`:""}${scoreFinal!=null?` · Score ${escapeHTML(String(scoreFinal.toFixed(0)))} `:""}</div>
       </div>
       <div class="client-right">
         <div class="client-total">${fmtBRL(ltv)}</div>
@@ -4085,6 +4274,7 @@ function renderCliIntelCard(c, eid){
         <div class="score-track"><div class="score-fill" style="width:${churn}%;background:${churnColor(churn)}"></div></div>
         <span class="score-num" style="color:${churnColor(churn)}">${churn.toFixed(0)}</span>
       </div>
+      ${(lastIntAt||respUser||lastIntType||lastIntDesc)?`<div class="cli-marketing"><div class="cli-marketing-title">Última interação</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML([lastIntAt?fmtDate(lastIntAt):"", lastIntType||"", respUser?("Resp: "+respUser):""].filter(Boolean).join(" · "))}${lastIntDesc?`<div style="font-size:10px;color:var(--text-3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHTML(lastIntDesc)}</div>`:""}</div></div>`:""}
       ${next ? `<div class="cli-marketing"><div class="cli-marketing-title">Próxima ação sugerida</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML(next)}</div></div>` : ""}
       ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
         <div class="contact-info">
@@ -6912,7 +7102,7 @@ async function loadClientesInteligenciaCache(){
   if(clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
   clientesIntelInFlight = true;
   try{
-    const raw = await getClientesInteligenciaView(supaClient, 7000);
+    const raw = await getClientesInteligenciaView(supaClient, 12000);
     const rows = (Array.isArray(raw) ? raw : []).map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
     clientesIntelCache = rows;
     clientesIntelLoadedAt = Date.now();
@@ -6921,8 +7111,15 @@ async function loadClientesInteligenciaCache(){
       if(ufSel){
         const selected = String(ufSel.value || "");
         const ufs = Array.from(new Set(rows.map(r=>String(r.uf||"").toUpperCase().trim()).filter(Boolean))).sort();
-        ufSel.innerHTML = `<option value="">Estado</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
+        ufSel.innerHTML = `<option value="">UF</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
         if(selected) ufSel.value = selected;
+      }
+      const segSel = document.getElementById("fil-cli-seg");
+      if(segSel){
+        const selected = String(segSel.value || "");
+        const segs = Array.from(new Set(rows.map(r=>String(r.segmento_crm||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+        segSel.innerHTML = `<option value="">Segmento CRM</option>` + segs.map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
+        if(selected) segSel.value = selected;
       }
     }catch(_e){}
   }catch(_e){}finally{
@@ -8296,6 +8493,8 @@ Object.assign(window,{
   renderIADashboard,
   computeCustomerIntelligence,
   renderInteligencia,
+  renderDash,
+  setDashRange,
   renderClientes,
   selectSegment,
   setChCli,

@@ -66,16 +66,40 @@ export async function getDashboardKpis(client){
   }
 }
 
-export async function getVendasPorDia(client, fromIso, toIso){
-  const primary = await tryQueryDateRange(client, "vw_vendas_por_dia", ["dia", "data", "date"], fromIso, toIso, "*", { orderBy: "dia", ascending: true, limit: 4000 });
-  if(primary.length) return primary;
-  return await tryQueryDateRange(client, "vw_dashboard_v2_daily", ["dia"], fromIso, toIso, "*", { orderBy: "dia", ascending: true, limit: 4000 });
+export async function getDashboardDaily(client, fromIso, toIso){
+  return await tryQueryDateRange(
+    client,
+    "vw_dashboard_v2_daily",
+    ["dia"],
+    fromIso,
+    toIso,
+    "dia,pedidos,faturamento,ticket_medio",
+    { orderBy: "dia", ascending: true, limit: 5000 }
+  );
 }
 
-export async function getVendasPorCanal(client, fromIso, toIso){
-  const rows = await tryQueryDateRange(client, "vw_vendas_por_canal", ["dia", "data", "date"], fromIso, toIso, "*", { limit: 20000 });
-  if(rows.length) return rows;
-  return await tryQueryDateRange(client, "vw_dashboard_v2_daily_channel", ["dia"], fromIso, toIso, "*", { limit: 20000 });
+export async function getDashboardDailyChannel(client, fromIso, toIso){
+  return await tryQueryDateRange(
+    client,
+    "vw_dashboard_v2_daily_channel",
+    ["dia"],
+    fromIso,
+    toIso,
+    "dia,canal,pedidos,faturamento",
+    { orderBy: "dia", ascending: true, limit: 20000 }
+  );
+}
+
+export async function getNewCustomersDaily(client, fromIso, toIso){
+  return await tryQueryDateRange(
+    client,
+    "vw_dashboard_v2_new_customers_daily",
+    ["dia"],
+    fromIso,
+    toIso,
+    "dia,novos_clientes",
+    { orderBy: "dia", ascending: true, limit: 5000 }
+  );
 }
 
 export async function getFunilRecompra(client){
@@ -147,7 +171,10 @@ export async function getClientesInteligencia(client, limit){
   const n = Math.max(1, Math.min(15000, Number(limit) || 5000));
   try{
     let q = client.from("vw_clientes_inteligencia").select("*").limit(n);
-    q = q.order("total_gasto", { ascending: false });
+    q = q
+      .order("risco_churn", { ascending: false })
+      .order("score_recompra", { ascending: false })
+      .order("total_gasto", { ascending: false });
     const { data, error } = await q;
     if(error) return [];
     return Array.isArray(data) ? data : [];
@@ -167,6 +194,7 @@ export function normalizeClienteIntel(row){
   const cidade = asText(firstKey(r, ["cidade", "city"]));
   const uf = asText(firstKey(r, ["uf", "estado", "state"])).toUpperCase();
   const canal = asText(firstKey(r, ["canal_principal", "canal", "channel"])).toLowerCase() || "outros";
+  const status = asText(firstKey(r, ["status"]));
   const segmento = asText(firstKey(r, ["segmento_crm", "segmento", "segment"]));
   const faixaValor = asText(firstKey(r, ["faixa_valor"]));
   const faixaFreq = asText(firstKey(r, ["faixa_frequencia"]));
@@ -180,7 +208,11 @@ export function normalizeClienteIntel(row){
   const scoreRecompra = asNum(firstKey(r, ["score_recompra"]));
   const riscoChurn = asNum(firstKey(r, ["risco_churn"]));
   const lastInteractionAt = asText(firstKey(r, ["last_interaction_at"]));
+  const lastInteractionType = asText(firstKey(r, ["last_interaction_type"]));
+  const lastInteractionDesc = asText(firstKey(r, ["last_interaction_desc"]));
   const lastContactAt = asText(firstKey(r, ["last_contact_at"]));
+  const responsibleUser = asText(firstKey(r, ["responsible_user", "user_responsible"]));
+  const scoreFinal = asNum(firstKey(r, ["score_final"]));
   const nextBestAction = asText(firstKey(r, ["next_best_action"]));
   const ultimoPedido = asText(firstKey(r, ["ultimo_pedido"]));
   const primeiroPedido = asText(firstKey(r, ["primeiro_pedido"]));
@@ -194,6 +226,7 @@ export function normalizeClienteIntel(row){
     cidade,
     uf,
     canal_principal: canal,
+    status,
     segmento_crm: segmento,
     faixa_valor: faixaValor,
     faixa_frequencia: faixaFreq,
@@ -206,7 +239,11 @@ export function normalizeClienteIntel(row){
     score_recompra: scoreRecompra,
     risco_churn: riscoChurn,
     last_interaction_at: lastInteractionAt,
+    last_interaction_type: lastInteractionType,
+    last_interaction_desc: lastInteractionDesc,
     last_contact_at: lastContactAt,
+    responsible_user: responsibleUser,
+    score_final: scoreFinal,
     next_best_action: nextBestAction,
     ultimo_pedido: ultimoPedido,
     primeiro_pedido: primeiroPedido
