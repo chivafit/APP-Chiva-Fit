@@ -43,3 +43,9 @@ jobs:
 
       - name: Deploy yampi-webhook
         run: supabase functions deploy yampi-webhook --project-ref $SUPABASE_PROJECT_ID
+
+      - name: Deploy ia-claude
+        run: supabase functions deploy ia-claude --project-ref $SUPABASE_PROJECT_ID
+
+      - name: Deploy ia-commercial
+        run: supabase functions deploy ia-commercial --project-ref $SUPABASE_PROJECT_ID

@@ -354,9 +354,6 @@ async function persistSyncResultToDb(
       const { error } = await supabase.from("v2_produtos").upsert(batch, { onConflict: "id" });
       if (error) throw error;
     }
-    await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling_produtos", valor_texto: now, updated_at: now }], {
-      onConflict: "chave",
-    });
   }
 
   const itemRows: any[] = [];

@@ -29,7 +29,7 @@ jobs:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-sync" \
+          curl -fsS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-sync" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
             --data '{"persist":true,"maxPages":200}'
@@ -39,7 +39,7 @@ jobs:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync" \
+          curl -fsS -X POST "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/bling-products-sync" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
             --data '{"persist":true,"maxPages":200}'
