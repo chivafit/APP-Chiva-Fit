@@ -989,6 +989,82 @@ async function syncBling(){
   }
 }
 
+async function syncBlingProdutos(){
+  const st = document.getElementById("bling-prod-status");
+  if(st){ st.textContent="Importando produtos..."; st.className="setup-status"; }
+  try{
+    if(!supaConnected || !supaClient) throw new Error("Conecte o Supabase primeiro.");
+
+    const resp = await fetch(getSupaFnBase()+"/bling-products-sync",{
+      method:"POST",
+      headers:supaFnHeaders(),
+      body:JSON.stringify({ limit: 100, maxPages: 200 })
+    });
+
+    const txt = await resp.text().catch(()=> "");
+    let data = null;
+    try{ data = txt ? JSON.parse(txt) : null; }catch(_e){ data = null; }
+    if(!resp.ok){
+      const msg = (data && (data.message || data.error)) ? String(data.message || data.error) : (txt || "Erro na função Bling (produtos)");
+      throw new Error(msg);
+    }
+
+    const products = Array.isArray(data?.products) ? data.products : [];
+    if(!products.length){
+      if(st){ st.textContent="⚠ Nenhum produto retornado do Bling."; st.className="setup-status s-err"; }
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const rows = products.map(p=>({
+      id: String(p?.id||"").trim(),
+      codigo: p?.codigo ?? null,
+      nome: p?.nome ?? null,
+      estoque: p?.estoque ?? null,
+      preco: p?.preco ?? null,
+      situacao: p?.situacao ?? null,
+      origem: p?.origem ?? "bling",
+      updated_at: p?.updated_at ?? nowIso,
+      raw: p?.raw ?? {}
+    })).filter(r=>r.id);
+
+    for(let i=0;i<rows.length;i+=200){
+      const batch = rows.slice(i,i+200);
+      const {error} = await supaClient.from("v2_produtos").upsert(batch, { onConflict: "id" });
+      if(error) throw error;
+    }
+
+    blingProducts = rows.map(r=>({
+      id: String(r.id||""),
+      codigo: r.codigo || "",
+      nome: r.nome || "",
+      estoque: r.estoque == null ? null : Number(r.estoque||0) || 0,
+      preco: r.preco == null ? null : Number(r.preco||0) || 0,
+      situacao: r.situacao || "",
+      origem: r.origem || "bling",
+      updated_at: r.updated_at || null
+    })).filter(p=>p.id);
+    localStorage.setItem("crm_bling_products", JSON.stringify(blingProducts));
+
+    if(document.getElementById("page-produtos")?.classList.contains("active")) {
+      renderProdutos();
+    }
+
+    if(st){ st.textContent=`✓ ${rows.length} produtos importados`; st.className="setup-status s-ok"; }
+    toast("✓ Produtos do Bling importados!");
+  }catch(e){
+    const msg = String(e?.message || String(e) || "");
+    if(st){
+      const hint =
+        /relation .*v2_produtos.*does not exist|42P01/i.test(msg)
+          ? " (Rode a migration 004_create_v2_produtos.sql no Supabase)"
+          : "";
+      st.textContent="⚠ "+msg+hint;
+      st.className="setup-status s-err";
+    }
+  }
+}
+
 async function backfillBlingEnderecos(){
   const st = document.getElementById("bling-status");
   if(st){ st.textContent="Backfill: buscando período no Supabase..."; st.className="setup-status"; }
@@ -1104,11 +1180,11 @@ function normalizeYampiOrder(o){
 
   const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
   if(Array.isArray(itens)){
-    next.itens = itens.map(it=>({
-      descricao: it.descricao || it.title || it.nome || it.name || it.produto || "",
-      codigo: it.codigo || it.sku || it.id || "",
-      quantidade: Number(it.quantidade ?? it.quantity ?? it.qty ?? 1) || 1,
-      valor: Number(it.valor ?? it.price ?? it.preco ?? 0) || 0
+    next.itens = itens.filter(Boolean).map(it=>({
+      descricao: it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "",
+      codigo: it?.codigo || it?.sku || it?.id || "",
+      quantidade: Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1,
+      valor: Number(it?.valor ?? it?.price ?? it?.preco ?? 0) || 0
     }));
   }else{
     next.itens = [];
@@ -1479,7 +1555,7 @@ async function syncCarrinhosAbandonadosYampi(){
 function buildCarrinhoWaMessage(c, ctx){
   const nome = String(c?.cliente_nome || "tudo bem?");
   const itens = Array.isArray(c?.produtos) ? c.produtos : [];
-  const produtosTxt = itens.slice(0,4).map(it=>String(it.nome || it.title || it.descricao || it.name || "").trim()).filter(Boolean).join(", ");
+  const produtosTxt = itens.slice(0,4).map(it=>String(it?.nome || it?.title || it?.descricao || it?.name || "").trim()).filter(Boolean).join(", ");
   const valorTxt = Number(c?.valor||0) ? fmtBRL(Number(c.valor||0)||0) : "";
   const etapa = ctx?.etapa?.id || "";
   const prioridade = ctx?.prioridade?.id || "baixa";
@@ -2344,15 +2420,21 @@ function renderDash(){
       .slice(0,6);
 
     const prod7 = {};
-    w1.forEach(o=>(o.itens||[]).forEach(it=>{
-      const k = String(it.codigo||it.descricao||"—");
-      prod7[k] = (prod7[k]||0) + (Number(it.quantidade||1)||1);
-    }));
+    w1.forEach(o=>{
+      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+      itens.filter(Boolean).forEach(it=>{
+        const k = String(it?.codigo||it?.descricao||"—");
+        prod7[k] = (prod7[k]||0) + (Number(it?.quantidade||1)||1);
+      });
+    });
     const prod14 = {};
-    w2.forEach(o=>(o.itens||[]).forEach(it=>{
-      const k = String(it.codigo||it.descricao||"—");
-      prod14[k] = (prod14[k]||0) + (Number(it.quantidade||1)||1);
-    }));
+    w2.forEach(o=>{
+      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+      itens.filter(Boolean).forEach(it=>{
+        const k = String(it?.codigo||it?.descricao||"—");
+        prod14[k] = (prod14[k]||0) + (Number(it?.quantidade||1)||1);
+      });
+    });
     const stopped = Object.entries(prod14)
       .filter(([k,q])=>q>=6 && !prod7[k])
       .slice(0,1)
@@ -2589,7 +2671,14 @@ function renderTopCli(ordersOverride){
 }
 function renderTopProd(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
-  const m={}; orders.forEach(o=>(o.itens||[]).forEach(it=>{ const k=it.codigo||it.descricao||"?"; if(!m[k])m[k]={n:it.descricao||k,t:0}; m[k].t+=(parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1); }));
+  const m={}; orders.forEach(o=>{
+    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+    itens.filter(Boolean).forEach(it=>{
+      const k = it?.codigo||it?.descricao||"?";
+      if(!m[k]) m[k] = { n: it?.descricao||k, t: 0 };
+      m[k].t += (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
+    });
+  });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
   document.getElementById("top-produtos-dash").innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div style="padding:10px;font-size:11px;color:var(--text-3)">Nenhum produto</div>`;
 }
@@ -2966,7 +3055,7 @@ function openCRMOrderDrawer(orderKey){
   if(!o) return;
   const st = normSt(o.situacao);
   const ch = detectCh(o);
-  const items = Array.isArray(o.itens) ? o.itens : [];
+  const items = (Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : []).filter(Boolean);
   const total = fmtBRL(val(o));
   const bodyHTML = `
     <div class="drawer-section">
@@ -2979,7 +3068,7 @@ function openCRMOrderDrawer(orderKey){
     </div>
     <div class="drawer-section">
       <div class="drawer-section-title">Itens</div>
-      ${items.length ? items.map(it=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span>${escapeHTML(it.descricao||it.codigo||"—")}</span><span style="font-family:var(--mono)">${escapeHTML(String(it.quantidade||1))}×</span></div>`).join("") : `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhum item disponível.</div>`}
+      ${items.length ? items.map(it=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span>${escapeHTML(String(it?.descricao||it?.codigo||"—"))}</span><span style="font-family:var(--mono)">${escapeHTML(String(it?.quantidade ?? 1))}×</span></div>`).join("") : `<div style="font-size:12px;color:var(--text-3);padding:8px 0">Nenhum item disponível.</div>`}
     </div>
   `;
   openDrawer(`Pedido #${String(o.numero||o.id||"—")}`, fmtDate(o.data), bodyHTML, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
@@ -3091,11 +3180,12 @@ function renderClientePage(){
     chAgg[ch] = chAgg[ch] || { total:0, n:0 };
     chAgg[ch].n += 1;
     chAgg[ch].total += val(o);
-    (o.itens||[]).forEach(it=>{
-      const key = String(it.codigo||it.descricao||"—");
-      if(!prodAgg[key]) prodAgg[key] = { nome: it.descricao||key, qty:0, total:0 };
-      const qty = Number(it.quantidade||1) || 1;
-      const price = Number(it.valor||0) || 0;
+    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+    itens.filter(Boolean).forEach(it=>{
+      const key = String(it?.codigo||it?.descricao||"—");
+      if(!prodAgg[key]) prodAgg[key] = { nome: it?.descricao||key, qty:0, total:0 };
+      const qty = Number(it?.quantidade||1) || 1;
+      const price = Number(it?.valor||0) || 0;
       prodAgg[key].qty += qty;
       prodAgg[key].total += qty*price;
     });
@@ -3774,6 +3864,44 @@ function saveTemplates(){ WA_TPLS=[1,2,3].map(i=>document.getElementById("tpl"+i
 // ═══════════════════════════════════════════════════
 //  PRODUTOS
 // ═══════════════════════════════════════════════════
+function findProdutoNoCatalogo(prodKey){
+  const key = String(prodKey||"").trim();
+  if(!key) return null;
+  const k = key.toLowerCase();
+  const list = Array.isArray(blingProducts) ? blingProducts : [];
+  for(let i=0;i<list.length;i++){
+    const p = list[i] || {};
+    const id = String(p.id||"").trim().toLowerCase();
+    const codigo = String(p.codigo||"").trim().toLowerCase();
+    const nome = String(p.nome||"").trim().toLowerCase();
+    if((id && id===k) || (codigo && codigo===k) || (nome && nome===k)) return p;
+  }
+  return null;
+}
+
+function openProdutoDrawer(prodKey){
+  const key = String(prodKey||"").trim();
+  const p = findProdutoNoCatalogo(key);
+  const title = String(p?.nome || key || "Produto").trim() || "Produto";
+  const subtitle = p ? (p.codigo ? `Código: ${String(p.codigo)}` : "Catálogo Bling") : "Produto não cadastrado";
+  const estoqueTxt = p?.estoque == null ? "—" : String(Number(p.estoque||0).toLocaleString("pt-BR"));
+  const precoTxt = p?.preco == null ? "—" : fmtBRL(Number(p.preco||0) || 0);
+  const statusTxt = String(p?.situacao || "—");
+  const origemTxt = String(p?.origem || "bling");
+  const body = `
+    <div class="drawer-section">
+      <div class="drawer-section-title">Catálogo</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Código</span><span class="chiva-table-mono">${escapeHTML(String(p?.codigo || key || "—"))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Estoque</span><span>${escapeHTML(estoqueTxt)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Preço</span><span>${escapeHTML(precoTxt)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Situação</span><span>${escapeHTML(statusTxt)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Origem</span><span>${escapeHTML(origemTxt)}</span></div>
+    </div>
+    ${p ? "" : `<div class="drawer-section"><div class="drawer-section-title">Ação</div><div style="font-size:12px;color:var(--text-3);line-height:1.6">Este produto aparece nos itens dos pedidos, mas ainda não existe no catálogo (v2_produtos). Rode a sincronização de produtos ou aguarde o job automático.</div></div>`}
+  `;
+  openDrawer(title, subtitle, body, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+}
+
 function renderProdutos(){
   const q=(document.getElementById("search-prod")?.value||"").toLowerCase();
   const selCh=document.getElementById("fil-canal-prod");
@@ -3793,14 +3921,16 @@ function renderProdutos(){
   allOrders
     .filter(o=>!ch||detectCh(o)===ch)
     .filter(o=>{ if(!per)return true; const d=new Date(o.data||o.dataPedido); return (now-d)/(86400000)<=per; })
-    .forEach(o=>(o.itens||[]).forEach(it=>{
-      const k=it.codigo||it.descricao||"?";
+    .forEach(o=>{
+      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+      itens.filter(Boolean).forEach(it=>{
+      const k = String(it?.codigo || it?.descricao || "?").trim() || "?";
       const canal = detectCh(o);
       const dataStr = o.data || o.dataPedido || "";
       
       if(!m[k]) m[k] = {
-        nome: it.descricao||k,
-        code: it.codigo||"",
+        nome: String(it?.descricao || k),
+        code: String(it?.codigo || ""),
         total: 0,
         qty: 0,
         peds: new Set(),
@@ -3810,8 +3940,8 @@ function renderProdutos(){
         historico: {} // { "YYYY-MM-DD": total }
       };
       
-      const valorTotal = (parseFloat(it.valor)||0)*(parseFloat(it.quantidade)||1);
-      const qtd = parseFloat(it.quantidade)||1;
+      const valorTotal = (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
+      const qtd = parseFloat(it?.quantidade)||1;
       
       m[k].total += valorTotal;
       m[k].qty += qtd;
@@ -3827,7 +3957,8 @@ function renderProdutos(){
         const dStr = dataStr.slice(0, 10);
         m[k].historico[dStr] = (m[k].historico[dStr]||0) + valorTotal;
       }
-    }));
+    });
+    });
 
   if(catalog.length){
     catalog.forEach(p=>{
@@ -3872,8 +4003,9 @@ function renderProdutos(){
     Object.entries(prod.historico).forEach(([d, v]) => {
       const ts = new Date(d).getTime();
       const diff = (nowTs - ts) / 86400000;
-      if(diff <= week1) v1 += v;
-      else if(diff <= week2) v2 += v;
+      const nv = Number(v) || 0;
+      if(diff <= week1) v1 += nv;
+      else if(diff <= week2) v2 += nv;
     });
     return v2 > 0 ? ((v1 - v2) / v2) * 100 : (v1 > 0 ? 100 : 0);
   };
@@ -4082,8 +4214,9 @@ function renderProdutos(){
             .map(([c,q])=>`<span style="font-size:9px;background:var(--border);padding:2px 5px;border-radius:4px;margin-right:3px" title="${CH[c]||c}">${(CH[c]||c).slice(0,3).toUpperCase()}: ${q}</span>`)
             .join("");
 
+          const clickKey = escapeJsSingleQuote(String(p.code || p.nome || "").trim());
           return `
-            <tr>
+            <tr onclick="openProdutoDrawer('${clickKey}')" style="cursor:pointer">
               <td>
                 <div style="font-weight:700">${escapeHTML(p.nome)}</div>
                 <div style="font-size:10px;color:var(--text-3)">${escapeHTML(p.code)}</div>
@@ -5659,6 +5792,48 @@ async function upsertOrdersToSupabase(orders){
         throw error;
       }
     }
+
+    try{
+      const productsById = {};
+      const list = Array.isArray(orders) ? orders : [];
+      list.forEach(o=>{
+        const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+        itens.filter(Boolean).forEach(it=>{
+          const codigo = String(it?.codigo || it?.sku || "").trim();
+          const nome = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || "").trim();
+          const id = String(codigo || nome).trim();
+          if(!id) return;
+          if(!productsById[id]){
+            productsById[id] = {
+              id,
+              codigo: codigo || null,
+              nome: nome || null,
+              estoque: null,
+              preco: null,
+              situacao: null,
+              origem: String(o?._source || "bling"),
+              updated_at: new Date().toISOString(),
+              raw: { codigo: codigo || null, nome: nome || null, source: String(o?._source || "bling") }
+            };
+          }else{
+            if(codigo && !productsById[id].codigo) productsById[id].codigo = codigo;
+            if(nome && !productsById[id].nome) productsById[id].nome = nome;
+          }
+        });
+      });
+      const prodRows = Object.values(productsById);
+      for(let i=0;i<prodRows.length;i+=200){
+        const batch = prodRows.slice(i,i+200);
+        const {error} = await supaClient.from("v2_produtos").upsert(batch, { onConflict: "id" });
+        if(error){
+          logSupabaseUpsertError("upsert v2_produtos error", error, batch.slice(0,5));
+          throw error;
+        }
+      }
+    }catch(e){
+      logSupabaseUpsertError("upsert v2_produtos from orders error", e, null);
+      throw e;
+    }
     upsertV2PedidosItemsFromOrders(orders).catch(()=>{});
     if(!silent) toast('✓ Dados salvos no Supabase!');
   }catch(e){
@@ -6105,7 +6280,7 @@ function renderCarrinhosAbandonados(){
             })(String(c.etapa_id||''));
             var btn = c.recuperado ? '' : ('<button class="opp-mini-btn" onclick="openWhatsAppCarrinho(\''+safeId+'\')">'+escapeHTML(btnLabel)+'</button> ');
             var itens = Array.isArray(c.produtos) ? c.produtos : [];
-            var resumo = itens.slice(0,3).map(function(it){ return String(it.nome||it.title||it.descricao||it.name||'').trim(); }).filter(Boolean).join(', ');
+            var resumo = itens.slice(0,3).map(function(it){ return String(it?.nome||it?.title||it?.descricao||it?.name||'').trim(); }).filter(Boolean).join(', ');
             var subtitle = resumo ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>') : '';
             return '<tr>'+
               '<td class="chiva-table-mono">'+escapeHTML(dt)+'</td>'+
@@ -6456,6 +6631,7 @@ Object.assign(window,{
   addOpportunity,
   moveOppStage,
   renderProdutos,
+  openProdutoDrawer,
   renderCidades,
   renderPedidosPage,
   recarregar,
@@ -6468,6 +6644,7 @@ Object.assign(window,{
   syncOrdensProducaoToSupabase,
   logMovimentoEstoque,
   syncBling,
+  syncBlingProdutos,
   backfillBlingEnderecos,
   syncYampi,
   syncCarrinhosAbandonadosYampi,
