@@ -1008,6 +1008,119 @@ function hydrateConfigPage(){
 
   loadTemplatesUI();
   renderAccessUsers();
+  refreshBlingAutoCard();
+  startBlingAutoCardRefresh();
+}
+
+let blingAutoCardTimer = null;
+
+function startBlingAutoCardRefresh(){
+  if(blingAutoCardTimer) clearInterval(blingAutoCardTimer);
+  blingAutoCardTimer = setInterval(()=>{
+    const active = document.getElementById("page-config")?.classList.contains("active");
+    if(!active) return;
+    refreshBlingAutoCard();
+  }, 30000);
+}
+
+function fmtDateTimePtBR(iso){
+  const ts = iso ? new Date(String(iso)).getTime() : NaN;
+  if(!isFinite(ts)) return "—";
+  return new Date(ts).toLocaleString("pt-BR");
+}
+
+function blingStateBadge(state){
+  const el = document.getElementById("bling-auto-state");
+  if(!el) return;
+  const s = String(state||"").toLowerCase();
+  const label =
+    s === "ok" ? "OK" :
+    s === "running" ? "Executando" :
+    s === "late" ? "Atrasado" :
+    s === "error" ? "Erro" :
+    s === "waiting" ? "Aguardando" :
+    "—";
+  const cls =
+    s === "ok" ? "chiva-badge chiva-badge-green" :
+    s === "running" ? "chiva-badge chiva-badge-amber" :
+    s === "late" ? "chiva-badge chiva-badge-amber" :
+    s === "waiting" ? "chiva-badge chiva-badge-amber" :
+    s === "error" ? "chiva-badge chiva-badge-red" :
+    "chiva-badge";
+  el.textContent = label;
+  el.className = cls;
+}
+
+async function refreshBlingAutoCard(){
+  const card = document.getElementById("bling-auto-card");
+  if(!card) return;
+
+  const lastEl = document.getElementById("bling-auto-last");
+  const nextEl = document.getElementById("bling-auto-next");
+  const ordersEl = document.getElementById("bling-auto-orders");
+  const productsEl = document.getElementById("bling-auto-products");
+  const msgEl = document.getElementById("bling-auto-message");
+
+  let lastOrdersIso = "";
+  let lastProductsIso = "";
+
+  if(supaConnected && supaClient){
+    try{
+      const {data} = await supaClient
+        .from("configuracoes")
+        .select("chave,valor_texto")
+        .in("chave", ["ultima_sync_bling","ultima_sync_bling_produtos"])
+        .limit(10);
+      (data||[]).forEach(r=>{
+        const k = String(r?.chave||"").trim();
+        const v = String(r?.valor_texto||"").trim();
+        if(k === "ultima_sync_bling") lastOrdersIso = v;
+        if(k === "ultima_sync_bling_produtos") lastProductsIso = v;
+      });
+    }catch(_e){}
+  }
+
+  const lastOrdersTs = lastOrdersIso ? new Date(lastOrdersIso).getTime() : NaN;
+  const lastProductsTs = lastProductsIso ? new Date(lastProductsIso).getTime() : NaN;
+  const lastTs = Math.max(isFinite(lastOrdersTs)?lastOrdersTs:0, isFinite(lastProductsTs)?lastProductsTs:0) || 0;
+  const lastIso = lastTs ? new Date(lastTs).toISOString() : "";
+
+  const nowTs = Date.now();
+  const ageMin = lastTs ? Math.max(0, Math.floor((nowTs - lastTs) / 60000)) : null;
+
+  let state = "waiting";
+  if(lastTs){
+    if(ageMin != null && ageMin <= 30) state = "ok";
+    else if(ageMin != null && ageMin <= 180) state = "late";
+    else state = "error";
+  }
+  blingStateBadge(state);
+
+  if(lastEl) lastEl.textContent = lastIso ? fmtDateTimePtBR(lastIso) : "—";
+
+  const nextTs = lastTs ? (lastTs + 20*60*1000) : 0;
+  if(nextEl){
+    if(!lastTs) nextEl.textContent = "—";
+    else nextEl.textContent = fmtDateTimePtBR(new Date(nextTs).toISOString());
+  }
+
+  if(ordersEl){
+    const n = Array.isArray(blingOrders) ? blingOrders.length : 0;
+    ordersEl.textContent = n ? String(n) : "—";
+  }
+  if(productsEl){
+    const n = Array.isArray(blingProducts) ? blingProducts.length : 0;
+    productsEl.textContent = n ? String(n) : "—";
+  }
+
+  if(msgEl){
+    let msg = "";
+    if(state === "waiting") msg = "Aguardando primeira sincronização.";
+    if(state === "late") msg = "Sem atualização recente. Verifique se a sincronização está rodando.";
+    if(state === "error") msg = "Falha ou atraso crítico. Tente sincronizar manualmente ou verifique o backend.";
+    msgEl.textContent = msg;
+    msgEl.style.display = msg ? "block" : "none";
+  }
 }
 
 ensureBootstrapAdminUser().catch(()=>{});
@@ -1148,12 +1261,14 @@ function scheduleAutoBlingSync(){
 async function syncBling(){
   const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
   checkEstoqueCritico();
+  try{ refreshBlingAutoCard(); }catch(_e){}
   return res;
 }
 
 async function syncBlingProdutos(){
   const res = await syncBlingProdutosImpl(getSyncCtx());
   checkEstoqueCritico();
+  try{ refreshBlingAutoCard(); }catch(_e){}
   return res;
 }
 
@@ -9342,6 +9457,7 @@ Object.assign(window,{
   logMovimentoEstoque,
   syncBling,
   syncBlingProdutos,
+  refreshBlingAutoCard,
   backfillBlingEnderecos,
   syncYampi,
   syncCarrinhosAbandonadosYampi,

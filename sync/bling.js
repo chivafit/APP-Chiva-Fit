@@ -198,6 +198,7 @@ export async function syncBlingProdutos(ctx){
 
     if(document.getElementById("page-produtos")?.classList.contains("active")) ctx.renderProdutos();
     if(st){ st.textContent=`✓ ${rows.length} produtos importados`; st.className="setup-status s-ok"; }
+    try{ if(ctx.isSupaReady()) await ctx.sbSetConfig("ultima_sync_bling_produtos", new Date().toISOString()); }catch(_e){}
     ctx.toast("✓ Produtos do Bling importados!");
   }catch(e){
     const msg = String(e?.message || String(e) || "");
@@ -264,4 +265,3 @@ export async function backfillBlingEnderecos(ctx){
     if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
   }
 }
-

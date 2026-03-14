@@ -674,6 +674,14 @@
           </div>
           <div id="bling-auto-message" style="display:none;margin-top:10px;font-size:11px;color:var(--text-3)"></div>
         </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn-primary" onclick="syncBling({ omitDates:true })">Sincronizar pedidos agora</button>
+          <button class="btn" onclick="syncBlingProdutos()">Sincronizar produtos agora</button>
+          <button class="btn" onclick="refreshBlingAutoCard()">Atualizar status</button>
+        </div>
+        <div id="bling-status" class="setup-status"></div>
+        <div id="bling-prod-status" class="setup-status"></div>
       </div>
 
       <div class="setup-section">
