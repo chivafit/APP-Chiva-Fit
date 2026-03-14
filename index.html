@@ -85,7 +85,7 @@
 
     <div class="sidebar-section-label">Operacional</div>
     <div class="nav-item" data-page="tarefas" id="nav-tarefas"><span class="nav-icon">✅</span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
-    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">💡</span><span class="nav-label">Oportunidades</span></div>
+    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">�️</span><span class="nav-label">Radar</span></div>
     <div class="nav-item" data-page="alertas" id="nav-alertas"><span class="nav-icon">🚨</span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
     <div class="nav-item ai-item" data-page="ia" id="nav-ia"><span class="nav-icon">🤖</span><span class="nav-label">IA</span></div>
     <div class="nav-item active" data-page="segmentos" id="nav-segmentos"><span class="nav-icon">🎯</span><span class="nav-label">Segmentos</span></div>
@@ -249,22 +249,33 @@
 <div class="page" id="page-oportunidades">
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
     <div>
-      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">💡 Oportunidades</h1>
-      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Clientes que precisam de ação agora</p>
+      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">🛰️ Radar de Oportunidades</h1>
+      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Priorize hoje, execute rápido e acompanhe recompra</p>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="btn" onclick="oppLoadMore()" style="padding:8px 12px;font-size:11px">＋ Mais</button>
+      <button class="btn" onclick="generateRadarTodayActions()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
       <button class="btn" onclick="renderOportunidades()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
     </div>
   </div>
-  <div class="opp-commandbar">
-    <div class="cmdbar">
-      <div class="cmdbar-ico">⌘</div>
-      <input id="opp-cmd" class="cmdbar-input" placeholder="Filtrar VIPs · Churn · Responsável Ana · SLA 3 · Só SLA · Limpar" oninput="renderOportunidades()"/>
-      <button class="cmdbar-btn" onclick="document.getElementById('opp-cmd').value='';renderOportunidades()">Limpar</button>
+  <div class="radar-top">
+    <div class="radar-title-row">
+      <div class="radar-title">OPORTUNIDADES DO DIA</div>
+      <div class="radar-sub">Resumo rápido para execução</div>
     </div>
+    <div class="radar-kpis" id="radar-kpis"></div>
   </div>
-  <div class="kanban" id="opp-kanban"></div>
+
+  <div id="radar-today-actions"></div>
+
+  <div class="radar-filterbar">
+    <div class="radar-search">
+      <span class="radar-search-ico">⌕</span>
+      <input id="radar-q" class="radar-search-input" placeholder="Buscar cliente, cidade, responsável..." oninput="renderOportunidades()"/>
+    </div>
+    <div class="radar-chips" id="radar-chips"></div>
+  </div>
+
+  <div id="radar-groups"></div>
 </div>
 
 <!-- TAREFAS -->
@@ -638,15 +649,31 @@
         <p>Importa pedidos de todos os canais integrados ao Bling.<br>
         As credenciais estão configuradas com segurança no servidor (Supabase).</p>
 
-        <label>Período de importação</label>
-        <div class="date-row"><input type="text" class="inp" id="date-from" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/><span>até</span><input type="text" class="inp" id="date-to" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
-        <button class="btn-primary" onclick="syncBling()">Importar Pedidos do Bling</button>
-        <div id="bling-status" class="setup-status"></div>
-
-        <div style="height:10px"></div>
-        <label>Catálogo de produtos</label>
-        <button class="btn" onclick="syncBlingProdutos()">Importar Produtos do Bling</button>
-        <div id="bling-prod-status" class="setup-status"></div>
+        <div id="bling-auto-card" style="border:1px solid var(--border-sub);background:rgba(255,255,255,.02);border-radius:12px;padding:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div style="font-weight:800">Sincronização automática ativa</div>
+            <span id="bling-auto-state" class="chiva-badge">—</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Última sincronização</div>
+              <div id="bling-auto-last" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Próxima execução</div>
+              <div id="bling-auto-next" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Pedidos importados</div>
+              <div id="bling-auto-orders" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Produtos sincronizados</div>
+              <div id="bling-auto-products" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+          </div>
+          <div id="bling-auto-message" style="display:none;margin-top:10px;font-size:11px;color:var(--text-3)"></div>
+        </div>
       </div>
 
       <div class="setup-section">

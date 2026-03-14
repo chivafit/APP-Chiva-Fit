@@ -1675,6 +1675,61 @@ async function openWhatsAppCarrinho(checkoutId){
   }
 }
 
+function openCarrinhoLinkFromRadar(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  const link = c?.link_finalizacao ? String(c.link_finalizacao) : "";
+  if(!link){ toast("⚠ Carrinho sem link"); return; }
+  window.open(link, "_blank");
+}
+
+function openCarrinhoInComercialFromRadar(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid) || {};
+  const q = String(c.email || c.telefone || cid || "").trim();
+  try{
+    showPage("comercial");
+    setComTab("carrinhos");
+    const inp = document.getElementById("car-search");
+    if(inp) inp.value = q;
+    renderCarrinhosAbandonados();
+  }catch(_e){}
+}
+
+function openRadarVisitouDrawer(checkoutId){
+  const cid = String(checkoutId||"");
+  const c0 = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c0){ toast("⚠ Carrinho não encontrado"); return; }
+  const c = normalizeCarrinhoAbandonado(c0);
+  const lookup = buildClienteLookupParaCarrinhos();
+  const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+  const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+  const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+  const tempo = fmtTempoDesde(calc.mins);
+  const nome = String(c.cliente_nome || "Cliente").trim();
+  const contato = [c.telefone?fmtPhone(c.telefone):"", c.email?String(c.email):""].filter(Boolean).join(" · ") || "—";
+  const resumo = (Array.isArray(c.produtos) ? c.produtos : []).slice(0,4).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join(", ");
+  const body = `
+    <div class="drawer-section">
+      <div class="drawer-section-title">Visita / Carrinho</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Cliente</span><span>${escapeHTML(nome)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Contato</span><span>${escapeHTML(contato)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Tempo</span><span class="chiva-table-mono">${escapeHTML(tempo||"—")}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Valor</span><span class="chiva-table-mono" style="color:var(--green)">${escapeHTML(fmtBRL(c.valor||0))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Score</span><span class="chiva-table-mono">${escapeHTML(String(Math.round(score||0)))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Próxima mensagem</span><span>${escapeHTML(String(etapa?.label||"—"))}</span></div>
+    </div>
+    ${resumo ? `<div class="drawer-section"><div class="drawer-section-title">Itens</div><div style="font-size:12px;color:var(--text-2);line-height:1.6">${escapeHTML(resumo)}</div></div>` : ""}
+  `;
+  const actions = `
+    <button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>
+    <button class="drawer-btn drawer-btn-ghost" onclick="openCarrinhoInComercialFromRadar('${escapeJsSingleQuote(cid)}')">Abrir carrinho</button>
+    ${c.link_finalizacao ? `<button class="drawer-btn drawer-btn-ghost" onclick="openCarrinhoLinkFromRadar('${escapeJsSingleQuote(cid)}')">Link</button>` : ""}
+    ${rawPhone(c.telefone||"") ? `<button class="drawer-btn drawer-btn-primary" onclick="openWhatsAppCarrinho('${escapeJsSingleQuote(cid)}')">WhatsApp</button>` : ""}
+  `;
+  openDrawer("👀 Visitou", "Carrinho aberto (sem compra)", body, actions);
+}
+
 async function reconcileCarrinhosRecuperados(){
   try{
     carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
@@ -2024,7 +2079,7 @@ function openTaskModal(id, cliente, customerId){
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px" id="task-modal-overlay">
       <div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:400px;border:1px solid var(--border)">
         <div style="font-size:14px;font-weight:800;margin-bottom:14px">${t?"✏️ Editar":"➕ Nova"} Tarefa</div>
-        <input type="hidden" id="tm-customer-id" value="${escapeHTML(String(customerId||""))}"/>
+        <input type="hidden" id="tm-customer-id" value="${escapeHTML(String(t?.customer_id||customerId||""))}"/>
         <input id="tm-titulo" placeholder="Título da tarefa *" value="${escapeHTML(t?.titulo||"")}" 
           style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box"/>
         <textarea id="tm-desc" placeholder="Descrição (opcional)" rows="2"
@@ -2066,6 +2121,7 @@ function saveTask(id){
     titulo,
     desc: document.getElementById("tm-desc")?.value.trim()||"",
     cliente: document.getElementById("tm-cliente")?.value.trim()||"",
+    customer_id: String(document.getElementById("tm-customer-id")?.value || "").trim(),
     prioridade: document.getElementById("tm-prio")?.value||"media",
     status: document.getElementById("tm-status")?.value||"pendente",
     data: parseDateToIso(document.getElementById("tm-data")?.value||"") || "",
@@ -2075,26 +2131,34 @@ function saveTask(id){
   saveTasks();
   // Sincronizar com v2_tarefas (fire-and-forget)
   if(supaConnected && supaClient){
-    const sbTask = {
+    const sbTaskBase = {
       titulo: task.titulo,
       descricao: task.desc||null,
       prioridade: task.prioridade,
       status: task.status === 'pendente' ? 'aberta' : task.status,
       vencimento: task.data||null,
     };
-    if(task._supaId){
-      // tarefa existente com UUID conhecido — atualizar
-      supaClient.from('v2_tarefas').update(sbTask).eq('id', task._supaId).then(()=>{});
-    } else {
-      // nova tarefa — inserir
-      supaClient.from('v2_tarefas').insert({...sbTask, created_at: new Date().toISOString()})
-        .select('id').single().then(({data})=>{
-          if(data?.id){
-            // guardar UUID para sincronizações futuras
-            const t2=allTasks.find(t=>t.id===task.id);
-            if(t2){ t2._supaId=data.id; saveTasks(); }
-          }
-        });
+    const syncToSupabase = (sbTask)=>{
+      if(task._supaId){
+        supaClient.from('v2_tarefas').update(sbTask).eq('id', task._supaId).then(()=>{});
+      } else {
+        supaClient.from('v2_tarefas').insert({...sbTask, created_at: new Date().toISOString()})
+          .select('id').single().then(({data})=>{
+            if(data?.id){
+              const t2=allTasks.find(t=>t.id===task.id);
+              if(t2){ t2._supaId=data.id; saveTasks(); }
+            }
+          });
+      }
+    };
+    const cid = String(task.customer_id||"").trim();
+    if(cid){
+      resolveCustomerUuid(cid).then(uuid=>{
+        const sbTask = uuid ? { ...sbTaskBase, cliente_id: uuid } : sbTaskBase;
+        syncToSupabase(sbTask);
+      }).catch(()=>{ syncToSupabase(sbTaskBase); });
+    }else{
+      syncToSupabase(sbTaskBase);
     }
   }
   document.getElementById("task-modal-overlay")?.remove();
@@ -4818,6 +4882,26 @@ const OPP_STAGES = [
 let oppRemoteLimit = 600;
 const OPP_REMOTE_PAGE_STEP = 600;
 
+let radarOppFilters = safeJsonParse("crm_radar_filters", { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false });
+let radarOppLastModel = null;
+
+function saveRadarOppFilters(){
+  try{ localStorage.setItem("crm_radar_filters", JSON.stringify(radarOppFilters||{})); }catch(_e){}
+}
+
+function radarToggleOppFilter(key){
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+  const k = String(key||"").trim();
+  if(!k) return;
+  if(k === "todos"){
+    radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+  }else{
+    radarOppFilters[k] = !radarOppFilters[k];
+  }
+  saveRadarOppFilters();
+  renderOportunidades();
+}
+
 function saveOppPipeline(){
   localStorage.setItem("crm_opp_pipeline", JSON.stringify(oppPipeline || []));
 }
@@ -4911,90 +4995,44 @@ function addOpportunity(){
 }
 
 async function renderOportunidadesFromSupabase(){
-  const host = document.getElementById("opp-kanban");
-  if(!host) return;
+  const kpisEl = document.getElementById("radar-kpis");
+  const chipsEl = document.getElementById("radar-chips");
+  const groupsEl = document.getElementById("radar-groups");
+  if(!kpisEl || !chipsEl || !groupsEl) return;
+
   if(!supaConnected || !supaClient){
-    host.innerHTML = `<div class="empty">Conecte o Supabase para ver o pipeline real.</div>`;
-    return;
+    groupsEl.innerHTML = `<div class="empty">Conecte o Supabase para ver o radar em tempo real.</div>`;
+    return null;
   }
 
-  const parseOppCommand = (raw)=>{
-    const txt = String(raw||"").trim();
-    const lower = txt.toLowerCase();
-    const out = {
-      segment: "",
-      statusSaude: "",
-      responsible: "",
-      onlySla: false,
-      slaDays: 3,
-      q: ""
-    };
-    if(!lower) return out;
-    if(/\blimpar\b/.test(lower)) return out;
-    if(/\bs[oó]\s*sla\b/.test(lower) || /\bonly\s*sla\b/.test(lower)) out.onlySla = true;
-    const mSla = lower.match(/\bsla\s*([0-9]{1,3})\b/);
-    if(mSla) out.slaDays = Math.max(0, parseInt(mSla[1]||"0")||0);
-    const mResp = lower.match(/\brespons[aá]vel\s+(.+)$/);
-    if(mResp) out.responsible = String(mResp[1]||"").trim();
-    if(/\bvip\b/.test(lower)) out.segment = "VIP";
-    if(/\bem\s*risco\b/.test(lower) || /\brisco\b/.test(lower)) out.segment = "Em Risco";
-    if(/\bchurn\b/.test(lower)) out.segment = "Churn";
-    if(/\bnovo\b/.test(lower)) out.segment = "Novo";
-    if(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/.test(lower)){
-      const mm = lower.match(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/);
-      const v = String(mm?.[1]||"").trim();
-      if(v === "vip") out.statusSaude = "VIP";
-      else if(v === "churn") out.statusSaude = "Churn";
-      else if(v === "novo") out.statusSaude = "Novo";
-      else out.statusSaude = "Em Risco";
-    }
-    const cleaned = lower
-      .replace(/\brespons[aá]vel\s+.+$/,"")
-      .replace(/\bs[oó]\s*sla\b/g,"")
-      .replace(/\bsla\s*[0-9]{1,3}\b/g,"")
-      .replace(/\bfiltrar\b/g,"")
-      .replace(/\b(vip|churn|novo|risco|em\s*risco)\b/g,"")
-      .replace(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/g,"")
-      .trim();
-    out.q = cleaned;
-    return out;
-  };
+  const q = String(document.getElementById("radar-q")?.value || "").trim().toLowerCase();
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
 
-  const cmdText = String(document.getElementById("opp-cmd")?.value || "").trim();
-  const cmd = parseOppCommand(cmdText);
+  const chips = [
+    { id: "visitou", label: "Visitou" },
+    { id: "visitou_quente", label: "Carrinho quente" },
+    { id: "visitou_frio", label: "Visitou frio" },
+    { id: "vip", label: "VIP" },
+    { id: "churn", label: "Churn" },
+    { id: "recompra", label: "Recompra" },
+    { id: "alto_valor", label: "Alto valor" },
+    { id: "dias30", label: "30+ dias" },
+    { id: "carrinho", label: "Carrinho abandonado" },
+    { id: "todos", label: "Todos" },
+  ];
+  chipsEl.innerHTML = chips.map(c=>{
+    const active = c.id==="todos" ? !Object.values(radarOppFilters).some(Boolean) : !!radarOppFilters[c.id];
+    return `<button class="radar-chip ${active?"active":""}" onclick="radarToggleOppFilter('${escapeJsSingleQuote(c.id)}')">${escapeHTML(c.label)}</button>`;
+  }).join("");
 
-  const renderOppSkeleton = ()=>{
-    return OPP_STAGES.map(s=>{
-      const sk = Array.from({length:6}).map(()=>{
-        return `
-          <div class="opp-card opp-skeleton">
-            <div class="opp-skel-block">
-              <div class="opp-skel-row">
-                <div class="opp-skel-ico"></div>
-                <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-                  <div class="skel" style="width:72%;height:12px"></div>
-                  <div class="skel" style="width:56%;height:10px"></div>
-                </div>
-              </div>
-              <div class="skel" style="width:88%;height:10px"></div>
-              <div class="skel" style="width:78%;height:10px"></div>
-            </div>
-          </div>
-        `;
-      }).join("");
-      return `
-        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-          <div class="kanban-col-title">
-            <span>${escapeHTML(s.label)}</span>
-            <span class="kanban-col-count">—</span>
-          </div>
-          <div class="kanban-drop">${sk}</div>
-        </div>
-      `;
-    }).join("");
-  };
+  kpisEl.innerHTML = `
+    <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Novos clientes hoje</div><div class="radar-kpi-val">—</div></div>
+  `;
 
-  host.innerHTML = renderOppSkeleton();
+  groupsEl.innerHTML = `<div class="empty">Carregando radar…</div>`;
 
   try{
     let healthMap = {};
@@ -5039,71 +5077,9 @@ async function renderOportunidadesFromSupabase(){
       .range(0, Math.max(0, oppRemoteLimit - 1));
     if(error) throw error;
     const rows = Array.isArray(data) ? data : [];
-
-    const byStage = {};
-    OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
-    rows.forEach(r=>{
-      const st = byStage[r.pipeline_stage] ? r.pipeline_stage : "novo_lead";
-      const resp = String(r.responsible_user||"").trim();
-      if(cmd.responsible && !resp.toLowerCase().includes(cmd.responsible.toLowerCase())) return;
-      const health = healthMap[String(r.id||"").trim()] || {};
-      const intel = intelMap[String(r.id||"").trim()] || {};
-      const segment = String(health?.segmento || health?.segment || intel?.segmento || "").trim();
-      const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
-      if(cmd.segment && segment.toLowerCase() !== cmd.segment.toLowerCase()) return;
-      if(cmd.statusSaude && statusSaude.toLowerCase() !== cmd.statusSaude.toLowerCase()) return;
-      if(cmd.q){
-        const q = cmd.q.toLowerCase();
-        const nm = String(r.nome||"").toLowerCase();
-        const loc = [r.cidade, r.uf].filter(Boolean).join(" ").toLowerCase();
-        if(!nm.includes(q) && !loc.includes(q) && !resp.toLowerCase().includes(q)) return;
-      }
-      const dsContact = daysSince(r.last_contact_at || r.last_interaction_at);
-      const slaHit = cmd.slaDays>0 && dsContact<9999 && dsContact>cmd.slaDays && (st==="contato_iniciado" || st==="negociacao");
-      if(cmd.onlySla && !slaHit) return;
-      r.__dsContact = dsContact;
-      r.__slaHit = slaHit;
-      byStage[st].push(r);
-    });
-    OPP_STAGES.forEach(s=>{
-      byStage[s.id].sort((a,b)=>{
-        const ad = a.last_interaction_at ? new Date(a.last_interaction_at).getTime() : 0;
-        const bd = b.last_interaction_at ? new Date(b.last_interaction_at).getTime() : 0;
-        return bd - ad;
-      });
-    });
-
-    const stageLabel = Object.fromEntries(OPP_STAGES.map(s=>[s.id,s.label]));
-    const typeLabel = {
-      mensagem_enviada: "Mensagem enviada",
-      mensagem_recebida: "Mensagem recebida",
-      ligacao: "Interação",
-      tarefa_criada: "Tarefa criada",
-      tarefa_concluida: "Tarefa concluída",
-      negociacao_registrada: "Negociação",
-      pedido_criado: "Pedido criado",
-      pagamento_confirmado: "Pagamento confirmado",
-      status_pedido_atualizado: "Status do pedido",
-      nota: "Nota"
-    };
-
-    const fmtHours = (h)=>{
-      const n = Number(h);
-      if(!Number.isFinite(n) || n < 0) return "—";
-      if(n < 24) return `${Math.floor(n)}h`;
-      const d = Math.floor(n/24);
-      const r = Math.floor(n%24);
-      return r ? `${d}d ${r}h` : `${d}d`;
-    };
-
-    const hoursSinceIso = (iso)=>{
-      const t = iso ? new Date(String(iso)).getTime() : NaN;
-      if(!t || isNaN(t)) return null;
-      return (Date.now() - t) / 3600000;
-    };
-
     const segMeta = (seg)=>{
       const s = String(seg||"").trim().toLowerCase();
+      if(s === "visitou") return { cls: "seg-visitou", label: "Visitou" };
       if(s === "vip") return { cls: "seg-vip", label: "VIP" };
       if(s === "em risco" || s === "risco") return { cls: "seg-risco", label: "Em Risco" };
       if(s === "churn") return { cls: "seg-churn", label: "Churn" };
@@ -5120,76 +5096,352 @@ async function renderOportunidadesFromSupabase(){
       return "Registrar próxima ação";
     };
 
-    host.innerHTML = OPP_STAGES.map(s=>{
-      const list = byStage[s.id] || [];
-      return `
-        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-          <div class="kanban-col-title">
-            <span>${escapeHTML(s.label)}</span>
-            <span class="kanban-col-count">${list.length}</span>
+    const todayIso = new Date().toISOString().slice(0,10);
+    const cartsOpen = []
+      .concat(carrinhosAbandonados||[])
+      .map(normalizeCarrinhoAbandonado)
+      .filter(c=>c && c.checkout_id && !c.recuperado);
+
+    const cartByEmail = {};
+    cartsOpen.forEach(c=>{
+      const em = String(c.email || c.customer_email || "").trim().toLowerCase();
+      if(!em) return;
+      cartByEmail[em] = (cartByEmail[em]||0) + 1;
+    });
+
+    const items = rows.map(r=>{
+      const uuid = String(r.id || "").trim();
+      const health = healthMap[uuid] || {};
+      const intel = intelMap[uuid] || {};
+      const key = String(r.doc || r.id || "").trim();
+      const nm = String(r.nome || "Cliente").trim();
+      const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
+      const resp = String(r.responsible_user || "").trim();
+      const localCust = allCustomers.find(c=>String(c.id||"")===key);
+      const phone = rawPhone(localCust?.telefone||"");
+      const email = String(localCust?.email || r.email || "").trim().toLowerCase();
+      const segment = String(health?.segmento || health?.segment || intel?.segmento || r.status || localCust?.status || "").trim();
+      const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
+      const churnRisk = Number(health?.risco_churn ?? health?.churn_risk ?? r.risco_churn ?? 0) || 0;
+      const recompraScore = Number(health?.score_recompra ?? health?.recompra_score ?? r.score_recompra ?? intel?.score_final ?? 0) || 0;
+      const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? r.dias_desde_ultima_compra ?? daysSince(health?.ultimo_pedido || r.ultimo_pedido) ?? 0) || 0;
+      const totalPedidos = Number(health?.total_pedidos ?? r.total_pedidos ?? 0) || 0;
+      const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? r.total_gasto ?? 0) || 0;
+      const ticket = Number(health?.ticket_medio ?? r.ticket_medio ?? (totalPedidos>0 ? (ltv/totalPedidos) : 0) ) || 0;
+      const prob = Math.max(0, Math.min(100, Math.round(recompraScore)));
+      const potencial = Math.max(0, ticket) * (prob/100);
+      const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || r.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
+      const primeiro = String(health?.primeiro_pedido || r.primeiro_pedido || "").slice(0,10);
+      const cartCount = email ? (cartByEmail[email]||0) : 0;
+      const lastInteractionAt = r.last_interaction_at || r.lastInteractionAt || null;
+      const lastContactAt = r.last_contact_at || r.lastContactAt || null;
+      const lastInteractionType = r.last_interaction_type || r.lastInteractionType || null;
+      const lastInteractionDesc = r.last_interaction_desc || r.lastInteractionDesc || null;
+      return { uuid, key, nm, loc, resp, phone, email, segment, statusSaude, churnRisk, prob, diasSemComprar, totalPedidos, ltv, ticket, potencial, nextAction, primeiro, cartCount, last_interaction_at: lastInteractionAt, last_contact_at: lastContactAt, last_interaction_type: lastInteractionType, last_interaction_desc: lastInteractionDesc };
+    }).filter(x=>x.uuid && x.key);
+
+    const ltvVals = items.map(i=>i.ltv).filter(v=>Number.isFinite(v) && v>0).sort((a,b)=>a-b);
+    const p90 = ltvVals.length ? ltvVals[Math.max(0, Math.floor(ltvVals.length*0.9)-1)] : 0;
+    const highValueThreshold = Math.max(400, Number(p90)||0);
+
+    const purchasedByEmail = {};
+    items.forEach(i=>{
+      const em = String(i.email||"").trim().toLowerCase();
+      if(!em) return;
+      purchasedByEmail[em] = (Number(i.totalPedidos||0) > 0) || (Number(i.ltv||0) > 0);
+    });
+
+    const lookupCarr = buildClienteLookupParaCarrinhos();
+    const visitouLeads = cartsOpen
+      .filter(c=>{
+        const em = String(c.email||"").trim().toLowerCase();
+        if(!em) return true;
+        return purchasedByEmail[em] !== true;
+      })
+      .map(c=>{
+        const cid = String(c.checkout_id||"").trim();
+        const calc = calcularScoreRecuperacaoCarrinho(c, lookupCarr);
+        const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+        const prio = prioridadePorScore(score);
+        const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+        const valor = Number(c.valor||0)||0;
+        const nm = String(c.cliente_nome || c.email || "Visitante").trim() || "Visitante";
+        const em = String(c.email||"").trim().toLowerCase();
+        const phone = rawPhone(c.telefone||"");
+        const ds = daysSince(c.criado_em);
+        const dias = ds>=9999 ? 0 : ds;
+        const acao = etapa?.label ? `Carrinho: ${String(etapa.label)}` : "Recuperar carrinho";
+        return {
+          kind: "visitou",
+          uuid: "visitou:"+cid,
+          key: "visitou:"+cid,
+          checkoutId: cid,
+          nm,
+          loc: "",
+          resp: "",
+          phone,
+          email: em,
+          segment: "Visitou",
+          statusSaude: "Visitou",
+          churnRisk: 0,
+          prob: Math.max(0, Math.min(100, Math.round(score))),
+          diasSemComprar: dias,
+          tempoMin: calc.mins,
+          prioridade_id: prio.id,
+          prioridade_label: prio.label,
+          totalPedidos: 0,
+          ltv: 0,
+          ticket: valor,
+          potencial: valor,
+          nextAction: acao,
+          primeiro: "",
+          cartCount: 1,
+          cartValue: valor,
+          link_finalizacao: c.link_finalizacao || null,
+          criado_em: c.criado_em || null,
+        };
+      })
+      .filter(x=>x.checkoutId);
+
+    const allItems = [...visitouLeads, ...items];
+
+    const vipRiskCount = items.filter(i=>String(i.segment||i.statusSaude).toLowerCase()==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70)).length;
+    const cartsCount = cartsOpen.length;
+    const d30Count = items.filter(i=>i.diasSemComprar>=30).length;
+    const leadsTodayCount = visitouLeads.filter(x=>String(x.criado_em||"").slice(0,10)===todayIso).length;
+
+    kpisEl.innerHTML = `
+      <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">${escapeHTML(String(vipRiskCount))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">${escapeHTML(String(cartsCount))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">${escapeHTML(String(d30Count))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Leads novos hoje</div><div class="radar-kpi-val">${escapeHTML(String(leadsTodayCount))}</div></div>
+    `;
+
+    const filtered = allItems.filter(i=>{
+      if(q){
+        const hay = [i.nm, i.loc, i.resp, i.email].filter(Boolean).join(" ").toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      const isLead = i.kind === "visitou";
+      const isHotLead = isLead && String(i.prioridade_id||"") === "alta";
+      const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+      if(radarOppFilters.visitou && !isLead) return false;
+      if(radarOppFilters.visitou_quente && !isHotLead) return false;
+      if(radarOppFilters.visitou_frio && (isLead && isHotLead)) return false;
+      if(radarOppFilters.visitou_frio && !isLead) return false;
+      if(radarOppFilters.vip && (isLead || segLower !== "vip")) return false;
+      if(radarOppFilters.churn && (isLead || segLower !== "churn")) return false;
+      if(radarOppFilters.recompra && (isLead || !(i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60))) return false;
+      if(radarOppFilters.alto_valor && (isLead || i.ltv < highValueThreshold)) return false;
+      if(radarOppFilters.dias30 && (isLead || i.diasSemComprar < 30)) return false;
+      if(radarOppFilters.carrinho && i.cartCount <= 0) return false;
+      return true;
+    });
+
+    const visitou = filtered.filter(i=>i.kind === "visitou");
+    const visitouHot = visitou.filter(i=>String(i.prioridade_id||"") === "alta");
+    const visitouCold = visitou.filter(i=>String(i.prioridade_id||"") !== "alta");
+    const customersOnly = filtered.filter(i=>i.kind !== "visitou");
+
+    const priorityHigh = [];
+    const highValue = [];
+    const rebuy = [];
+    const risk = [];
+    const inactive = [];
+
+    customersOnly.forEach(i=>{
+      const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+      const isVipRisk = segLower==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70);
+      const isCartHot = i.cartCount>0 && i.diasSemComprar>=7;
+      const isProbable = i.prob>=80 && i.diasSemComprar>=30 && i.ltv>0;
+      const isRebuy = i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60 && !isVipRisk;
+      const isInactive = i.diasSemComprar>=120;
+      const isRisk = !isInactive && (segLower==="churn" || segLower==="em risco" || segLower==="risco" || i.churnRisk>=70 || i.diasSemComprar>=60);
+      if(isVipRisk || isCartHot || isProbable) priorityHigh.push(i);
+      else if(i.ltv>=highValueThreshold) highValue.push(i);
+      else if(isRebuy) rebuy.push(i);
+      else if(isRisk) risk.push(i);
+      else if(isInactive) inactive.push(i);
+    });
+
+    const sortByScore = (a,b)=>(b.prob-a.prob) || (b.potencial-a.potencial) || (b.ltv-a.ltv) || (b.diasSemComprar-a.diasSemComprar);
+    priorityHigh.sort(sortByScore);
+    highValue.sort((a,b)=>(b.ltv-a.ltv) || sortByScore(a,b));
+    rebuy.sort(sortByScore);
+    risk.sort((a,b)=>(b.churnRisk-a.churnRisk) || (b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+    inactive.sort((a,b)=>(b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+
+    const renderCard = (i)=>{
+      if(i.kind === "visitou"){
+        const cid = String(i.checkoutId||"").trim();
+        const safeCid = escapeJsSingleQuote(cid);
+        const seg = segMeta(i.segment || i.statusSaude);
+        const prioId = String(i.prioridade_id||"").trim();
+        const prioLabel = String(i.prioridade_label||"").trim() || "—";
+        const prioIcon = prioId === "alta" ? "🔥" : (prioId === "media" ? "⚡" : "🧊");
+        const contato = [i.email||"", i.phone?fmtPhone(i.phone):""].filter(Boolean).join(" · ") || "—";
+        const kv = `
+          <div class="radar-card-vals">
+            <div class="radar-kv">
+              <div class="radar-kv-label">POTENCIAL</div>
+              <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">ÚLTIMA VISITA</div>
+              <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CARRINHO</div>
+              <div class="radar-kv-val">${escapeHTML(String(cid).slice(0,8))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CONTATO</div>
+              <div class="radar-kv-val" style="font-family:var(--font)">${escapeHTML(contato)}</div>
+            </div>
           </div>
-          <div class="kanban-drop">
-            ${list.map(r=>{
-              const key = String(r.doc || r.id || "");
-              const safeKey = escapeJsSingleQuote(key);
-              const uuid = String(r.id || "").trim();
-              const nm = String(r.nome || "Cliente");
-              const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
-              const lastAt = r.last_interaction_at ? new Date(r.last_interaction_at) : null;
-              const lastLabel = typeLabel[r.last_interaction_type] || r.last_interaction_type || "—";
-              const lastTime = lastAt && !isNaN(lastAt) ? lastAt.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
-              const dsContact = typeof r.__dsContact === "number" ? r.__dsContact : daysSince(r.last_contact_at || r.last_interaction_at);
-              const dsText = dsContact>=9999 ? "—" : `${dsContact}d sem contato`;
-              const resp = r.responsible_user ? String(r.responsible_user) : "—";
-              const desc = r.last_interaction_desc ? String(r.last_interaction_desc) : "";
-              const descMini = desc.length > 90 ? desc.slice(0,90)+"…" : desc;
-              const localCust = allCustomers.find(c=>String(c.id||"")===key);
-              const phone = rawPhone(localCust?.telefone||"");
-              const slaHit = !!r.__slaHit;
-              const health = healthMap[uuid] || {};
-              const intel = intelMap[uuid] || {};
-              const segment = String(health?.segmento || health?.segment || intel?.segmento || localCust?.status || "").trim();
-              const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
-              const seg = segMeta(segment || statusSaude);
-              const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
-              const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? dsContact) || 0;
-              const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? 0) || 0;
-              const hs = hoursSinceIso(r.last_interaction_at || r.last_contact_at);
-              const slaNovoLead = (s.id === "novo_lead") && hs != null && hs > 24;
-              const healthCls = String(statusSaude||"").toLowerCase()==="churn" ? "opp-health-churn" : (String(segment||"").toLowerCase()==="vip" ? "opp-health-vip" : "");
-              return `
-                <div class="opp-card ${slaHit?"opp-sla":""} ${healthCls}" data-client-uuid="${escapeHTML(uuid)}" data-customer-key="${escapeHTML(key)}" onclick="openOppClienteResumo('${safeKey}')">
-                  <div class="opp-head">
-                    <div class="opp-title">${escapeHTML(nm)}</div>
-                    <div class="opp-badges">
-                      ${String(segment||"").toLowerCase()==="vip" ? `<span class="vip-crown">👑</span>` : ``}
-                      ${segment?`<span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>`:""}
-                      ${slaNovoLead?`<span class="sla-badge">⏱ ${escapeHTML(fmtHours(hs))}</span>`:""}
-                      ${slaHit?`<span class="opp-sla-tag">SLA</span>`:""}
-                    </div>
-                  </div>
-                  <div class="opp-meta">${escapeHTML(loc||"—")}</div>
-                  <div class="opp-meta">Faturamento: <span class="chiva-table-mono">${escapeHTML(fmtBRL(ltv||0))}</span> · ${escapeHTML(Math.max(0, Math.round(diasSemComprar||0)))}d sem comprar</div>
-                  <div class="opp-meta">Última: ${escapeHTML(lastLabel)} · ${escapeHTML(lastTime)}${descMini?` · ${escapeHTML(descMini)}`:""}</div>
-                  <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}</div>
-                  <div class="opp-next">Próxima ação: <b>${escapeHTML(nextAction)}</b></div>
-                  <div class="opp-actions" onclick="event.stopPropagation()">
-                    ${phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WA</button>`:""}
-                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','nota')">Nota</button>
-                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','negociacao_registrada')">Neg</button>
-                    <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
-                  </div>
-                </div>
-              `;
-            }).join("")}
+        `;
+        const prob = `
+          <div class="radar-prob">
+            <div class="radar-prob-row">
+              <div class="radar-prob-label">Probabilidade de recuperação</div>
+              <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+            </div>
+            <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+          </div>
+        `;
+        const action = `<div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Recuperar carrinho")}</b></div>`;
+        const buttons = `
+          <div class="radar-actions" onclick="event.stopPropagation()">
+            ${rawPhone(i.phone||"")?`<button class="opp-mini-btn" onclick="openWhatsAppCarrinho('${safeCid}')">WhatsApp</button>`:""}
+            ${i.link_finalizacao?`<button class="opp-mini-btn" onclick="openCarrinhoLinkFromRadar('${safeCid}')">Link</button>`:""}
+            <button class="opp-mini-btn" onclick="openCarrinhoInComercialFromRadar('${safeCid}')">Abrir</button>
+          </div>
+        `;
+        return `
+          <div class="radar-card" onclick="openRadarVisitouDrawer('${safeCid}')">
+            <div class="radar-card-top">
+              <div style="min-width:0">
+                <div class="radar-card-name">${escapeHTML(i.nm||"Visitante")}</div>
+                <div class="radar-card-meta">${escapeHTML("Carrinho aberto (sem compra)")}</div>
+              </div>
+              <div class="opp-badges">
+                <span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>
+                <span class="seg-badge" style="border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text-2)">${escapeHTML(prioIcon+" "+prioLabel)}</span>
+              </div>
+            </div>
+            ${kv}${prob}${action}${buttons}
+          </div>
+        `;
+      }
+      const safeKey = escapeJsSingleQuote(i.key);
+      const seg = segMeta(i.segment || i.statusSaude);
+      const nameLine = `
+        <div class="radar-card-top">
+          <div style="min-width:0">
+            <div class="radar-card-name">${escapeHTML(i.nm)}</div>
+            <div class="radar-card-meta">${escapeHTML(i.loc || "—")}${i.resp?` · ${escapeHTML(i.resp)}`:""}</div>
+          </div>
+          <div class="opp-badges">
+            ${String(i.segment||"").toLowerCase()==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+            ${(i.segment||i.statusSaude)?`<span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>`:""}
+            ${i.cartCount>0?`<span class="seg-badge" style="border-color:rgba(251,191,36,.22);background:rgba(251,191,36,.08);color:var(--amber)">🛒 ${escapeHTML(String(i.cartCount))}</span>`:""}
           </div>
         </div>
       `;
-    }).join("");
+      const kv = `
+        <div class="radar-card-vals">
+          <div class="radar-kv">
+            <div class="radar-kv-label">POTENCIAL</div>
+            <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">ÚLTIMA COMPRA</div>
+            <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">FATURAMENTO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ltv||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">TICKET MÉDIO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ticket||0))}</div>
+          </div>
+        </div>
+      `;
+      const prob = `
+        <div class="radar-prob">
+          <div class="radar-prob-row">
+            <div class="radar-prob-label">Probabilidade de recompra</div>
+            <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+          </div>
+          <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+        </div>
+      `;
+      const action = `
+        <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Registrar próxima ação")}</b></div>
+      `;
+      const buttons = `
+        <div class="radar-actions" onclick="event.stopPropagation()">
+          ${i.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+          ${i.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+          <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
+        </div>
+      `;
+      return `<div class="radar-card" onclick="openOppClienteResumo('${safeKey}')">${nameLine}${kv}${prob}${action}${buttons}</div>`;
+    };
 
-    try{ enableOppDragAndSpring(host); }catch(_e){}
+    const renderGroup = (title, subtitle, list)=>{
+      if(!list.length) return "";
+      return `
+        <div class="radar-group">
+          <div class="radar-group-hdr">
+            <div>
+              <div class="radar-group-title">${escapeHTML(title)}</div>
+              <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
+            </div>
+            <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+          </div>
+          <div class="radar-grid">${list.map(renderCard).join("")}</div>
+        </div>
+      `;
+    };
+
+    const sortVisitouHot = (a,b)=>{
+      const as = Number(a.prob||0)||0;
+      const bs = Number(b.prob||0)||0;
+      if(bs !== as) return bs - as;
+      const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+      const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+      if(am !== bm) return am - bm;
+      return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+    };
+    const sortVisitouCold = (a,b)=>{
+      const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+      const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+      if(am !== bm) return am - bm;
+      const as = Number(a.prob||0)||0;
+      const bs = Number(b.prob||0)||0;
+      if(bs !== as) return bs - as;
+      return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+    };
+    visitouHot.sort(sortVisitouHot);
+    visitouCold.sort(sortVisitouCold);
+
+    const groupsHtml =
+      renderGroup("🛒 CARRINHO QUENTE", "Alta chance de recuperar agora", visitouHot) +
+      renderGroup("👀 VISITOU (FRIO)", "Nutrir e acompanhar", visitouCold) +
+      renderGroup("🔥 PRIORIDADE ALTA", "Execute hoje", priorityHigh) +
+      renderGroup("💰 ALTO VALOR", `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`, highValue) +
+      renderGroup("🔄 RECOMPRA", "Clientes no timing de reposição", rebuy) +
+      renderGroup("⚠️ EM RISCO", "Recuperação e retenção", risk) +
+      renderGroup("🧊 INATIVOS", "120+ dias sem comprar", inactive);
+
+    groupsEl.innerHTML = groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
+    radarOppLastModel = { items: allItems, filtered, groups: { visitouHot, visitouCold, priorityHigh, highValue, rebuy, risk, inactive }, thresholds: { highValueThreshold } };
+    return radarOppLastModel;
   }catch(_e){
-    host.innerHTML = `<div class="empty">Pipeline indisponível no momento.</div>`;
+    groupsEl.innerHTML = `<div class="empty">Radar indisponível no momento.</div>`;
+    return null;
   }
 }
 
@@ -5312,6 +5564,272 @@ function oppLoadMore(){
   renderOportunidades();
 }
 
+function oppSendCoupon(customerKey, pct){
+  const id = String(customerKey||"").trim();
+  const p = Number(pct||0) || 10;
+  if(!id) return;
+  const c = allCustomers.find(x=>String(x.id||"")===id);
+  if(!c){ toast("⚠ Cliente não encontrado"); return; }
+  const phone = rawPhone(c.telefone||"");
+  if(!phone){ toast("⚠ Cliente sem telefone"); return; }
+  openWaModal(id);
+  const first = String(c.nome||"Cliente").trim().split(" ")[0] || "Cliente";
+  const msg = `Oi ${first}! Tenho um cupom de ${p}% para você voltar hoje. Quer que eu te envie?`;
+  setTimeout(()=>{
+    const inp = document.getElementById("wa-custom");
+    if(inp) inp.value = msg;
+  }, 80);
+}
+
+async function oppSuggestTodayActions(){
+  return generateRadarTodayActions();
+}
+
+let radarTodayActionsState = { loading: false, last: null, ts: 0 };
+
+function radarGetPendingTaskCount(customerKey, customerName){
+  const key = String(customerKey||"").trim();
+  const nm = String(customerName||"").trim().toLowerCase();
+  if(!Array.isArray(allTasks) || !allTasks.length) return 0;
+  return allTasks.filter(t=>{
+    if(!t || t.status === "concluida") return false;
+    const tid = String(t.customer_id || t.cliente_id || t.clienteId || "").trim();
+    if(key && tid && tid === key) return true;
+    const tc = String(t.cliente || "").trim().toLowerCase();
+    if(!tc || !nm) return false;
+    if(tc === nm) return true;
+    return tc.includes(nm) || nm.includes(tc);
+  }).length;
+}
+
+function radarDaysSinceIso(isoStr){
+  const ts = isoStr ? new Date(String(isoStr)).getTime() : NaN;
+  if(!isFinite(ts)) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+}
+
+function radarBuildMotivo(flags){
+  if(flags.vip && flags.d90) return "Cliente VIP em risco de churn";
+  if(flags.risco && flags.altoValor && flags.semContato) return "Cliente valioso sem contato recente";
+  if(flags.altoPotencial && flags.semContato) return "Alto potencial de recompra";
+  if(flags.d90 && flags.recorrente) return "Recorrente com sinais de queda";
+  if(flags.d45 && flags.altoValor) return "Muito tempo sem comprar e bom histórico";
+  if(flags.risco) return "Cliente em risco com bom histórico";
+  if(flags.altoValor) return "Cliente valioso com oportunidade de retorno";
+  if(flags.d45) return "Muito tempo sem comprar";
+  if(flags.altoPotencial) return "Bom potencial de recompra";
+  return "Oportunidade de contato hoje";
+}
+
+function radarPickNextBestAction(item, flags){
+  const segLower = String(item?.segment||item?.statusSaude||"").toLowerCase();
+  if(flags.vip) return "Enviar WhatsApp com oferta VIP";
+  if(segLower === "churn" || flags.risco) return "Enviar cupom de reativação";
+  if(flags.altoPotencial) return "Enviar cupom de recompra";
+  if(flags.d45) return "Reativar com campanha";
+  return "Abrir atendimento manual";
+}
+
+function radarScoreCustomerOpportunity(item, ctx){
+  const ltv = Number(item?.ltv||0) || 0;
+  const ticket = Number(item?.ticket||0) || 0;
+  const dias = Number(item?.diasSemComprar ?? 0) || 0;
+  const n = Number(item?.totalPedidos ?? 0) || 0;
+  const prob = Number(item?.prob ?? 0) || 0;
+  const churnRisk = Number(item?.churnRisk ?? 0) || 0;
+  const segLower = String(item?.segment||item?.statusSaude||"").toLowerCase();
+  const vip = segLower === "vip";
+  const risco = segLower === "churn" || segLower === "em risco" || segLower === "risco" || churnRisk >= 70;
+  const altoValor = (ctx.avgLtv > 0) ? (ltv >= ctx.avgLtv) : (ltv >= 500);
+  const d45 = dias >= 45;
+  const d90 = dias >= 90;
+  const recorrente = n >= 2;
+  const altoPotencial = prob >= 75;
+
+  const lastContactDays =
+    radarDaysSinceIso(item?.last_contact_at) ??
+    radarDaysSinceIso(item?.last_interaction_at);
+  const semContato = lastContactDays == null ? true : lastContactDays > 7;
+
+  const pendingCount = radarGetPendingTaskCount(item?.key, item?.nm);
+  const temPendente = pendingCount > 0;
+
+  let score = 0;
+  score += vip ? 30 : 0;
+  score += altoValor ? 20 : 0;
+  score += d90 ? 35 : (d45 ? 25 : 0);
+  score += recorrente ? 15 : 0;
+  score += risco ? 20 : 0;
+  score += altoPotencial ? 15 : 0;
+  score += (ctx.avgTicket > 0 && ticket >= (ctx.avgTicket * 1.2)) ? 10 : 0;
+  score += (risco && recorrente && altoValor) ? 10 : 0;
+  score -= (lastContactDays != null && lastContactDays <= 7) ? 20 : 0;
+  score -= temPendente ? 15 : 0;
+
+  const flags = { vip, risco, altoValor, d45, d90, recorrente, altoPotencial, semContato, temPendente };
+  const motivo = radarBuildMotivo(flags);
+  const nextBest = String(item?.nextAction||"").trim() || radarPickNextBestAction(item, flags);
+  const prio = score >= 85 ? { id: "alta", label: "Prioridade alta", cls: "high" } : (score >= 60 ? { id: "media", label: "Prioridade média", cls: "med" } : { id: "baixa", label: "Prioridade baixa", cls: "" });
+
+  const badges = [];
+  if(vip) badges.push("VIP");
+  if(altoValor) badges.push("Alto valor");
+  if(risco) badges.push("Em Risco");
+
+  return {
+    score,
+    motivo,
+    nextBest,
+    prio,
+    badges,
+    pendingCount,
+    lastContactDays
+  };
+}
+
+function renderRadarTodayActionsBlock(state){
+  const host = document.getElementById("radar-today-actions");
+  if(!host) return;
+  if(state.loading){
+    host.innerHTML = `
+      <div class="radar-today">
+        <div class="radar-today-head">
+          <div>
+            <div class="radar-today-title">Ações recomendadas para hoje</div>
+            <div class="radar-today-sub">Gerando recomendações…</div>
+          </div>
+          <div class="radar-prio-pill med">Processando</div>
+        </div>
+        <div class="radar-today-grid">
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  const list = Array.isArray(state.last) ? state.last : [];
+  if(!list.length){
+    host.innerHTML = `
+      <div class="radar-today">
+        <div class="radar-today-head">
+          <div>
+            <div class="radar-today-title">Ações recomendadas para hoje</div>
+            <div class="radar-today-sub">Sem dados suficientes para recomendar agora</div>
+          </div>
+          <div class="radar-prio-pill">Vazio</div>
+        </div>
+        <div class="empty">Importe/sincronize pedidos e clientes para gerar recomendações com base em histórico.</div>
+      </div>
+    `;
+    return;
+  }
+  const updatedAt = state.ts ? new Date(state.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
+  host.innerHTML = `
+    <div class="radar-today">
+      <div class="radar-today-head">
+        <div>
+          <div class="radar-today-title">Ações recomendadas para hoje</div>
+          <div class="radar-today-sub">Top 3 por valor, recência, risco e histórico</div>
+        </div>
+        <div class="radar-prio-pill">${updatedAt ? "Atualizado " + escapeHTML(updatedAt) : "Atualizado"}</div>
+      </div>
+      <div class="radar-today-grid">
+        ${list.map(r=>{
+          const safeKey = escapeJsSingleQuote(String(r.key||""));
+          const segLower = String(r.segment||r.statusSaude||"").toLowerCase();
+          const segCls = segLower==="vip" ? "seg-vip" : segLower==="churn" ? "seg-churn" : segLower==="em risco"||segLower==="risco" ? "seg-risco" : segLower==="novo" ? "seg-novo" : "seg-unk";
+          const segLabel = segLower==="vip" ? "VIP" : segLower==="churn" ? "Churn" : segLower==="em risco"||segLower==="risco" ? "Em Risco" : segLower==="novo" ? "Novo" : (r.segment||"—");
+          const pr = r.__score?.prio;
+          const prCls = pr?.cls ? ` ${pr.cls}` : "";
+          const motivo = r.__score?.motivo || "";
+          const nextBest = r.__score?.nextBest || r.nextAction || "";
+          const badgeExtra = (r.__score?.badges || []).filter(b=>b!=="VIP" && b!==segLabel);
+          return `
+            <div class="radar-card" onclick="openOppClienteResumo('${safeKey}')">
+              <div class="radar-card-top">
+                <div style="min-width:0">
+                  <div class="radar-card-name">${escapeHTML(r.nm||"Cliente")}</div>
+                  <div class="radar-card-meta">${escapeHTML(String(r.diasSemComprar||0))}d sem comprar · ${escapeHTML(fmtBRL(r.ltv||0))} faturados</div>
+                </div>
+                <div class="opp-badges">
+                  ${segLower==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+                  <span class="radar-prio-pill${prCls}">${escapeHTML(pr?.label||"Prioridade")}</span>
+                </div>
+              </div>
+              <div class="opp-badges" style="margin-top:8px">
+                <span class="seg-badge ${segCls}">${escapeHTML(segLabel)}</span>
+                ${badgeExtra.includes("Alto valor") ? `<span class="seg-badge" style="border-color:rgba(15,167,101,.24);background:rgba(15,167,101,.10);color:var(--green)">Alto valor</span>` : ``}
+                ${badgeExtra.includes("Em Risco") ? `<span class="seg-badge" style="border-color:rgba(248,113,113,.24);background:rgba(248,113,113,.10);color:var(--red)">Em Risco</span>` : ``}
+              </div>
+              <div class="radar-card-vals">
+                <div class="radar-kv">
+                  <div class="radar-kv-label">PEDIDOS</div>
+                  <div class="radar-kv-val">${escapeHTML(String(r.totalPedidos||0))}</div>
+                </div>
+                <div class="radar-kv">
+                  <div class="radar-kv-label">TICKET MÉDIO</div>
+                  <div class="radar-kv-val">${escapeHTML(fmtBRL(r.ticket||0))}</div>
+                </div>
+              </div>
+              <div class="radar-reason">Motivo: <b>${escapeHTML(motivo)}</b></div>
+              <div class="radar-action">Próxima melhor ação<br><b>${escapeHTML(nextBest)}</b></div>
+              <div class="radar-actions" onclick="event.stopPropagation()">
+                ${r.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+                ${r.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+                <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function generateRadarTodayActions(){
+  if(radarTodayActionsState.loading) return;
+  radarTodayActionsState = { loading: true, last: radarTodayActionsState.last, ts: radarTodayActionsState.ts };
+  renderRadarTodayActionsBlock(radarTodayActionsState);
+
+  let model = radarOppLastModel;
+  if(!model || !Array.isArray(model.items)){
+    try{
+      if(supaConnected && supaClient) model = await renderOportunidadesFromSupabase().catch(()=>null);
+      else { renderOportunidades(); model = radarOppLastModel; }
+    }catch(_e){ model = null; }
+  }
+  const items = Array.isArray(model?.items) ? model.items : [];
+  const customers = items.filter(i=>i && i.kind !== "visitou" && i.key && i.nm);
+  const avgLtv = customers.length ? customers.reduce((s,i)=>s+(Number(i.ltv||0)||0),0) / customers.length : 0;
+  const avgTicket = customers.length ? customers.reduce((s,i)=>s+(Number(i.ticket||0)||0),0) / customers.length : 0;
+  const ctx = { avgLtv, avgTicket };
+
+  const scored = customers.map(c=>{
+    const s = radarScoreCustomerOpportunity(c, ctx);
+    return { ...c, __score: s };
+  }).filter(x=>Number(x.__score?.score||0) > 0);
+
+  scored.sort((a,b)=>{
+    const as = Number(a.__score?.score||0)||0;
+    const bs = Number(b.__score?.score||0)||0;
+    if(bs !== as) return bs - as;
+    const bl = Number(b.ltv||0)||0;
+    const al = Number(a.ltv||0)||0;
+    if(bl !== al) return bl - al;
+    const bd = Number(b.diasSemComprar||0)||0;
+    const ad = Number(a.diasSemComprar||0)||0;
+    if(bd !== ad) return bd - ad;
+    return String(a.nm||"").localeCompare(String(b.nm||""), "pt-BR");
+  });
+
+  const top = scored.slice(0,3);
+  radarTodayActionsState = { loading: false, last: top, ts: Date.now() };
+  renderRadarTodayActionsBlock(radarTodayActionsState);
+  try{ document.getElementById("radar-today-actions")?.scrollIntoView({ behavior: "smooth", block: "start" }); }catch(_e){}
+}
+
 async function openOppClienteResumo(customerKey){
   const key = String(customerKey||"").trim();
   if(!key){ toast("⚠ Cliente inválido"); return; }
@@ -5398,50 +5916,351 @@ function renderOportunidades(){
     renderOportunidadesFromSupabase();
     return;
   }
-  seedOppPipeline();
-  const host = document.getElementById("opp-kanban");
-  if(!host) return;
-  const byStage = {};
-  OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
-  (oppPipeline||[]).forEach(o=>{
-    const st = byStage[o.stage] ? o.stage : "novo_lead";
-    byStage[st].push(o);
-  });
-  OPP_STAGES.forEach(s=>{
-    byStage[s.id].sort((a,b)=>(Number(b.value)||0)-(Number(a.value)||0));
+  const kpisEl = document.getElementById("radar-kpis");
+  const chipsEl = document.getElementById("radar-chips");
+  const groupsEl = document.getElementById("radar-groups");
+  if(!kpisEl || !chipsEl || !groupsEl) return;
+
+  const q = String(document.getElementById("radar-q")?.value || "").trim().toLowerCase();
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+
+  const chips = [
+    { id: "visitou", label: "Visitou" },
+    { id: "visitou_quente", label: "Carrinho quente" },
+    { id: "visitou_frio", label: "Visitou frio" },
+    { id: "vip", label: "VIP" },
+    { id: "churn", label: "Churn" },
+    { id: "recompra", label: "Recompra" },
+    { id: "alto_valor", label: "Alto valor" },
+    { id: "dias30", label: "30+ dias" },
+    { id: "carrinho", label: "Carrinho abandonado" },
+    { id: "todos", label: "Todos" },
+  ];
+  chipsEl.innerHTML = chips.map(c=>{
+    const active = c.id==="todos" ? !Object.values(radarOppFilters).some(Boolean) : !!radarOppFilters[c.id];
+    return `<button class="radar-chip ${active?"active":""}" onclick="radarToggleOppFilter('${escapeJsSingleQuote(c.id)}')">${escapeHTML(c.label)}</button>`;
+  }).join("");
+
+  const todayIso = new Date().toISOString().slice(0,10);
+  const cartsOpen = []
+    .concat(carrinhosAbandonados||[])
+    .map(normalizeCarrinhoAbandonado)
+    .filter(c=>c && c.checkout_id && !c.recuperado);
+
+  const cartByEmail = {};
+  cartsOpen.forEach(c=>{
+    const em = String(c.email || c.customer_email || "").trim().toLowerCase();
+    if(!em) return;
+    cartByEmail[em] = (cartByEmail[em]||0) + 1;
   });
 
-  host.innerHTML = OPP_STAGES.map(s=>{
-    const list = byStage[s.id] || [];
-    return `
-      <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-        <div class="kanban-col-title">
-          <span>${escapeHTML(s.label)}</span>
-          <span class="kanban-col-count">${list.length}</span>
+  const clis = Object.values(buildCli(allOrders)).map(c=>({ c, s: calcCliScores(c) })).filter(x=>x.c && x.c.id);
+  const items = clis.map(x=>{
+    const c = x.c;
+    const s = x.s || {};
+    const id = String(c.id||"").trim();
+    const nm = String(c.nome||"Cliente").trim();
+    const loc = [c.cidade,c.uf].filter(Boolean).join(" — ");
+    const email = String(c.email||"").trim().toLowerCase();
+    const cartCount = email ? (cartByEmail[email]||0) : 0;
+    const segment = String(s.status||"").trim();
+    const diasSemComprar = Number(s.ds||0) || 0;
+    const ltv = Number(s.ltv||0) || 0;
+    const ticket = Number(s.avgTicket||0) || (s.ordersCount? (ltv/s.ordersCount) : 0);
+    const prob = Math.max(0, Math.min(100, Math.round(Number(s.recompraScore||0) || 0)));
+    const potencial = Math.max(0, ticket) * (prob/100);
+    const nextAction = s.nextBestAction || (segment==="vip" ? "Oferta VIP: lançamento/kit exclusivo" : segment==="churn" ? "Reativar com oferta forte + mensagem pessoal" : "Enviar cupom de desconto");
+    const primeiro = String(s.firstOrderAt||"").slice(0,10);
+    const churnRisk = Number(s.churnRisk||0) || 0;
+    const phone = rawPhone(c.telefone||"");
+    return { key:id, uuid:id, nm, loc, resp:"", phone, email, segment, statusSaude:segment, churnRisk, prob, diasSemComprar, totalPedidos:s.ordersCount||0, ltv, ticket, potencial, nextAction, primeiro, cartCount };
+  });
+
+  const ltvVals = items.map(i=>i.ltv).filter(v=>Number.isFinite(v) && v>0).sort((a,b)=>a-b);
+  const p90 = ltvVals.length ? ltvVals[Math.max(0, Math.floor(ltvVals.length*0.9)-1)] : 0;
+  const highValueThreshold = Math.max(400, Number(p90)||0);
+
+  const purchasedByEmail = {};
+  items.forEach(i=>{
+    const em = String(i.email||"").trim().toLowerCase();
+    if(!em) return;
+    purchasedByEmail[em] = (Number(i.totalPedidos||0) > 0) || (Number(i.ltv||0) > 0);
+  });
+
+  const lookupCarr = buildClienteLookupParaCarrinhos();
+  const visitouLeads = cartsOpen
+    .filter(c=>{
+      const em = String(c.email||"").trim().toLowerCase();
+      if(!em) return true;
+      return purchasedByEmail[em] !== true;
+    })
+    .map(c=>{
+      const cid = String(c.checkout_id||"").trim();
+      const calc = calcularScoreRecuperacaoCarrinho(c, lookupCarr);
+      const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+      const prio = prioridadePorScore(score);
+      const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+      const valor = Number(c.valor||0)||0;
+      const nm = String(c.cliente_nome || c.email || "Visitante").trim() || "Visitante";
+      const em = String(c.email||"").trim().toLowerCase();
+      const phone = rawPhone(c.telefone||"");
+      const ds = daysSince(c.criado_em);
+      const dias = ds>=9999 ? 0 : ds;
+      const acao = etapa?.label ? `Carrinho: ${String(etapa.label)}` : "Recuperar carrinho";
+      return {
+        kind: "visitou",
+        uuid: "visitou:"+cid,
+        key: "visitou:"+cid,
+        checkoutId: cid,
+        nm,
+        loc: "",
+        resp: "",
+        phone,
+        email: em,
+        segment: "Visitou",
+        statusSaude: "Visitou",
+        churnRisk: 0,
+        prob: Math.max(0, Math.min(100, Math.round(score))),
+        diasSemComprar: dias,
+        tempoMin: calc.mins,
+        prioridade_id: prio.id,
+        prioridade_label: prio.label,
+        totalPedidos: 0,
+        ltv: 0,
+        ticket: valor,
+        potencial: valor,
+        nextAction: acao,
+        primeiro: "",
+        cartCount: 1,
+        cartValue: valor,
+        link_finalizacao: c.link_finalizacao || null,
+        criado_em: c.criado_em || null,
+      };
+    })
+    .filter(x=>x.checkoutId);
+
+  const allItems = [...visitouLeads, ...items];
+
+  const vipRiskCount = items.filter(i=>String(i.segment||i.statusSaude).toLowerCase()==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70)).length;
+  const cartsCount = cartsOpen.length;
+  const d30Count = items.filter(i=>i.diasSemComprar>=30).length;
+  const leadsTodayCount = visitouLeads.filter(x=>String(x.criado_em||"").slice(0,10)===todayIso).length;
+
+  kpisEl.innerHTML = `
+    <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">${escapeHTML(String(vipRiskCount))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">${escapeHTML(String(cartsCount))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">${escapeHTML(String(d30Count))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Leads novos hoje</div><div class="radar-kpi-val">${escapeHTML(String(leadsTodayCount))}</div></div>
+  `;
+
+  const filtered = allItems.filter(i=>{
+    if(q){
+      const hay = [i.nm, i.loc, i.resp, i.email].filter(Boolean).join(" ").toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    const isLead = i.kind === "visitou";
+    const isHotLead = isLead && String(i.prioridade_id||"") === "alta";
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    if(radarOppFilters.visitou && !isLead) return false;
+    if(radarOppFilters.visitou_quente && !isHotLead) return false;
+    if(radarOppFilters.visitou_frio && (isLead && isHotLead)) return false;
+    if(radarOppFilters.visitou_frio && !isLead) return false;
+    if(radarOppFilters.vip && (isLead || segLower !== "vip")) return false;
+    if(radarOppFilters.churn && (isLead || segLower !== "churn")) return false;
+    if(radarOppFilters.recompra && (isLead || !(i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60))) return false;
+    if(radarOppFilters.alto_valor && (isLead || i.ltv < highValueThreshold)) return false;
+    if(radarOppFilters.dias30 && (isLead || i.diasSemComprar < 30)) return false;
+    if(radarOppFilters.carrinho && i.cartCount <= 0) return false;
+    return true;
+  });
+
+  const visitou = filtered.filter(i=>i.kind === "visitou");
+  const visitouHot = visitou.filter(i=>String(i.prioridade_id||"") === "alta");
+  const visitouCold = visitou.filter(i=>String(i.prioridade_id||"") !== "alta");
+  const customersOnly = filtered.filter(i=>i.kind !== "visitou");
+
+  const priorityHigh = [];
+  const highValue = [];
+  const rebuy = [];
+  const risk = [];
+  const inactive = [];
+
+  customersOnly.forEach(i=>{
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    const isVipRisk = segLower==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70);
+    const isCartHot = i.cartCount>0 && i.diasSemComprar>=7;
+    const isProbable = i.prob>=80 && i.diasSemComprar>=30 && i.ltv>0;
+    const isRebuy = i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60 && !isVipRisk;
+    const isInactive = i.diasSemComprar>=120;
+    const isRisk = !isInactive && (segLower==="churn" || segLower==="em risco" || segLower==="risco" || i.churnRisk>=70 || i.diasSemComprar>=60);
+    if(isVipRisk || isCartHot || isProbable) priorityHigh.push(i);
+    else if(i.ltv>=highValueThreshold) highValue.push(i);
+    else if(isRebuy) rebuy.push(i);
+    else if(isRisk) risk.push(i);
+    else if(isInactive) inactive.push(i);
+  });
+
+  const sortByScore = (a,b)=>(b.prob-a.prob) || (b.potencial-a.potencial) || (b.ltv-a.ltv) || (b.diasSemComprar-a.diasSemComprar);
+  priorityHigh.sort(sortByScore);
+  highValue.sort((a,b)=>(b.ltv-a.ltv) || sortByScore(a,b));
+  rebuy.sort(sortByScore);
+  risk.sort((a,b)=>(b.churnRisk-a.churnRisk) || (b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+  inactive.sort((a,b)=>(b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+
+  const renderCard = (i)=>{
+    if(i.kind === "visitou"){
+      const cid = String(i.checkoutId||"").trim();
+      const safeCid = escapeJsSingleQuote(cid);
+      const prioId = String(i.prioridade_id||"").trim();
+      const prioLabel = String(i.prioridade_label||"").trim() || "—";
+      const prioIcon = prioId === "alta" ? "🔥" : (prioId === "media" ? "⚡" : "🧊");
+      const contato = [i.email||"", i.phone?fmtPhone(i.phone):""].filter(Boolean).join(" · ") || "—";
+      return `
+        <div class="radar-card" onclick="openRadarVisitouDrawer('${safeCid}')">
+          <div class="radar-card-top">
+            <div style="min-width:0">
+              <div class="radar-card-name">${escapeHTML(i.nm||"Visitante")}</div>
+              <div class="radar-card-meta">${escapeHTML("Carrinho aberto (sem compra)")}</div>
+            </div>
+            <div class="opp-badges">
+              <span class="seg-badge seg-visitou">Visitou</span>
+              <span class="seg-badge" style="border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text-2)">${escapeHTML(prioIcon+" "+prioLabel)}</span>
+            </div>
+          </div>
+          <div class="radar-card-vals">
+            <div class="radar-kv">
+              <div class="radar-kv-label">POTENCIAL</div>
+              <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">ÚLTIMA VISITA</div>
+              <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CARRINHO</div>
+              <div class="radar-kv-val">${escapeHTML(String(cid).slice(0,8))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CONTATO</div>
+              <div class="radar-kv-val" style="font-family:var(--font)">${escapeHTML(contato)}</div>
+            </div>
+          </div>
+          <div class="radar-prob">
+            <div class="radar-prob-row">
+              <div class="radar-prob-label">Probabilidade de recuperação</div>
+              <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+            </div>
+            <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+          </div>
+          <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Recuperar carrinho")}</b></div>
+          <div class="radar-actions" onclick="event.stopPropagation()">
+            ${rawPhone(i.phone||"")?`<button class="opp-mini-btn" onclick="openWhatsAppCarrinho('${safeCid}')">WhatsApp</button>`:""}
+            ${i.link_finalizacao?`<button class="opp-mini-btn" onclick="openCarrinhoLinkFromRadar('${safeCid}')">Link</button>`:""}
+            <button class="opp-mini-btn" onclick="openCarrinhoInComercialFromRadar('${safeCid}')">Abrir</button>
+          </div>
         </div>
-        <div class="kanban-drop" data-stage="${escapeHTML(s.id)}">
-          ${list.map(o=>{
-            const c = allCustomers.find(x=>x.id===o.cliente_id);
-            const nm = c?.nome || "Cliente";
-            const loc = [c?.cidade,c?.uf].filter(Boolean).join(" — ");
-            const hint = [o.hint, loc].filter(Boolean).join(" · ");
-            return `
-              <div class="opp-card" data-opp-id="${escapeHTML(String(o.id))}">
-                <div class="opp-title">${escapeHTML(nm)}</div>
-                <div class="opp-meta">${escapeHTML(o.title)}${hint?` · ${escapeHTML(hint)}`:""}</div>
-                <div class="opp-val">${escapeHTML(fmtBRL(o.value||0))}</div>
-                <div class="opp-actions">
-                  <button class="opp-mini-btn" onclick="openClientePage('${escapeJsSingleQuote(String(o.cliente_id||""))}')">Cliente</button>
-                  <button class="opp-mini-btn" onclick="openWaModal('${escapeJsSingleQuote(String(o.cliente_id||""))}')">WA</button>
-                  ${s.id!=="fechado" ? `<button class="opp-mini-btn" onclick="moveOppStage('${escapeJsSingleQuote(String(o.id))}','fechado')">✓</button>` : ``}
-                </div>
-              </div>
-            `;
-          }).join("")}
+      `;
+    }
+    const safeKey = escapeJsSingleQuote(i.key);
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    const segCls = segLower==="vip" ? "seg-vip" : segLower==="churn" ? "seg-churn" : segLower==="em risco"||segLower==="risco" ? "seg-risco" : segLower==="novo" ? "seg-novo" : segLower==="visitou" ? "seg-visitou" : "seg-unk";
+    const segLabel = segLower==="vip" ? "VIP" : segLower==="churn" ? "Churn" : segLower==="em risco"||segLower==="risco" ? "Em Risco" : segLower==="novo" ? "Novo" : segLower==="visitou" ? "Visitou" : (i.segment||"—");
+    return `
+      <div class="radar-card" onclick="openClientePage('${safeKey}')">
+        <div class="radar-card-top">
+          <div style="min-width:0">
+            <div class="radar-card-name">${escapeHTML(i.nm)}</div>
+            <div class="radar-card-meta">${escapeHTML(i.loc||"—")}</div>
+          </div>
+          <div class="opp-badges">
+            ${segLower==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+            <span class="seg-badge ${segCls}">${escapeHTML(segLabel)}</span>
+            ${i.cartCount>0?`<span class="seg-badge" style="border-color:rgba(251,191,36,.22);background:rgba(251,191,36,.08);color:var(--amber)">🛒 ${escapeHTML(String(i.cartCount))}</span>`:""}
+          </div>
+        </div>
+        <div class="radar-card-vals">
+          <div class="radar-kv">
+            <div class="radar-kv-label">POTENCIAL</div>
+            <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">ÚLTIMA COMPRA</div>
+            <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">FATURAMENTO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ltv||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">TICKET MÉDIO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ticket||0))}</div>
+          </div>
+        </div>
+        <div class="radar-prob">
+          <div class="radar-prob-row">
+            <div class="radar-prob-label">Probabilidade de recompra</div>
+            <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+          </div>
+          <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+        </div>
+        <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Registrar próxima ação")}</b></div>
+        <div class="radar-actions" onclick="event.stopPropagation()">
+          ${i.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+          ${i.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+          <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
         </div>
       </div>
     `;
-  }).join("");
+  };
+
+  const renderGroup = (title, subtitle, list)=>{
+    if(!list.length) return "";
+    return `
+      <div class="radar-group">
+        <div class="radar-group-hdr">
+          <div>
+            <div class="radar-group-title">${escapeHTML(title)}</div>
+            <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
+          </div>
+          <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+        </div>
+        <div class="radar-grid">${list.map(renderCard).join("")}</div>
+      </div>
+    `;
+  };
+
+  const sortVisitouHot = (a,b)=>{
+    const as = Number(a.prob||0)||0;
+    const bs = Number(b.prob||0)||0;
+    if(bs !== as) return bs - as;
+    const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+    const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+    if(am !== bm) return am - bm;
+    return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+  };
+  const sortVisitouCold = (a,b)=>{
+    const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+    const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+    if(am !== bm) return am - bm;
+    const as = Number(a.prob||0)||0;
+    const bs = Number(b.prob||0)||0;
+    if(bs !== as) return bs - as;
+    return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+  };
+  visitouHot.sort(sortVisitouHot);
+  visitouCold.sort(sortVisitouCold);
+
+  const groupsHtml =
+    renderGroup("🛒 CARRINHO QUENTE", "Alta chance de recuperar agora", visitouHot) +
+    renderGroup("👀 VISITOU (FRIO)", "Nutrir e acompanhar", visitouCold) +
+    renderGroup("🔥 PRIORIDADE ALTA", "Execute hoje", priorityHigh) +
+    renderGroup("💰 ALTO VALOR", `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`, highValue) +
+    renderGroup("🔄 RECOMPRA", "Clientes no timing de reposição", rebuy) +
+    renderGroup("⚠️ EM RISCO", "Recuperação e retenção", risk) +
+    renderGroup("🧊 INATIVOS", "120+ dias sem comprar", inactive);
+
+  groupsEl.innerHTML = groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
+  radarOppLastModel = { items: allItems, filtered, groups: { visitouHot, visitouCold, priorityHigh, highValue, rebuy, risk, inactive }, thresholds: { highValueThreshold } };
 }
 
 function moveOppStage(oppId, stage){
@@ -7057,7 +7876,7 @@ async function loadSupabaseData(){
       allTasks = allTasks.map(local => {
         if(local._supaId && sbById[local._supaId]){
           const srv = sbById[local._supaId];
-          return {...local, titulo:srv.titulo, desc:srv.descricao||'', prioridade:srv.prioridade||local.prioridade, status: srv.status==='aberta'?'pendente':srv.status, data:srv.vencimento||''};
+          return {...local, titulo:srv.titulo, desc:srv.descricao||'', prioridade:srv.prioridade||local.prioridade, status: srv.status==='aberta'?'pendente':srv.status, data:srv.vencimento||'', customer_id: String(srv.cliente_id||local.customer_id||"")};
         }
         return local;
       });
@@ -7071,6 +7890,7 @@ async function loadSupabaseData(){
             titulo: srv.titulo,
             desc: srv.descricao||'',
             cliente: '',
+            customer_id: String(srv.cliente_id||""),
             prioridade: srv.prioridade||'media',
             status: srv.status==='aberta'?'pendente':srv.status,
             data: srv.vencimento||''
@@ -8507,6 +9327,10 @@ Object.assign(window,{
   renderPedidosPage,
   recarregar,
   oppLoadMore,
+  radarToggleOppFilter,
+  oppSendCoupon,
+  generateRadarTodayActions,
+  oppSuggestTodayActions,
   openOppClienteResumo,
   saveAlertDays,
   renderAlertas,
@@ -8524,6 +9348,9 @@ Object.assign(window,{
   fetchYampiAbandoned,
   renderCarrinhosAbandonados,
   openWhatsAppCarrinho,
+  openCarrinhoLinkFromRadar,
+  openCarrinhoInComercialFromRadar,
+  openRadarVisitouDrawer,
   saveAIKey,
   saveTemplates,
   closeDrawer,
