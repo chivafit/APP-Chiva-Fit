@@ -6536,8 +6536,12 @@ function renderProdutos(){
         historico: {} // { "YYYY-MM-DD": total }
       };
       
-      const valorTotal = (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
-      const qtd = parseFloat(it?.quantidade)||1;
+      const qtd = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
+      const valorUnit = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
+      const valorTotal =
+        it?.valor_total != null
+          ? (Number(it.valor_total) || 0)
+          : (valorUnit * qtd);
       
       m[k].total += valorTotal;
       m[k].qty += qtd;
@@ -8280,12 +8284,13 @@ async function loadOrdersFromSupabaseForCRM(){
     try{
       const okItems = await ensureV2PedidosItemsAvailable();
       if(okItems && Array.isArray(pedRows) && pedRows.length){
+        const totalCol = v2PedidosItemsTotalColumn || "valor_total";
         const pedidoIds = Array.from(new Set(pedRows.map(p=>p?.id).filter(Boolean))).slice(0,1000);
         for(let i=0;i<pedidoIds.length;i+=200){
           const batchIds = pedidoIds.slice(i,i+200);
           const {data, error} = await supaClient
             .from("v2_pedidos_items")
-            .select("pedido_id,produto_nome,quantidade,valor_unitario,valor_total")
+            .select(`pedido_id,produto_nome,quantidade,valor_unitario,${totalCol}`)
             .in("pedido_id", batchIds)
             .limit(20000);
           if(error) throw error;
@@ -8293,12 +8298,18 @@ async function loadOrdersFromSupabaseForCRM(){
             const pid = String(r.pedido_id||"");
             if(!pid) return;
             if(!itemsByPedidoId[pid]) itemsByPedidoId[pid] = [];
+            const qty = Number(r.quantidade||0) || 0;
+            const total = Number(r[totalCol]||0) || 0;
+            const unit =
+              r.valor_unitario != null
+                ? (Number(r.valor_unitario||0) || 0)
+                : (qty > 0 ? (total / qty) : 0);
             itemsByPedidoId[pid].push({
               descricao: r.produto_nome || "",
               codigo: "",
-              quantidade: Number(r.quantidade||0) || 0,
-              valor: Number(r.valor_unitario||0) || 0,
-              valor_total: Number(r.valor_total||0) || 0
+              quantidade: qty,
+              valor: unit,
+              valor_total: total
             });
           });
         }
