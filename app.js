@@ -35,7 +35,8 @@ import {
 } from "./sync/bling.js?v=20260313-3";
 import {
   syncYampi as syncYampiImpl,
-  syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl
+  syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
+  scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
 } from "./sync/yampi.js?v=20260313-3";
 
 document.addEventListener("DOMContentLoaded",function(){
@@ -69,6 +70,13 @@ let canaisLookup = {};
 let clientesIntelCache = [];
 let clientesIntelLoadedAt = 0;
 let clientesIntelInFlight = false;
+let clientesIntelCursor = null;
+let clientesIntelHasMore = true;
+let clientesIntelObserver = null;
+let clientesIntelDomMode = "";
+let clientesIntelDomCount = 0;
+let clientesIntelUfSet = new Set();
+let clientesIntelSegSet = new Set();
 
 // ═══════════════════════════════════════════════════
 //  THEME SYSTEM
@@ -558,6 +566,8 @@ function enterApp(userEmail){
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
       try{ scheduleAutoBlingSync(); }catch(_e){}
+      try{ scheduleAutoCarrinhosSync(); }catch(_e){}
+      localStorage.setItem('crm_last_bling_sync', new Date().toISOString());
     }catch(e){
       console.warn("Erro no bootstrap, usando cache local:", e.message);
       // Fallback: usar dados locais se existirem
@@ -576,6 +586,7 @@ function enterApp(userEmail){
       safeInvokeName("renderAll");
       safeInvokeName("updateBadge");
       try{ scheduleAutoBlingSync(); }catch(_e){}
+      try{ scheduleAutoCarrinhosSync(); }catch(_e){}
     }finally{
       clearTimeout(overlayKill);
       if(overlay){ overlay.style.display="none"; overlay.style.pointerEvents="none"; }
@@ -1279,6 +1290,10 @@ async function backfillBlingEnderecos(){
 // ═══════════════════════════════════════════════════
 //  YAMPI
 // ═══════════════════════════════════════════════════
+function scheduleAutoCarrinhosSync(){
+  return scheduleAutoCarrinhosSyncImpl(getSyncCtx());
+}
+
 async function syncYampi(){
   const res = await syncYampiImpl(getSyncCtx());
   checkEstoqueCritico();
@@ -2061,6 +2076,12 @@ function showPage(id){
   if(id==="cliente") setTimeout(()=>safeInvokeName("renderClientePage"),0);
   if(id==="inteligencia") setTimeout(()=>safeInvokeName("renderInteligencia"),0);
   if(id==="cidades") setTimeout(()=>safeInvokeName("renderCidades"),50);
+  if(id==="produtos") setTimeout(async ()=>{
+    try{
+      if(supaConnected && supaClient) await loadBlingProductsFromSupabase();
+    }catch(_e){}
+    safeInvokeName("renderProdutos");
+  },50);
   if(id==="ia") setTimeout(()=>safeInvokeName("renderIADashboard"),50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
 
@@ -4362,6 +4383,49 @@ function renderInteligencia(){
 // ═══════════════════════════════════════════════════
 function setChCli(ch){ activeCh=ch; renderClientes(); }
 
+function ensureClientesSentinel(){
+  const listEl = document.getElementById("client-list");
+  if(!listEl) return null;
+  let sentinel = document.getElementById("clientes-sentinel");
+  if(!sentinel){
+    sentinel = document.createElement("div");
+    sentinel.id = "clientes-sentinel";
+    sentinel.style.height = "1px";
+  }
+  if(sentinel.parentElement !== listEl) listEl.appendChild(sentinel);
+  return sentinel;
+}
+
+function observeClientesSentinel(){
+  const sentinel = ensureClientesSentinel();
+  if(!sentinel) return;
+  if(!("IntersectionObserver" in window)) return;
+  if(!clientesIntelObserver){
+    clientesIntelObserver = new IntersectionObserver((entries)=>{
+      const hit = entries && entries.some(e=>e && e.isIntersecting);
+      if(!hit) return;
+      const active = document.getElementById("page-clientes")?.classList.contains("active");
+      if(!active) return;
+      if(clientesIntelInFlight) return;
+      if(!clientesIntelHasMore) return;
+      loadClientesInteligenciaCache(false).then(()=>{
+        renderClientes();
+      }).catch(()=>{});
+    }, { root: null, rootMargin: "800px 0px", threshold: 0 });
+  }
+  clientesIntelObserver.disconnect();
+  clientesIntelObserver.observe(sentinel);
+}
+
+function appendClienteCards(html){
+  if(!html) return;
+  const listEl = document.getElementById("client-list");
+  if(!listEl) return;
+  const sentinel = ensureClientesSentinel();
+  if(sentinel) sentinel.insertAdjacentHTML("beforebegin", html);
+  else listEl.insertAdjacentHTML("beforeend", html);
+}
+
 function renderClientes(){
   const usingViews = !!(supaConnected && supaClient);
   const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
@@ -4369,10 +4433,11 @@ function renderClientes(){
   const segFil=document.getElementById("fil-cli-seg")?.value||"";
   const canalFil=document.getElementById("fil-cli-canal")?.value||"";
   const uf=document.getElementById("fil-estado")?.value||"";
+  const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === "all";
 
   if(usingViews){
     if(!clientesIntelCache.length){
-      loadClientesInteligenciaCache().catch(()=>{});
+      loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(()=>{});
       document.getElementById("cli-label").textContent = "Carregando…";
       document.getElementById("client-list").innerHTML = `<div class="empty">Carregando inteligência de clientes…</div>`;
       document.getElementById("ch-pills-cli").innerHTML = "";
@@ -4411,20 +4476,30 @@ function renderClientes(){
       });
     }
 
-    rows.sort((a,b)=>{
-      const ar = Number(a.risco_churn||0)||0;
-      const br = Number(b.risco_churn||0)||0;
-      if(br !== ar) return br - ar;
-      const as = Number(a.score_recompra||0)||0;
-      const bs = Number(b.score_recompra||0)||0;
-      if(bs !== as) return bs - as;
-      const ag = Number(a.total_gasto||a.ltv||0)||0;
-      const bg = Number(b.total_gasto||b.ltv||0)||0;
-      return bg - ag;
-    });
-    document.getElementById("cli-label").textContent=`${rows.length} cliente${rows.length!==1?"s":""}`;
-    if(!rows.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
-    document.getElementById("client-list").innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+    const suffix = clientesIntelHasMore ? "+" : "";
+    document.getElementById("cli-label").textContent=`${rows.length}${suffix} cliente${rows.length!==1?"s":""}`;
+    const listEl = document.getElementById("client-list");
+    if(!listEl) return;
+
+    if(isDefaultFilters){
+      if(clientesIntelDomMode !== "default"){
+        clientesIntelDomMode = "default";
+        clientesIntelDomCount = 0;
+        listEl.innerHTML = "";
+      }
+      const next = rows.slice(clientesIntelDomCount);
+      if(next.length){
+        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i))).join("");
+        appendClienteCards(html);
+        clientesIntelDomCount += next.length;
+      }
+      if(!rows.length) listEl.innerHTML = `<div class="empty">Nenhum cliente encontrado.</div>`;
+    }else{
+      clientesIntelDomMode = "filtered";
+      clientesIntelDomCount = 0;
+      listEl.innerHTML = rows.length ? rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("") : `<div class="empty">Nenhum cliente encontrado.</div>`;
+    }
+    observeClientesSentinel();
     return;
   }
 
@@ -6562,7 +6637,49 @@ function openProdutoDrawer(prodKey){
   openDrawer(title, subtitle, body, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
 }
 
-function renderProdutos(){
+function setProdutosChartState(canvasId, hasData){
+  const msgId = canvasId + "-empty";
+  let canvas = document.getElementById(canvasId);
+  let msg = document.getElementById(msgId);
+  let wrap = null;
+  if(canvas) wrap = canvas.parentElement;
+  if(!wrap && msg) wrap = msg.parentElement;
+  if(!wrap) return { canvas: null, shouldRender: false };
+
+  if(!msg){
+    msg = document.createElement("div");
+    msg.id = msgId;
+    msg.className = "empty";
+    msg.textContent = "Sem dados suficientes para o gráfico";
+    msg.style.padding = "22px 0";
+    wrap.appendChild(msg);
+  }
+  if(!canvas){
+    canvas = document.createElement("canvas");
+    canvas.id = canvasId;
+    wrap.insertBefore(canvas, msg);
+  }
+  if(hasData){
+    canvas.style.display = "";
+    msg.style.display = "none";
+    return { canvas, shouldRender: true };
+  }
+  canvas.style.display = "none";
+  msg.style.display = "";
+  return { canvas, shouldRender: false };
+}
+
+function renderProdutos(_deferred){
+  console.log('[Produtos] allOrders:', allOrders.length, 'blingProducts:', blingProducts.length, 'exemplo item:', allOrders[0]?.itens?.[0]);
+  const detailedEl = document.getElementById("prod-list-detailed");
+  if(!_deferred){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Carregando produtos...</div>`;
+    if(renderProdutos._pending) return;
+    renderProdutos._pending = true;
+    setTimeout(()=>{ renderProdutos._pending = false; renderProdutos(true); }, 0);
+    return;
+  }
+
   const q=(document.getElementById("search-prod")?.value||"").toLowerCase();
   const selCh=document.getElementById("fil-canal-prod");
   if(selCh){
@@ -6576,6 +6693,69 @@ function renderProdutos(){
   const now=new Date();
   const m={};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
+
+  if(!allOrders.length){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
+  if(!catalog.length){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Catálogo do Bling não carregado. Vá em Configurações e sincronize os produtos.</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
+
+  const catalogCodes = new Set(catalog.map(p=>String(p?.codigo||"").trim()).filter(Boolean));
+  const catalogNames = new Set(catalog.map(p=>String(p?.nome||"").trim().toLowerCase()).filter(Boolean));
+  let hasMatch = false;
+  for(let oi=0; oi<allOrders.length && !hasMatch; oi++){
+    const o = allOrders[oi];
+    if(ch && detectCh(o) !== ch) continue;
+    if(per){
+      const d = new Date(o.data||o.dataPedido);
+      if((now-d)/(86400000) > per) continue;
+    }
+    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+    for(let ii=0; ii<itens.length; ii++){
+      const it = itens[ii];
+      if(!it) continue;
+      const code = String(it?.codigo||"").trim();
+      const desc = String(it?.descricao||"").trim().toLowerCase();
+      if((code && catalogCodes.has(code)) || (desc && catalogNames.has(desc))){
+        hasMatch = true;
+        break;
+      }
+    }
+  }
+  if(!hasMatch){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum produto encontrado. Verifique se os itens dos pedidos possuem os campos 'codigo' ou 'descricao' preenchidos.</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
   
   // Processamento de dados base
   allOrders
@@ -6704,9 +6884,10 @@ function renderProdutos(){
 
   // 2. Gráfico de Receita por Produto (TOP 10)
   const top10 = prods.slice(0,10);
-  if(charts.produtos) charts.produtos.destroy();
-  const ctxP=document.getElementById("chart-produtos");
-  if(ctxP && top10.length){
+  if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+  const barState = setProdutosChartState("chart-produtos", top10.length > 0);
+  const ctxP = barState.canvas;
+  if(barState.shouldRender && ctxP){
     charts.produtos=new Chart(ctxP,{type:"bar",data:{
       labels:top10.map(p=>p.nome.length>18?p.nome.slice(0,16)+"…":p.nome),
       datasets:[{
@@ -6735,9 +6916,10 @@ function renderProdutos(){
 
   // 3. Gráfico de Participação (Donut)
   const totalReceita = prods.reduce((s,p)=>s+p.total, 0);
-  if(charts.prodParticipacao) charts.prodParticipacao.destroy();
-  const ctxPart = document.getElementById("chart-participacao-produtos");
-  if(ctxPart && top10.length){
+  if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+  const donutState = setProdutosChartState("chart-participacao-produtos", top10.length > 0);
+  const ctxPart = donutState.canvas;
+  if(donutState.shouldRender && ctxPart){
     const otherTotal = totalReceita - top10.reduce((s,p)=>s+p.total,0);
     const partData = top10.map(p=>p.total);
     const partLabels = top10.map(p=>p.nome);
@@ -6773,9 +6955,10 @@ function renderProdutos(){
   }
 
   // 4. Gráfico de Evolução (Linha)
-  if(charts.prodEvolucao) charts.prodEvolucao.destroy();
-  const ctxEv = document.getElementById("chart-evolucao-produtos");
-  if(ctxEv && top10.length){
+  if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+  const lineState = setProdutosChartState("chart-evolucao-produtos", top10.length > 0);
+  const ctxEv = lineState.canvas;
+  if(lineState.shouldRender && ctxEv){
     const labels = [];
     for(let i=evolucaoDias-1; i>=0; i--){
       const d = new Date(now.getTime() - i*86400000);
@@ -8099,32 +8282,64 @@ async function loadSupabaseData(){
   }catch(e){ console.warn('loadSupabaseData:', e.message); }
 }
 
-async function loadClientesInteligenciaCache(){
+function updateClientesIntelFiltersOptions(){
+  try{
+    const ufSel = document.getElementById("fil-estado");
+    if(ufSel){
+      const selected = String(ufSel.value || "");
+      const ufs = Array.from(clientesIntelUfSet).sort();
+      ufSel.innerHTML = `<option value="">UF</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
+      if(selected) ufSel.value = selected;
+    }
+    const segSel = document.getElementById("fil-cli-seg");
+    if(segSel){
+      const selected = String(segSel.value || "");
+      const segs = Array.from(clientesIntelSegSet).sort((a,b)=>a.localeCompare(b));
+      segSel.innerHTML = `<option value="">Segmento CRM</option>` + segs.map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
+      if(selected) segSel.value = selected;
+    }
+  }catch(_e){}
+}
+
+async function loadClientesInteligenciaCache(forceReset=false){
   if(!supaConnected || !supaClient) return;
   if(clientesIntelInFlight) return;
-  if(clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
+  if(!forceReset && !clientesIntelCursor && clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
   clientesIntelInFlight = true;
   try{
-    const raw = await getClientesInteligenciaView(supaClient, 12000);
-    const rows = (Array.isArray(raw) ? raw : []).map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
-    clientesIntelCache = rows;
+    if(forceReset){
+      clientesIntelCache = [];
+      clientesIntelCursor = null;
+      clientesIntelHasMore = true;
+      clientesIntelUfSet = new Set();
+      clientesIntelSegSet = new Set();
+      clientesIntelDomMode = "";
+      clientesIntelDomCount = 0;
+    }
+    if(!clientesIntelHasMore && clientesIntelCache.length) return;
+    const pageSize = 500;
+    const res = await getClientesInteligenciaView(supaClient, { pageSize, cursor: clientesIntelCursor });
+    const rawRows = Array.isArray(res?.rows) ? res.rows : [];
+    const nextCursor = res?.nextCursor || null;
+    const hasMore = !!res?.hasMore;
+    const normalized = rawRows.map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
+    const seen = new Set(clientesIntelCache.map(r=>String(r?.cliente_id || "")));
+    const fresh = [];
+    normalized.forEach(r=>{
+      const id = String(r.cliente_id || "");
+      if(!id || seen.has(id)) return;
+      seen.add(id);
+      fresh.push(r);
+      const uf = String(r.uf||"").toUpperCase().trim();
+      if(uf) clientesIntelUfSet.add(uf);
+      const seg = String(r.segmento_crm||"").trim();
+      if(seg) clientesIntelSegSet.add(seg);
+    });
+    if(fresh.length) clientesIntelCache.push(...fresh);
+    clientesIntelCursor = nextCursor;
+    clientesIntelHasMore = hasMore;
     clientesIntelLoadedAt = Date.now();
-    try{
-      const ufSel = document.getElementById("fil-estado");
-      if(ufSel){
-        const selected = String(ufSel.value || "");
-        const ufs = Array.from(new Set(rows.map(r=>String(r.uf||"").toUpperCase().trim()).filter(Boolean))).sort();
-        ufSel.innerHTML = `<option value="">UF</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
-        if(selected) ufSel.value = selected;
-      }
-      const segSel = document.getElementById("fil-cli-seg");
-      if(segSel){
-        const selected = String(segSel.value || "");
-        const segs = Array.from(new Set(rows.map(r=>String(r.segmento_crm||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-        segSel.innerHTML = `<option value="">Segmento CRM</option>` + segs.map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
-        if(selected) segSel.value = selected;
-      }
-    }catch(_e){}
+    updateClientesIntelFiltersOptions();
   }catch(_e){}finally{
     clientesIntelInFlight = false;
   }

@@ -167,19 +167,71 @@ export async function getClientesSemContato(client, limit){
   }
 }
 
-export async function getClientesInteligencia(client, limit){
-  const n = Math.max(1, Math.min(15000, Number(limit) || 5000));
+function normalizeCursorValue(v){
+  if(v == null) return null;
+  if(typeof v === "number") return Number.isFinite(v) ? v : null;
+  if(typeof v === "string"){
+    const s = v.trim();
+    if(!s) return null;
+    const n = Number(s);
+    if(Number.isFinite(n)) return n;
+    return s;
+  }
+  return v;
+}
+
+function cursorToOrFilter(cursor){
+  const risco = normalizeCursorValue(cursor?.risco_churn);
+  const score = normalizeCursorValue(cursor?.score_recompra);
+  const total = normalizeCursorValue(cursor?.total_gasto);
+  const id = String(cursor?.cliente_id || "").trim();
+  if(risco == null || score == null || total == null || !id) return "";
+  const riscoS = String(risco);
+  const scoreS = String(score);
+  const totalS = String(total);
+  return [
+    `risco_churn.lt.${riscoS}`,
+    `and(risco_churn.eq.${riscoS},score_recompra.lt.${scoreS})`,
+    `and(risco_churn.eq.${riscoS},score_recompra.eq.${scoreS},total_gasto.lt.${totalS})`,
+    `and(risco_churn.eq.${riscoS},score_recompra.eq.${scoreS},total_gasto.eq.${totalS},cliente_id.gt.${id})`
+  ].join(",");
+}
+
+function pickNextCursor(rows){
+  if(!Array.isArray(rows) || !rows.length) return null;
+  const last = rows[rows.length - 1] || {};
+  return {
+    risco_churn: last.risco_churn ?? last.risco_churn === 0 ? Number(last.risco_churn) : null,
+    score_recompra: last.score_recompra ?? last.score_recompra === 0 ? Number(last.score_recompra) : null,
+    total_gasto: last.total_gasto ?? last.total_gasto === 0 ? Number(last.total_gasto) : null,
+    cliente_id: String(last.cliente_id || last.id || "").trim()
+  };
+}
+
+export async function getClientesInteligencia(client, opts){
+  const legacyLimit = typeof opts === "number" ? opts : null;
+  const input = (opts && typeof opts === "object") ? opts : {};
+  const pageSize = Math.max(1, Math.min(500, Number(input.pageSize || (legacyLimit != null ? legacyLimit : 500)) || 500));
+  const cursor = input.cursor || null;
   try{
-    let q = client.from("vw_clientes_inteligencia").select("*").limit(n);
+    let q = client.from("vw_clientes_inteligencia").select("*").limit(pageSize);
     q = q
-      .order("risco_churn", { ascending: false })
-      .order("score_recompra", { ascending: false })
-      .order("total_gasto", { ascending: false });
+      .order("risco_churn", { ascending: false, nullsFirst: false })
+      .order("score_recompra", { ascending: false, nullsFirst: false })
+      .order("total_gasto", { ascending: false, nullsFirst: false })
+      .order("cliente_id", { ascending: true, nullsFirst: false });
+    if(cursor){
+      const orFilter = cursorToOrFilter(cursor);
+      if(orFilter) q = q.or(orFilter);
+    }
     const { data, error } = await q;
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    if(error) return { rows: [], nextCursor: null, hasMore: false };
+    const rows = Array.isArray(data) ? data : [];
+    const nextCursor = pickNextCursor(rows);
+    const hasMore = rows.length === pageSize && !!nextCursor;
+    return { rows, nextCursor, hasMore };
   }catch(_e){
-    return [];
+    return { rows: [], nextCursor: null, hasMore: false };
   }
 }
 
@@ -249,4 +301,3 @@ export function normalizeClienteIntel(row){
     primeiro_pedido: primeiroPedido
   };
 }
-
