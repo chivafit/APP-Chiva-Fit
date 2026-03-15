@@ -76,7 +76,7 @@ base AS (
     c.primeiro_pedido,
     c.ultimo_pedido,
     c.intervalo_medio_dias,
-    COALESCE(NULLIF(cp.canal_principal_calc, ''), c.canal_principal, 'outros') AS canal_principal,
+    COALESCE(NULLIF(cp.canal_principal_calc, '')::tipo_canal, c.canal_principal, 'outros'::tipo_canal) AS canal_principal,
     ci.score_final,
     NULLIF(ci.segmento, '') AS segmento_ci,
     NULLIF(ci.next_best_action, '') AS next_best_action,
