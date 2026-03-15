@@ -104,7 +104,7 @@ SELECT
   b.celular,
   b.cidade,
   b.uf,
-  b.total_pedidos,
+  (b.total_pedidos::bigint) AS total_pedidos,
   b.total_gasto,
   b.ltv,
   b.ticket_medio,
