@@ -206,10 +206,11 @@ WHERE p.data_pedido IS NOT NULL
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_new_customers_daily AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_new_customers_daily;
+CREATE VIEW public.vw_dashboard_v2_new_customers_daily AS
 SELECT
   c.primeiro_pedido AS dia,
-  count(*)::int AS novos_clientes
+  count(*)::bigint AS novos_clientes
 FROM public.v2_clientes c
 WHERE c.primeiro_pedido IS NOT NULL
 GROUP BY 1
