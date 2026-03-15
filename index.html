@@ -197,29 +197,35 @@
   <div id="source-row" class="dash-source-row"></div>
   <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
-  <div class="meta-card" id="dashv2-card">
-    <div class="card-hdr"><span class="card-title">Executivo v2</span></div>
-    <div class="stat-grid" id="dashv2-kpis"></div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">Vendas por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-dia"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
+  <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
+  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
+    <div class="chart-card">
+      <div class="chart-title">Vendas por Dia</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chart-v2-dia"></canvas></div>
     </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">Novos Clientes por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-novos"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card">
+      <div class="chart-title">Vendas por Mês</div>
+      <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
+      <div id="dash-channel-breakdown" style="margin-top:10px"></div>
     </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
-      <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
-      <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
-      <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
-    </div>
+    <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:210px"><canvas id="chart-v2-funil"></canvas></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
+    <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
+    <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="top-produtos-dash"></div></div>
+    <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
   </div>
   <div class="meta-card">
     <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
@@ -235,14 +241,6 @@
       </div>
     </div>
     <div id="cmp-body"></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr)">
-    <div class="chart-card"><div class="chart-title">Vendas por Mês</div><div class="chart-wrap" style="height:180px"><canvas id="chart-mes"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">Pedidos por Canal</div><div class="chart-wrap" style="height:160px"><canvas id="chart-canal"></canvas></div><div id="canal-table" style="margin-top:8px"></div></div>
-    <div class="chart-card"><div class="chart-title">Crescimento de Receita</div><div class="chart-wrap" style="height:160px"><canvas id="chart-crescimento"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">Clientes por Cidade</div><div class="chart-wrap" style="height:160px"><canvas id="chart-cidades"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
-    <div class="chart-card"><div class="chart-title">Top Produtos</div><div class="top-list" id="top-produtos-dash"></div></div>
   </div>
 </div>
 
@@ -372,6 +370,10 @@
   </div>
   <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
   <div class="profile-grid">
+    <div class="profile-card profile-span-2">
+      <div class="profile-h2">Crescimento de Receita</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-crescimento"></canvas></div>
+    </div>
     <div class="profile-card" id="intel-top"></div>
     <div class="profile-card" id="intel-risk"></div>
     <div class="profile-card" id="intel-new"></div>

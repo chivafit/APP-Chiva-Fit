@@ -323,7 +323,10 @@ async function persistSyncResultToDb(
   for (let i = 0; i < customerRows.length; i += 100) {
     const batch = customerRows.slice(i, i + 100);
     const { error } = await supabase.from("v2_clientes").upsert(batch, { onConflict: "doc" });
-    if (error) throw error;
+    if (error) {
+      console.error("[Upsert v2_clientes]", error, batch);
+      throw error;
+    }
   }
 
   const docToId: Record<string, string> = {};
@@ -379,7 +382,10 @@ async function persistSyncResultToDb(
   for (let i = 0; i < pedidosRows.length; i += 100) {
     const batch = pedidosRows.slice(i, i + 100);
     const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
-    if (error) throw error;
+    if (error) {
+      console.error("[Upsert v2_pedidos]", error, batch);
+      throw error;
+    }
   }
 
   const productsById: Record<string, any> = {};

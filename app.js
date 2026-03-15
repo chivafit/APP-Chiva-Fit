@@ -160,6 +160,8 @@ let allTasks = safeJsonParse("crm_tasks", null) || [
 let taskIdSeq = allTasks.length ? Math.max(...allTasks.map(t=>t.id))+1 : 1;
 let CRM_BOOTSTRAPPED = false;
 let CRM_BOOTSTRAP_ERROR = null;
+let dataReady = false;
+let isLoadingData = false;
 
 CRMStore.data.orders = allOrders;
 CRMStore.data.customers = allCustomers;
@@ -247,18 +249,71 @@ try{
 }
 
 function mergeOrders(){
-  const seen=new Set();
-  allOrders.length=0;
-  [...blingOrders,...yampiOrders].forEach(o=>{
-    const k=(o._source||"b")+":"+(o.id||o.numero);
-    if(!seen.has(k)){ seen.add(k); allOrders.push(o); }
+  if(isLoadingData) return;
+  const seen = new Set();
+  allOrders.length = 0;
+
+  const normKey = (v)=>String(v ?? "").trim();
+  const safeLower = (v)=>String(v ?? "").toLowerCase().trim();
+
+  (Array.isArray(blingOrders) ? blingOrders : []).forEach((o, idx)=>{
+    const key = normKey(o?.numero || o?.id) || ("idx:" + idx);
+    const sk = "b:" + key;
+    if(seen.has(sk)) return;
+    seen.add(sk);
+    try{ o._source = "bling"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "bling"));
   });
+
+  (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((o, idx)=>{
+    const keyNum = normKey(o?.numero || o?.id);
+    if(keyNum && seen.has("b:" + keyNum)) return;
+
+    const keyEmail = [
+      safeLower(o?.email || o?.contato?.email),
+      String(o?.data || o?.dataPedido || o?.data_pedido || "").slice(0,10),
+      String(Math.round(Number(o?.total || o?.valor || o?.totalProdutos || 0)))
+    ].join("|");
+
+    if(keyEmail !== "||0" && seen.has("y:" + keyEmail)) return;
+    if(keyEmail !== "||0") seen.add("y:" + keyEmail);
+    if(!keyEmail || keyEmail === "||0"){
+      const fallback = "y:idx:" + idx;
+      if(seen.has(fallback)) return;
+      seen.add(fallback);
+    }
+
+    try{ o._source = "yampi"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "yampi"));
+  });
+
   const nextCustomers = Object.values(buildCli(allOrders)).map(c=>{
-    const sc=calcCliScores(c);
-    return {...c, total_gasto:sc.ltv, status:sc.status, canal_principal:c.channels&&c.channels.size?[...c.channels][0]:""};
+    const sc = calcCliScores(c);
+    return { ...c, total_gasto: sc.ltv, status: sc.status, canal_principal: c.channels && c.channels.size ? [...c.channels][0] : "" };
   });
-  allCustomers.length=0;
+  allCustomers.length = 0;
   allCustomers.push(...nextCustomers);
+
+  (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((yo)=>{
+    const email = safeLower(yo?.email || yo?.contato?.email);
+    if(!email) return;
+    const cliente = allCustomers.find(c => safeLower(c?.email) === email);
+    if(!cliente) return;
+    const tel = String(yo?.telefone || yo?.contato?.telefone || yo?.contato?.celular || "").trim();
+    const doc = String(yo?.doc || yo?.cpfCnpj || yo?.contato?.cpfCnpj || yo?.contato?.numeroDocumento || "").trim();
+    if(!cliente.telefone && tel) cliente.telefone = tel;
+    if(!cliente.doc && doc) cliente.doc = doc;
+  });
+
+  console.log(
+    "[mergeOrders] Total:",
+    allOrders.length,
+    "| Bling:",
+    allOrders.filter(o=>o._source==="bling").length,
+    "| Yampi exclusivo:",
+    allOrders.filter(o=>o._source==="yampi").length
+  );
+
   computeCustomerIntelligence();
   reconcileCarrinhosRecuperados().catch(()=>{});
   recomputeCarrinhosScoresAndPersist().catch(()=>{});
@@ -383,9 +438,6 @@ async function bootstrapFromSupabase(){
   try{
     const connected = await initSupabase();
     if(connected) await loadSupabaseData();
-    mergeOrders();
-    populateUFs();
-    renderAll();
 
     CRM_BOOTSTRAPPED = true;
     CRM_BOOTSTRAP_ERROR = null;
@@ -1391,6 +1443,26 @@ function val(o){
   if(!o) return 0;
   const v = o.total_pedido || o.total_venda || o.totalProdutos || o.total || o.valor || 0;
   return parseFloat(v) || 0; 
+}
+function getPedidoItens(o){
+  const raw =
+    Array.isArray(o?.itens) ? o.itens :
+    Array.isArray(o?.items) ? o.items :
+    Array.isArray(o?.produtos) ? o.produtos :
+    Array.isArray(o?.itensPedido) ? o.itensPedido :
+    [];
+  if(!Array.isArray(raw) || !raw.length) return [];
+  const out = [];
+  raw.filter(Boolean).forEach(it=>{
+    const descricao = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || it?.produto || it?.product_name || "").trim();
+    const codigo = String(it?.codigo || it?.sku || it?.id || it?.product_id || "").trim();
+    const quantidade = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
+    const valor = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
+    const valor_total = it?.valor_total != null ? (Number(it.valor_total) || 0) : (quantidade * valor);
+    if(!descricao && !codigo) return;
+    out.push({ descricao, codigo, quantidade, valor, valor_total });
+  });
+  return out;
 }
 function cliKey(o){
   const contato = o?.contato || {};
@@ -2751,41 +2823,77 @@ function detectCh(o){
   const doc=(o.contato?.cpfCnpj||o.contato?.numeroDocumento||"").replace(/\D/g,"");
   if(doc.length===14) return "cnpj";
 
-  if(o._source==="shopify") return "shopify";
-
   const norm=(v)=>String(v||"")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g,"");
 
-  const fields=[
+  const known={ml:1,shopee:1,amazon:1,shopify:1,cnpj:1,yampi:1,outros:1};
+  const canalRaw = norm(o?.canal?.nome || o?.canal?.descricao || o?.canal);
+  const origemRaw = norm(o?.origem?.nome || o?.origem?.descricao || o?.origem);
+  const lojaRaw = norm(o?.loja?.nome || o?.loja?.descricao || o?.loja);
+  const srcRaw = norm(o?._source || o?.source);
+  const numRaw = norm(o?.numero || o?.numeroPedidoEcommerce || o?._raw?.numeroPedidoEcommerce || o?.numero_pedido || o?.id);
+
+  const guess = (s)=>{
+    const t = norm(s);
+    if(!t) return "";
+    if(/\bshopify\b|\bsite\b/.test(t)) return "shopify";
+    if(/\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(t)) return "ml";
+    if(/\bshopee\b/.test(t)) return "shopee";
+    if(/\byampi\b/.test(t)) return "yampi";
+    if(/\bamazon\b/.test(t)) return "amazon";
+    return "";
+  };
+
+  const g1 = guess(canalRaw);
+  if(g1) return g1;
+  const g2 = guess(origemRaw);
+  if(g2) return g2;
+  const g3 = guess(lojaRaw);
+  if(g3) return g3;
+
+  if(srcRaw && known[srcRaw]) return srcRaw;
+
+  const fields = [
     o.observacoes,
-    o.loja?.nome, o.loja?.descricao,
-    o.origem?.nome, o.origem?.descricao,
-    o.canal?.nome, o.canal?.descricao,
     o.ecommerce?.nome, o.ecommerce?.descricao,
     o.numeroPedidoEcommerce,
-    // Busca profunda no _raw para garantir retrocompatibilidade e precisão
     o._raw?.loja?.nome,
-    o._raw?.numeroPedidoEcommerce,
     o._raw?.observacoes
   ].map(norm).join(" ");
+  const gx = guess(fields);
+  if(gx) return gx;
 
-  if(fields.includes("shopify")) return "shopify";
+  if(/^mlb/.test(numRaw) || /^ml[\W_]/.test(numRaw) || /^ml\d/.test(numRaw)) return "ml";
+  if(/^shopee/.test(numRaw) || /^sp[\W_]/.test(numRaw) || /^sp\d/.test(numRaw)) return "shopee";
+  if(/^shopify/.test(numRaw) || /^sh[\W_]/.test(numRaw) || /^sh\d/.test(numRaw)) return "shopify";
 
-  const numExt=norm(o.numeroPedidoEcommerce || o._raw?.numeroPedidoEcommerce);
-  if(/\bmercado\s*livre\b|\bmercadolivre\b|\bmlb\b|\bmeli\b/.test(fields) || /^mlb/.test(numExt)) return "ml";
-  if(/\bshopee\b/.test(fields) || /^shopee/.test(numExt)) return "shopee";
-  if(/\bamazon\b/.test(fields)) return "amazon";
-
-  if(/\byampi\b/.test(fields)) return "yampi";
-
-  const known={ml:1,shopee:1,amazon:1,shopify:1,cnpj:1,yampi:1,outros:1};
-  if(o._canal && known[o._canal]) return o._canal;
+  const canal = norm(o?._canal);
+  if(canal && known[canal]) return canal;
   return "outros";
 }
 const CH={ml:"Mercado Livre",shopee:"Shopee",amazon:"Amazon",shopify:"Site (Shopify)",cnpj:"B2B (Atacado)",yampi:"Yampi",outros:"Outros"};
 const CH_COLOR={ml:"#f3b129",shopee:"#f06320",amazon:"#00a8e0",shopify:"#96bf48",yampi:"#e040fb",cnpj:"#f59e0b",outros:"#9b8cff"};
+function normCanalKey(v){
+  return String(v||"").toLowerCase().trim();
+}
+function clienteTemPedidoNoCanal(clienteId, canal){
+  const canalFiltro = normCanalKey(canal);
+  if(!canalFiltro) return true;
+  const cid = String(clienteId||"").trim();
+  if(!cid) return false;
+  const list = Array.isArray(allOrders) ? allOrders : [];
+  return list.some(o=>{
+    const ehDoCliente =
+      String(cliKey(o)||"").trim() === cid ||
+      String(orderCustomerKey(o)||"").trim() === cid ||
+      String(o?.cliente_id||"").trim() === cid;
+    if(!ehDoCliente) return false;
+    const ch = normCanalKey(detectCh(o));
+    return ch === canalFiltro;
+  });
+}
 function normSt(s){ const v=(s?.nome||s?.id||s||"").toString().toLowerCase(); if(/aprovado|pago|conclu|fatur|enviado|entregue|paid|authorized/i.test(v)) return "aprovado"; if(/pendent|aguard|aberto|novo|pending/i.test(v)) return "pendente"; if(/cancel|refund|void/i.test(v)) return "cancelado"; return "outros"; }
 const ST_LABEL={aprovado:"Aprovado",pendente:"Pendente",cancelado:"Cancelado"};
 const ST_CLASS={aprovado:"s-aprovado",pendente:"s-pendente",cancelado:"s-cancelado"};
@@ -2912,6 +3020,19 @@ function buildCli(list){
 
 // ── Scores ──────────────────────────────────────────
 function calcCliScores(c){
+  if(!c || typeof c !== "object") return {ltv:0,recorrencia:0,recompraScore:0,churnRisk:0,avgInterval:null,status:"outros",n:0,ds:9999,isCnpj:false};
+  if(!Array.isArray(c.orders)) c.orders = [];
+  if(!c.orders.length && Array.isArray(allOrders) && allOrders.length){
+    const cid = String(c.id || "").trim();
+    if(cid){
+      const rebuilt = allOrders.filter(o=>{
+        const ok1 = String(orderCustomerKey(o)||"").trim() === cid;
+        const ok2 = String(cliKey(o)||"").trim() === cid;
+        return ok1 || ok2 || String(o?.cliente_id||"").trim() === cid;
+      });
+      if(rebuilt.length) c.orders = rebuilt;
+    }
+  }
   const tot=c.orders.reduce((s,o)=>s+val(o),0);
   const n=c.orders.length;
   const ds=daysSince(c.last);
@@ -2939,6 +3060,9 @@ function calcCliScores(c){
   if(tot>=650&&!isCnpj) recompraScore+=20;
   if(avgInterval&&avgInterval<45) recompraScore+=10;
   recompraScore=Math.min(recompraScore,100);
+  if(recompraScore === 0 && n > 0){
+    try{ console.warn("[Score zero inesperado]", c.id, c.nome, "pedidos:", n); }catch(_e){}
+  }
 
   // Risco de churn (0-100)
   let churnRisk=0;
@@ -3210,7 +3334,7 @@ function renderDashNow(){
       if(toIso) localStorage.setItem("crm_dash_to", toIso);
     }
   }
-  const dashCh = String(dashSel?.value||"").toLowerCase().trim();
+  const dashCh = normCanalKey(dashSel?.value||"");
   if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
   const ordersBase = Array.isArray(allOrders) ? allOrders : [];
   const selectedYear = Number(yearSel?.value || "");
@@ -3218,8 +3342,7 @@ function renderDashNow(){
   const toIso = String(localStorage.getItem("crm_dash_to") || "").trim();
   const fromTs = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
   const toTs = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
-  const orders = ordersBase.filter(o=>{
-    if(dashCh && detectCh(o) !== dashCh) return false;
+  const ordersAllRange = ordersBase.filter(o=>{
     const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
     const s = String(raw || "").slice(0,10);
     if(!s) return false;
@@ -3234,6 +3357,7 @@ function renderDashNow(){
     }
     return true;
   });
+  const ordersSales = dashCh ? ordersAllRange.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersAllRange;
 
   // Atualizar período
   const dp = document.getElementById("dash-period");
@@ -3243,17 +3367,17 @@ function renderDashNow(){
     const bits = [];
     if(fromLabel && toLabel) bits.push(fromLabel + " — " + toLabel);
     if(dashCh) bits.push(CH[dashCh] || dashCh);
-    bits.push(String(orders.length) + " pedidos");
+    bits.push(String(ordersSales.length) + " pedidos");
     dp.textContent = bits.filter(Boolean).join(" · ");
   }
 
-  const total=orders.reduce((s,o)=>s+val(o),0);
+  const total=ordersSales.reduce((s,o)=>s+val(o),0);
   const now=new Date();
-  const thisMo=orders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
-  const prevMo=orders.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
+  const thisMo=ordersSales.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
+  const prevMo=ordersSales.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
   const tMo=thisMo.reduce((s,o)=>s+val(o),0),pMo=prevMo.reduce((s,o)=>s+val(o),0);
   const delta=pMo>0?((tMo-pMo)/pMo*100):0;
-  const cliMap=buildCli(orders);
+  const cliMap=buildCli(ordersSales);
   const cliList=Object.values(cliMap);
   const vipCount=cliList.filter(c=>calcCliScores(c).status==="vip").length;
   const recorrentes=cliList.filter(c=>c.orders.length>=2).length;
@@ -3265,15 +3389,15 @@ function renderDashNow(){
     +(yampiOrders.length?`<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`:"")
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
     +(dashCh?`<span style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:7px;padding:3px 9px">Filtro: ${escapeHTML(CH[dashCh]||dashCh)}</span>`:"")
-    +(!orders.length?`<span style="color:var(--text-3)">Nenhum dado — vá em ⚙️ Config</span>`:"");
+    +(!ordersSales.length?`<span style="color:var(--text-3)">Sem dados no período</span>`:"");
 
   const autoEl = document.getElementById("auto-insights");
   if(autoEl){
     const weekMs = 7*86400000;
     const nowTs = Date.now();
-    const inLast = (days)=>orders.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
+    const inLast = (days)=>ordersSales.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
     const w1 = inLast(7);
-    const w2 = orders.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
+    const w2 = ordersSales.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
     const t1 = w1.reduce((s,o)=>s+val(o),0);
     const t2 = w2.reduce((s,o)=>s+val(o),0);
     const ticket1 = w1.length ? t1/w1.length : 0;
@@ -3287,16 +3411,16 @@ function renderDashNow(){
 
     const prod7 = {};
     w1.forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
         const k = String(it?.codigo||it?.descricao||"—");
         prod7[k] = (prod7[k]||0) + (Number(it?.quantidade||1)||1);
       });
     });
     const prod14 = {};
     w2.forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
         const k = String(it?.codigo||it?.descricao||"—");
         prod14[k] = (prod14[k]||0) + (Number(it?.quantidade||1)||1);
       });
@@ -3349,62 +3473,301 @@ function renderDashNow(){
 
   const dashStatsEl = document.getElementById("dash-stats");
   if(dashStatsEl){
-    if(supaConnected && supaClient){
-      dashStatsEl.innerHTML=[
-        {l:"Faturamento Total",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Pedidos",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Ticket Médio",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Clientes",v:"—",s:"vw_dashboard_kpis"},
-        {l:"LTV Médio",v:"—",s:"vw_dashboard_kpis"},
-      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
-      updateDashMainKpisFromSupabase().catch(()=>{});
-    }else{
-      dashStatsEl.innerHTML=[
-        {l:"Volume Total",v:fmtBRL(total),s:"consolidado"},
-        {l:"Este Mês",v:fmtBRL(tMo),s:`<span style="color:${delta>=0?"var(--green)":"var(--red)"}">${delta>=0?"▲":"▼"}${Math.abs(delta).toFixed(1)}%</span>`},
-        {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
-        {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
-        {l:"Ticket Médio",v:fmtBRL(orders.length?total/orders.length:0),s:"por pedido"},
-        {l:"Pedidos Total",v:orders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
-      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
-    }
+    const firstByCustomer = {};
+    ordersBase.forEach(o=>{
+      const k = orderCustomerKey(o);
+      if(!k) return;
+      const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
+      if(!d) return;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return;
+      if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
+    });
+    const novosSet = new Set();
+    ordersSales.forEach(o=>{
+      const k = orderCustomerKey(o);
+      if(!k) return;
+      const ts = firstByCustomer[k];
+      if(ts == null) return;
+      if(fromTs != null && ts < fromTs) return;
+      if(toTs != null && ts > toTs) return;
+      novosSet.add(k);
+    });
+    const novos = novosSet.size;
+    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+    dashStatsEl.innerHTML=[
+      {l:"Faturamento",v:fmtBRL(total),s:dashCh?`Filtro ativo: ${escapeHTML(CH[dashCh]||dashCh)}`:""},
+      {l:"Pedidos",v:String(ordersSales.length),s:""},
+      {l:"Ticket Médio",v:fmtBRL(ticket),s:""},
+      {l:"Novos Clientes",v:String(novos),s:""},
+      {l:"LTV Médio",v:`<span id="kpi-ltv-medio">—</span>`,s:""},
+      {l:"Clientes Base",v:`<span id="kpi-clientes-base">—</span>`,s:""},
+    ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
   }
 
-  renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
-  renderChartCanal(orders);
-  if(!supaConnected) renderChartMes(orders);
-  renderTopCli(orders);
-  renderTopProd(orders);
-  setTimeout(()=>{ renderDashChartsCidades(orders); }, 150);
-  if(supaConnected && supaClient){
-    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{}); }, 10);
-    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
-  }else{
-    setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
-    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
+  renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
+  renderDashSalesByDay(ordersSales);
+  renderChartMes(ordersSales);
+  renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
+  renderTopCli(ordersAllRange);
+  renderTopProd(ordersAllRange);
+  const secEl = document.getElementById("dash-stats-secondary");
+  if(secEl){
+    secEl.innerHTML = "";
+    updateDashSecondaryFromSupabase().catch(()=>{});
   }
+  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, fromIso, toIso }); }, 40);
 }
 
-async function updateDashMainKpisFromSupabase(){
-  if(!supaConnected || !supaClient) return;
-  const el = document.getElementById("dash-stats");
-  if(!el) return;
+async function updateDashSecondaryFromSupabase(){
+  const elLtv = document.getElementById("kpi-ltv-medio");
+  const elCli = document.getElementById("kpi-clientes-base");
+  if(!elLtv || !elCli) return;
+  if(!supaConnected || !supaClient){
+    const list = Array.isArray(allCustomers) ? allCustomers : [];
+    const ltvMedio = list.length ? (list.reduce((s,c)=>s + (Number(c?.total_gasto || 0) || 0), 0) / list.length) : 0;
+    elLtv.textContent = fmtBRL(ltvMedio);
+    elCli.textContent = String(list.length);
+    return;
+  }
   try{
     const k = await getDashboardKpisView(supaClient);
     if(!k) return;
-    const faturamento = Number(k.faturamento_total || 0) || 0;
-    const pedidos = Number(k.total_pedidos || 0) || 0;
-    const ticket = Number(k.ticket_medio || 0) || 0;
     const clientes = Number(k.total_clientes || 0) || 0;
     const ltvMedio = Number(k.ltv_medio || 0) || 0;
-    el.innerHTML=[
-      {l:"Faturamento Total",v:fmtBRL(faturamento),s:""},
-      {l:"Pedidos",v:String(pedidos),s:""},
-      {l:"Ticket Médio",v:fmtBRL(ticket),s:""},
-      {l:"Clientes",v:String(clientes),s:""},
-      {l:"LTV Médio",v:fmtBRL(ltvMedio),s:""},
-    ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
+    elLtv.textContent = fmtBRL(ltvMedio);
+    elCli.textContent = String(clientes);
   }catch(_e){}
+}
+
+function setDashCanvasState(canvasId, hasData, msg, showClear){
+  const canvas = document.getElementById(canvasId);
+  const wrap = canvas ? canvas.parentElement : null;
+  if(!wrap) return { canvas: null, shouldRender: false };
+  const id = canvasId + "-empty";
+  let box = document.getElementById(id);
+  if(!box){
+    box = document.createElement("div");
+    box.id = id;
+    box.className = "empty";
+    box.style.padding = "18px 0";
+    wrap.appendChild(box);
+  }
+  if(hasData){
+    canvas.style.display = "";
+    box.style.display = "none";
+    return { canvas, shouldRender: true };
+  }
+  canvas.style.display = "none";
+  box.style.display = "";
+  const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+  box.innerHTML = `${escapeHTML(msg || "Sem dados no período")}${btn}`;
+  return { canvas, shouldRender: false };
+}
+
+function renderDashSalesByDay(orders){
+  const list = Array.isArray(orders) ? orders : [];
+  const byDay = {};
+  list.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!d) return;
+    const ts = new Date(d + "T12:00:00").getTime();
+    if(!isFinite(ts)) return;
+    byDay[d] = (byDay[d] || 0) + val(o);
+  });
+  const keys = Object.keys(byDay).sort();
+  const state = setDashCanvasState("chart-v2-dia", keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
+  const ctx = state.canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.v2dia) charts.v2dia.destroy();
+  charts.v2dia = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: keys.map(k=>fmtDate(k)),
+      datasets: [{
+        label: "Faturamento",
+        data: keys.map(k=>byDay[k]),
+        tension: 0.35,
+        fill: true,
+        borderColor: "#0FA765",
+        backgroundColor: "rgba(15,167,101,.18)",
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHitRadius: 12
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 12 } },
+        y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+      }
+    }
+  });
+}
+
+function renderDashChannelBreakdown(input){
+  const el = document.getElementById("dash-channel-breakdown");
+  if(!el) return;
+  const ordersAllRange = Array.isArray(input?.ordersAllRange) ? input.ordersAllRange : [];
+  const ordersSales = Array.isArray(input?.ordersSales) ? input.ordersSales : [];
+  const dashCh = normCanalKey(input?.dashCh || "");
+  const base = dashCh ? ordersSales : ordersAllRange;
+  if(!base.length){
+    if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+    const btn = dashCh ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos</button></div>` : "";
+    const msg = dashCh ? `Sem vendas via ${escapeHTML(CH[dashCh]||dashCh)} no período` : "Sem dados no período";
+    el.innerHTML = `<div class="empty">${msg}${btn}</div>`;
+    return;
+  }
+
+  const by = {};
+  const byN = {};
+  base.forEach(o=>{
+    const ch = normCanalKey(detectCh(o) || "outros") || "outros";
+    by[ch] = (by[ch] || 0) + val(o);
+    byN[ch] = (byN[ch] || 0) + 1;
+  });
+  const preferred = ["shopee","ml","yampi","shopify","amazon","cnpj","outros"];
+  const rows = preferred
+    .filter(c=>Number(by[c]||0) > 0 || Number(byN[c]||0) > 0)
+    .map(c=>({ canal: c, total: Number(by[c]||0) || 0, pedidos: Number(byN[c]||0) || 0 }))
+    .filter(r=>r.total > 0 || r.pedidos > 0);
+
+  if(!rows.length){
+    if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+    const btn = dashCh ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos</button></div>` : "";
+    const msg = dashCh ? `Sem vendas via ${escapeHTML(CH[dashCh]||dashCh)} no período` : "Sem dados no período";
+    el.innerHTML = `<div class="empty">${msg}${btn}</div>`;
+    return;
+  }
+
+  if(!document.getElementById("chart-vendas-canal")){
+    el.innerHTML = `<div class="chart-wrap" style="height:220px"><canvas id="chart-vendas-canal"></canvas></div>`;
+  }
+  const canvas = document.getElementById("chart-vendas-canal");
+  if(!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+  charts.vendasCanal = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: rows.map(r=>CH[r.canal] || r.canal),
+      datasets: [{
+        data: rows.map(r=>r.total),
+        backgroundColor: rows.map(r=>CH_COLOR[r.canal] || "#0FA765"),
+        borderRadius: 6,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (c)=>{
+              const idx = c.dataIndex;
+              const row = rows[idx] || {};
+              return ` ${fmtBRL(row.total || 0)} · ${Number(row.pedidos||0)} pedidos`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.8)", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
+        y: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.9)", font: { size: 11, weight: 800 } } }
+      }
+    }
+  });
+}
+
+async function renderDashExtraLists(ctx){
+  const ordersAllRange = Array.isArray(ctx?.ordersAllRange) ? ctx.ordersAllRange : [];
+  const dashCh = String(ctx?.dashCh || "").trim();
+  if(!ordersAllRange.length){
+    const showClear = !!dashCh;
+    const msg = "Sem dados no período";
+    ["top-clientes","top-produtos-dash","dashv2-top-cidades"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+      el.innerHTML = `<div class="empty">${escapeHTML(msg)}${btn}</div>`;
+    });
+  }
+
+  if(supaConnected && supaClient){
+    try{
+      const funil = await getFunilRecompraView(supaClient);
+      renderDashV2Funil(funil);
+    }catch(_e){
+      setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
+    }
+    try{
+      const topCities = await getTopCidadesView(supaClient, 10);
+      renderDashV2TopCidades(topCities);
+    }catch(_e){}
+    try{
+      const semContato = await getClientesSemContatoView(supaClient, 8);
+      renderDashV2SemContato(semContato);
+    }catch(_e){}
+    try{
+      const riskEl = document.getElementById("dashv2-risk");
+      if(riskEl){
+        const rows = await getClientesReativacaoView(supaClient, 8);
+        riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+          const nome = String(c?.nome || "Cliente");
+          const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+          const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+          return `<div class="top-item" onclick="openClientePage('${id}')">
+            <div class="top-rank">${idx+1}</div>
+            <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+            <div class="top-val">${escapeHTML(ltv)}</div>
+            <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+          </div>`;
+        }).join("") || `<div class="empty">Sem dados no período</div>`;
+      }
+    }catch(_e){}
+    try{
+      const vipRiskEl = document.getElementById("dashv2-vip-risk");
+      if(vipRiskEl){
+        const rows = await getClientesVipRiscoView(supaClient, 8);
+        vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+          const nome = String(c?.nome || "VIP");
+          const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+          const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+          return `<div class="top-item" onclick="openClientePage('${id}')">
+            <div class="top-rank">${idx+1}</div>
+            <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+            <div class="top-val">${escapeHTML(ltv)}</div>
+            <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+          </div>`;
+        }).join("") || `<div class="empty">Sem dados no período</div>`;
+      }
+    }catch(_e){}
+    try{
+      renderDashV2NextActions((clientesIntelCache||[]));
+    }catch(_e){}
+  }else{
+    setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
+    renderDashTopCidadesFromOrders(ordersAllRange);
+    const riskEl = document.getElementById("dashv2-risk");
+    if(riskEl) riskEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const vipRiskEl = document.getElementById("dashv2-vip-risk");
+    if(vipRiskEl) vipRiskEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const semContatoEl = document.getElementById("dashv2-sem-contato");
+    if(semContatoEl) semContatoEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const nextEl = document.getElementById("dashv2-next-actions");
+    if(nextEl) nextEl.innerHTML = `<div class="empty">Conecte o Supabase para ver ações sugeridas.</div>`;
+  }
 }
 
 function setDashRange(days){
@@ -3802,7 +4165,9 @@ function renderDashV2Funil(rows){
   mapped.sort((a,b)=>a.ord-b.ord);
   const labels = mapped.map(x=>x.label);
   const values = mapped.map(x=>x.value);
-  const ctx = canvas.getContext("2d");
+  const state = setDashCanvasState("chart-v2-funil", values.some(v=>Number(v||0)>0), "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   if(charts.v2funil) charts.v2funil.destroy();
   charts.v2funil = new Chart(ctx, {
@@ -3830,6 +4195,35 @@ function renderDashV2Funil(rows){
       }
     }
   });
+}
+
+function renderDashTopCidadesFromOrders(orders){
+  const el = document.getElementById("dashv2-top-cidades");
+  if(!el) return;
+  const list = Array.isArray(orders) ? orders : [];
+  if(!list.length){
+    el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+    return;
+  }
+  const m = {};
+  list.forEach(o=>{
+    const cidade = String(o?.cidade_entrega || o?.contato?.endereco?.municipio || o?.contato?.municipio || "").trim();
+    const uf = normalizeUF(o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || "");
+    if(!cidade) return;
+    const key = cidade + "|" + (uf || "");
+    if(!m[key]) m[key] = { cidade, uf, faturamento: 0, pedidos: 0 };
+    m[key].faturamento += val(o);
+    m[key].pedidos += 1;
+  });
+  const top = Object.values(m).sort((a,b)=>b.faturamento - a.faturamento).slice(0,10);
+  el.innerHTML = top.map((r, idx)=>{
+    const label = [r.cidade, r.uf].filter(Boolean).join(" / ");
+    return `<div class="top-item">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(label)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(String(r.pedidos))} pedidos</span></div>
+      <div class="top-val">${escapeHTML(fmtBRL(r.faturamento))}</div>
+    </div>`;
+  }).join("") || `<div class="empty">Sem dados no período</div>`;
 }
 
 function renderDashV2TopProdutos(rows){
@@ -4072,7 +4466,9 @@ function renderChartMes(ordersOverride){
   if(charts.mes) charts.mes.destroy();
   const canvas = document.getElementById("chart-mes");
   if(!canvas) return;
-  const ctx = canvas.getContext("2d");
+  const state = setDashCanvasState("chart-mes", sk.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   charts.mes=new Chart(ctx,{
     type:"bar",
@@ -4105,28 +4501,48 @@ function renderChartMes(ordersOverride){
 }
 function renderTopCli(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const el = document.getElementById("top-clientes");
+  if(!el) return;
+  if(!orders.length){
+    const showClear = !!String(document.getElementById("dash-canal-filter")?.value||"");
+    const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+    el.innerHTML = `<div class="empty">Sem dados no período${btn}</div>`;
+    return;
+  }
   const m={}; orders.forEach(o=>{
     const k=cliKey(o);
     if(!m[k]){ m[k]={n:o.contato?.nome||"?",t:0,id:k}; }
     m[k].t+=val(o);
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
-  document.getElementById("top-clientes").innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
+  el.innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
 }
 function renderTopProd(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const el = document.getElementById("top-produtos-dash");
+  if(!el) return;
+  if(!orders.length){
+    const showClear = !!String(document.getElementById("dash-canal-filter")?.value||"");
+    const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+    el.innerHTML = `<div class="empty">Sem dados no período${btn}</div>`;
+    return;
+  }
   const m={}; orders.forEach(o=>{
-    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-    itens.filter(Boolean).forEach(it=>{
-      const desc = String(it?.descricao || it?.title || it?.name || "").trim();
-      const code = String(it?.codigo || it?.sku || it?.id || "").trim();
+    const itens = getPedidoItens(o);
+    if(!itens.length){
+      try{ console.warn("[TopProd] pedido sem itens:", o?.id, Object.keys(o||{})); }catch(_e){}
+      return;
+    }
+    itens.forEach(it=>{
+      const desc = String(it?.descricao || "").trim();
+      const code = String(it?.codigo || "").trim();
       const k = desc || code || "?";
       if(!m[k]) m[k] = { n: desc || code || "—", t: 0 };
-      m[k].t += (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
+      m[k].t += Number(it?.valor_total != null ? it.valor_total : ((Number(it?.valor||0)||0) * (Number(it?.quantidade||1)||1))) || 0;
     });
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,5); const max=top[0]?.t||1;
-  document.getElementById("top-produtos-dash").innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div style="padding:10px;font-size:11px;color:var(--text-3)">Nenhum produto</div>`;
+  el.innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div class="empty">Sem dados no período</div>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -4288,6 +4704,7 @@ function renderInteligencia(){
       <div class="profile-kpi"><div class="profile-kpi-label">Receita total</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(total))}</div></div>
     </div>
   `;
+  renderDashChartsCrescimento(allOrders);
 
   const top = clis
     .map(c=>({ c, s: calcCliScores(c), ltv: c.orders.reduce((x,o)=>x+val(o),0) }))
@@ -4453,8 +4870,17 @@ function renderClientes(){
     document.getElementById("ch-pills-cli").innerHTML = pills.map(p=>`<div class="ch-pill ${p.id} ${activeCh===p.id?"active":""}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`).join("");
 
     let rows = clientesIntelCache.slice();
-    if(canalFil) rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===String(canalFil).toLowerCase());
-    else if(activeCh!=="all") rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===activeCh);
+    const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+    if(canalFiltro){
+      rows = rows.filter(c=>{
+        const cid = String(c?.cliente_id || c?.id || "").trim();
+        const docDigits = String(c?.doc || "").replace(/\D/g,"");
+        const email = String(c?.email || "").trim().toLowerCase();
+        const tel = String(c?.telefone || c?.celular || "").replace(/\D/g,"");
+        const key = cid || docDigits || email || tel;
+        return clienteTemPedidoNoCanal(key, canalFiltro);
+      });
+    }
     if(uf) rows = rows.filter(c=>String(c.uf||"").toUpperCase()===String(uf).toUpperCase());
     if(statusFil) rows = rows.filter(c=>String(c.status||"")===statusFil);
     if(segFil) rows = rows.filter(c=>String(c.segmento_crm||"")===segFil);
@@ -4477,7 +4903,7 @@ function renderClientes(){
     }
 
     const suffix = clientesIntelHasMore ? "+" : "";
-    document.getElementById("cli-label").textContent=`${rows.length}${suffix} cliente${rows.length!==1?"s":""}`;
+    document.getElementById("cli-label").textContent = isDefaultFilters ? `${rows.length}${suffix} cliente${rows.length!==1?"s":""}` : `${rows.length} encontrado${rows.length!==1?"s":""}`;
     const listEl = document.getElementById("client-list");
     if(!listEl) return;
 
@@ -4497,7 +4923,14 @@ function renderClientes(){
     }else{
       clientesIntelDomMode = "filtered";
       clientesIntelDomCount = 0;
-      listEl.innerHTML = rows.length ? rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("") : `<div class="empty">Nenhum cliente encontrado.</div>`;
+      if(rows.length){
+        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+      }else{
+        const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+        const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
+        const msg = canalFiltro ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro]||canalFiltro)} — limpar filtro?` : "Nenhum cliente encontrado.";
+        listEl.innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+      }
     }
     observeClientesSentinel();
     return;
@@ -4517,8 +4950,15 @@ function renderClientes(){
 
   let clis=Object.values(buildCli(filt)).sort((a,b)=>b.orders.reduce((s,o)=>s+val(o),0)-a.orders.reduce((s,o)=>s+val(o),0));
 
-  document.getElementById("cli-label").textContent=`${clis.length} cliente${clis.length!==1?"s":""}`;
-  if(!clis.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
+  const labelEl = document.getElementById("cli-label");
+  if(labelEl) labelEl.textContent = isDefaultFilters ? `${clis.length} cliente${clis.length!==1?"s":""}` : `${clis.length} encontrado${clis.length!==1?"s":""}`;
+  if(!clis.length){
+    const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+    const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
+    const msg = canalFiltro ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro]||canalFiltro)} — limpar filtro?` : "Nenhum cliente encontrado.";
+    document.getElementById("client-list").innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+    return;
+  }
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
 }
 
@@ -4549,62 +4989,52 @@ function renderCliIntelCard(c, eid){
   const isVip = segmento === "VIP" || String(c?.pipeline_stage||"") === "vip";
   const actionHot = (isVip && (dias||0) >= 45) || churn >= 70 || String(c?.pipeline_stage||"") === "reativacao";
 
-  const badge = (txt, bg, fg)=>`<span class="badge" style="background:${bg};color:${fg};border-color:transparent">${escapeHTML(txt)}</span>`;
   const statusBadge = (()=>{
     if(status === "VIP") return `<span class="badge vip">⭐ VIP</span>`;
     if(status === "Em Risco") return `<span class="badge alerta">⚠️ Em Risco</span>`;
     if(status === "Churn") return `<span class="badge inativo">😴 Churn</span>`;
     if(status === "Recompra") return `<span class="badge ativo">🎯 Recompra</span>`;
-    if(status === "Novo Lead") return `<span class="badge novo">🆕 Novo Lead</span>`;
+    if(status === "Novo Lead") return `<span class="badge novo">🆕 Novo</span>`;
     if(status === "Ativo") return `<span class="badge ativo">✅ Ativo</span>`;
-    return status ? badge(status, "rgba(148,163,184,.10)", "var(--text-2)") : "";
+    return status ? `<span class="badge" style="background:rgba(148,163,184,.10);color:var(--text-2);border-color:transparent">${escapeHTML(status)}</span>` : "";
   })();
-  const scoreColor=(s)=>s>70?"var(--green)":s>40?"var(--amber)":"var(--red)";
-  const churnColor=(s)=>s>60?"var(--red)":s>30?"var(--amber)":"var(--green)";
+  const riskBadge = churn >= 70 ? `<span class="badge alerta">⚠️ Crítico</span>` : "";
+  const scoreShown = scoreFinal != null ? Number(scoreFinal||0) : score;
+  const line2 = `${dias!=null?`${escapeHTML(String(dias))}d sem comprar`:"—"} · ${escapeHTML(String(pedidos))} pedidos`;
+  const line3Parts = [];
+  if(pipeline) line3Parts.push(`Pipeline ${pipeline}`);
+  if(scoreShown != null) line3Parts.push(`Score ${Number(scoreShown||0).toFixed(0)}`);
+  if(churn) line3Parts.push(`Risco ${Number(churn||0).toFixed(0)}`);
+  const line3 = line3Parts.join(" · ");
 
   return `<div class="client-card" id="${eid}">
     <div class="client-head" onclick="openClientePage('${id}')">
       <div>
-        <div class="client-name-row">
+        <div class="client-name-row" style="align-items:flex-start">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
-          <span class="badge cli-channel-flag ${mainChClass}">${escapeHTML(CH[canal]||canal)}</span>
-          ${statusBadge}
-          ${segmento && segmento !== status ? badge(segmento, isVip ? "rgba(250,204,21,.12)" : "rgba(96,165,250,.10)", isVip ? "var(--amber)" : "var(--blue)") : ""}
-          ${faixaV ? badge(faixaV, "rgba(148,163,184,.10)", "var(--text-2)") : ""}
-          ${faixaF ? badge(faixaF, "rgba(148,163,184,.08)", "var(--text-3)") : ""}
-          ${actionHot ? `<span class="badge-hint churn">⚡ Ação</span>` : ""}
         </div>
-        <div class="client-meta">${escapeHTML(loc||"—")}${dias!=null?` · ${escapeHTML(String(dias))}d sem comprar`:""} · ${escapeHTML(String(pedidos))} pedidos${pipeline?` · Pipeline ${escapeHTML(pipeline)}`:""}${scoreFinal!=null?` · Score ${escapeHTML(String(scoreFinal.toFixed(0)))} `:""}</div>
+        <div class="client-meta" style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${statusBadge}
+          ${riskBadge}
+          <span style="font-size:11px;color:var(--text-3);font-weight:600">${line2}</span>
+        </div>
+        <div class="client-meta" style="margin-top:6px;font-size:10px;color:var(--text-3)">${escapeHTML(line3 || (loc||"—"))}</div>
       </div>
       <div class="client-right">
         <div class="client-total">${fmtBRL(ltv)}</div>
-        <div class="client-count">${escapeHTML(String(pedidos))} ped.<span class="chevron">▾</span></div>
+        <div class="client-count" style="opacity:.75">${escapeHTML(CH[canal]||canal)}</div>
       </div>
     </div>
-    <div class="client-body">
-      <div class="score-bar-wrap">
-        <span class="score-label">Score Recompra</span>
-        <div class="score-track"><div class="score-fill" style="width:${score}%;background:${scoreColor(score)}"></div></div>
-        <span class="score-num" style="color:${scoreColor(score)}">${score.toFixed(0)}</span>
+    ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
+      <div class="contact-info">
+        ${phone?`<span>📱 ${escapeHTML(fmtPhone(phone))}</span>`:""}
+        ${email?`<span>✉️ ${escapeHTML(email)}</span>`:""}
       </div>
-      <div class="score-bar-wrap">
-        <span class="score-label">Risco de Churn</span>
-        <div class="score-track"><div class="score-fill" style="width:${churn}%;background:${churnColor(churn)}"></div></div>
-        <span class="score-num" style="color:${churnColor(churn)}">${churn.toFixed(0)}</span>
+      <div class="contact-actions">
+        ${phone?`<a class="btn-wa" href="#" onclick="openWa('${escapeJsSingleQuote(phone)}','${escapeJsSingleQuote(nome)}','');return false;">💬 WA</a>`:""}
+        ${email?`<a class="btn-email" href="mailto:${encodeURIComponent(email)}">✉️</a>`:""}
       </div>
-      ${(lastIntAt||respUser||lastIntType||lastIntDesc)?`<div class="cli-marketing"><div class="cli-marketing-title">Última interação</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML([lastIntAt?fmtDate(lastIntAt):"", lastIntType||"", respUser?("Resp: "+respUser):""].filter(Boolean).join(" · "))}${lastIntDesc?`<div style="font-size:10px;color:var(--text-3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHTML(lastIntDesc)}</div>`:""}</div></div>`:""}
-      ${next ? `<div class="cli-marketing"><div class="cli-marketing-title">Próxima ação sugerida</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML(next)}</div></div>` : ""}
-      ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
-        <div class="contact-info">
-          ${phone?`<span>📱 ${escapeHTML(fmtPhone(phone))}</span>`:""}
-          ${email?`<span>✉️ ${escapeHTML(email)}</span>`:""}
-        </div>
-        <div class="contact-actions">
-          ${phone?`<a class="btn-wa" href="#" onclick="openWa('${escapeJsSingleQuote(phone)}','${escapeJsSingleQuote(nome)}','');return false;">💬 WA</a>`:""}
-          ${email?`<a class="btn-email" href="mailto:${encodeURIComponent(email)}">✉️</a>`:""}
-        </div>
-      </div>`:""}
-    </div>
+    </div>`:""}
   </div>`;
 }
 
@@ -4643,11 +5073,11 @@ function clienteAddNegotiation(){
 }
 
 function summarizeOrderItemsMini(o){
-  const itens = Array.isArray(o?.itens) ? o.itens : [];
+  const itens = getPedidoItens(o);
   if(!itens.length) return "—";
   const parts = itens
     .map(it=>{
-      const name = String(it?.descricao || it?.name || it?.produto || "").trim();
+      const name = String(it?.descricao || it?.codigo || "").trim();
       const qty = Number(it?.quantidade ?? it?.quantity ?? 0) || 0;
       if(!name) return "";
       return qty > 1 ? `${name} x${qty}` : name;
@@ -4663,7 +5093,7 @@ function openCRMOrderDrawer(orderKey){
   if(!o) return;
   const st = normSt(o.situacao);
   const ch = detectCh(o);
-  const items = (Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : []).filter(Boolean);
+  const items = getPedidoItens(o);
   const total = fmtBRL(val(o));
   const bodyHTML = `
     <div class="drawer-section">
@@ -4788,8 +5218,8 @@ function renderClientePage(){
     chAgg[ch] = chAgg[ch] || { total:0, n:0 };
     chAgg[ch].n += 1;
     chAgg[ch].total += val(o);
-    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-    itens.filter(Boolean).forEach(it=>{
+    const itens = getPedidoItens(o);
+    itens.forEach(it=>{
       const key = String(it?.codigo||it?.descricao||"—");
       if(!prodAgg[key]) prodAgg[key] = { nome: it?.descricao||key, qty:0, total:0 };
       const qty = Number(it?.quantidade||1) || 1;
@@ -6650,7 +7080,7 @@ function setProdutosChartState(canvasId, hasData){
     msg = document.createElement("div");
     msg.id = msgId;
     msg.className = "empty";
-    msg.textContent = "Sem dados suficientes para o gráfico";
+    msg.textContent = "Sem dados";
     msg.style.padding = "22px 0";
     wrap.appendChild(msg);
   }
@@ -6670,7 +7100,6 @@ function setProdutosChartState(canvasId, hasData){
 }
 
 function renderProdutos(_deferred){
-  console.log('[Produtos] allOrders:', allOrders.length, 'blingProducts:', blingProducts.length, 'exemplo item:', allOrders[0]?.itens?.[0]);
   const detailedEl = document.getElementById("prod-list-detailed");
   if(!_deferred){
     if(detailedEl) detailedEl.innerHTML = `<div class="empty">Carregando produtos...</div>`;
@@ -6687,7 +7116,7 @@ function renderProdutos(_deferred){
       if(op.value && CH[op.value]) op.textContent=CH[op.value];
     });
   }
-  const ch=selCh?.value||"";
+  const ch=normCanalKey(selCh?.value||"");
   const per=parseInt(document.getElementById("fil-periodo-prod")?.value||"0");
   const evolucaoDias = parseInt(document.getElementById("fil-evolucao-prod")?.value || "30");
   const now=new Date();
@@ -6726,12 +7155,12 @@ function renderProdutos(_deferred){
   let hasMatch = false;
   for(let oi=0; oi<allOrders.length && !hasMatch; oi++){
     const o = allOrders[oi];
-    if(ch && detectCh(o) !== ch) continue;
+    if(ch && (normCanalKey(detectCh(o)) !== ch || !clienteTemPedidoNoCanal(orderCustomerKey(o), ch))) continue;
     if(per){
       const d = new Date(o.data||o.dataPedido);
       if((now-d)/(86400000) > per) continue;
     }
-    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
+    const itens = getPedidoItens(o);
     for(let ii=0; ii<itens.length; ii++){
       const it = itens[ii];
       if(!it) continue;
@@ -6744,7 +7173,11 @@ function renderProdutos(_deferred){
     }
   }
   if(!hasMatch){
-    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum produto encontrado. Verifique se os itens dos pedidos possuem os campos 'codigo' ou 'descricao' preenchidos.</div>`;
+    const hasFiltro = !!(ch || per);
+    const canalTxt = ch ? ` via ${escapeHTML(CH[ch]||ch)}` : "";
+    const periodoTxt = per ? ` no período` : "";
+    const msg = q ? "Nenhum produto encontrado com esse código/descrição." : (hasFiltro ? `Nenhum produto${canalTxt}${periodoTxt}.` : "Nenhum produto encontrado.");
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">${msg}</div>`;
     document.getElementById("prod-label").textContent = "0 produtos";
     document.getElementById("prod-kpis-row").innerHTML = "";
     document.getElementById("prod-rankings-row").innerHTML = "";
@@ -6759,13 +7192,13 @@ function renderProdutos(_deferred){
   
   // Processamento de dados base
   allOrders
-    .filter(o=>!ch||detectCh(o)===ch)
+    .filter(o=>!ch||(normCanalKey(detectCh(o))===ch && clienteTemPedidoNoCanal(orderCustomerKey(o), ch)))
     .filter(o=>{ if(!per)return true; const d=new Date(o.data||o.dataPedido); return (now-d)/(86400000)<=per; })
     .forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
       const k = String(it?.codigo || it?.descricao || "?").trim() || "?";
-      const canal = detectCh(o);
+      const canal = normCanalKey(detectCh(o)) || "outros";
       const dataStr = o.data || o.dataPedido || "";
       
       if(!m[k]) m[k] = {
@@ -6887,7 +7320,7 @@ function renderProdutos(_deferred){
   if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
   const barState = setProdutosChartState("chart-produtos", top10.length > 0);
   const ctxP = barState.canvas;
-  if(barState.shouldRender && ctxP){
+  if(barState.shouldRender && ctxP && ctxP.getContext){
     charts.produtos=new Chart(ctxP,{type:"bar",data:{
       labels:top10.map(p=>p.nome.length>18?p.nome.slice(0,16)+"…":p.nome),
       datasets:[{
@@ -6919,7 +7352,7 @@ function renderProdutos(_deferred){
   if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
   const donutState = setProdutosChartState("chart-participacao-produtos", top10.length > 0);
   const ctxPart = donutState.canvas;
-  if(donutState.shouldRender && ctxPart){
+  if(donutState.shouldRender && ctxPart && ctxPart.getContext){
     const otherTotal = totalReceita - top10.reduce((s,p)=>s+p.total,0);
     const partData = top10.map(p=>p.total);
     const partLabels = top10.map(p=>p.nome);
@@ -6958,7 +7391,7 @@ function renderProdutos(_deferred){
   if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
   const lineState = setProdutosChartState("chart-evolucao-produtos", top10.length > 0);
   const ctxEv = lineState.canvas;
-  if(lineState.shouldRender && ctxEv){
+  if(lineState.shouldRender && ctxEv && ctxEv.getContext){
     const labels = [];
     for(let i=evolucaoDias-1; i>=0; i--){
       const d = new Date(now.getTime() - i*86400000);
@@ -7695,7 +8128,7 @@ async function upsertV2PedidosItemsFromOrders(orders){
     const n = String(o?.numero || o?.id || "").trim();
     const pid = numToId[n];
     if(!pid) return;
-    const itens = Array.isArray(o?.itens) ? o.itens : [];
+    const itens = getPedidoItens(o);
     itens.forEach(it=>{
       const produtoNome = getName(it);
       const quantidade = getQty(it);
@@ -7842,6 +8275,30 @@ function sanitizeForSupabaseLog(obj){
     if("customer_phone" in next) next.customer_phone = maskDigitsForLog(next.customer_phone) || String(next.customer_phone||"");
   }
   return next;
+}
+function sanitizePayload(obj){
+  if(typeof obj === "undefined") return undefined;
+  if(obj == null) return obj;
+  if(Array.isArray(obj)){
+    const out = [];
+    obj.forEach(v=>{
+      const next = sanitizePayload(v);
+      if(typeof next !== "undefined") out.push(next);
+    });
+    return out;
+  }
+  if(typeof obj === "object"){
+    const out = {};
+    Object.keys(obj).forEach(k=>{
+      const v = obj[k];
+      if(typeof v === "undefined") return;
+      const next = sanitizePayload(v);
+      if(typeof next === "undefined") return;
+      out[k] = next;
+    });
+    return out;
+  }
+  return obj;
 }
 function logSupabaseUpsertError(label, error, payload){
   try{
@@ -8212,6 +8669,9 @@ async function initSupabase(){
 
 async function loadSupabaseData(){
   if(!supaConnected || !supaClient) return;
+  if(isLoadingData) return;
+  isLoadingData = true;
+  dataReady = false;
   try{
     // configuracoes — campo valor_texto (antigo: config.valor)
     const {data:metaRow} = await supaClient.from('configuracoes').select('valor_texto').eq('chave','meta_mensal').maybeSingle();
@@ -8278,8 +8738,17 @@ async function loadSupabaseData(){
     await loadBlingProductsFromSupabase();
 
     updateBadge();
-    renderDash();
-  }catch(e){ console.warn('loadSupabaseData:', e.message); }
+    mergeOrders();
+    populateUFs();
+    dataReady = true;
+    console.log("[Load] Bling:", Array.isArray(blingOrders)?blingOrders.length:0, "Yampi:", Array.isArray(yampiOrders)?yampiOrders.length:0, "Total:", Array.isArray(allOrders)?allOrders.length:0, "Clientes:", Array.isArray(allCustomers)?allCustomers.length:0);
+    renderAll();
+  }catch(e){
+    console.warn('loadSupabaseData:', e.message);
+  }finally{
+    isLoadingData = false;
+    if(!dataReady) dataReady = true;
+  }
 }
 
 function updateClientesIntelFiltersOptions(){
@@ -8461,7 +8930,12 @@ function normalizeOrderForCRM(o, sourceHint){
     next.created_at ||
     next.updated_at ||
     next.dataCriacao;
-  if(dataRaw) next.data = String(dataRaw).slice(0,10);
+  if(dataRaw){
+    const raw = String(dataRaw).trim();
+    const head = raw.slice(0,10);
+    const isoDate = parseDateToIso(head) || head;
+    next.data = isoDate;
+  }
 
   const totalRaw =
     next.totalProdutos ??
@@ -8545,11 +9019,39 @@ async function loadOrdersFromSupabaseForCRM(){
     const cliById = {};
     (cliRows||[]).forEach(c=>{ if(c?.id) cliById[c.id] = c; });
 
-    const {data:pedRows, error:pedErr} = await supaClient
-      .from("v2_pedidos")
-      .select("*")
-      .order("data_pedido",{ascending:false})
-      .limit(5000);
+    let pedRows = null;
+    let pedErr = null;
+    try{
+      ({data:pedRows, error:pedErr} = await supaClient
+        .from("v2_pedidos")
+        .select("*")
+        .order("data_pedido",{ascending:false})
+        .limit(5000));
+    }catch(e){
+      pedErr = e;
+    }
+    if(pedErr){
+      try{
+        ({data:pedRows, error:pedErr} = await supaClient
+          .from("v2_pedidos")
+          .select("*")
+          .order("data",{ascending:false})
+          .limit(5000));
+      }catch(e){
+        pedErr = e;
+      }
+    }
+    if(pedErr){
+      try{
+        ({data:pedRows, error:pedErr} = await supaClient
+          .from("v2_pedidos")
+          .select("*")
+          .order("created_at",{ascending:false})
+          .limit(5000));
+      }catch(e){
+        pedErr = e;
+      }
+    }
     if(pedErr) throw pedErr;
 
     const {data:yampiRows, error:yampiErr} = await supaClient
@@ -8657,7 +9159,7 @@ async function loadOrdersFromSupabaseForCRM(){
         numero: String(p.numero_pedido || p.id || ""),
         cliente_id: p.cliente_id || null,
         pedido_uuid: pid || null,
-        data: String(p.data_pedido || p.created_at || "").slice(0,10),
+        data: String(p.data_pedido || p.data || p.created_at || "").slice(0,10),
         total: p.total,
         situacao: { nome: p.status || "" },
         _source: String(p.source || "").toLowerCase() || "bling",
@@ -8727,10 +9229,6 @@ async function loadOrdersFromSupabaseForCRM(){
     yampiOrders.push(...nextYampi);
     localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
 
-    mergeOrders();
-    populateUFs();
-    renderAll();
-
     // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
     if(persistBack && (nextYampi.length || nextBling.length)){
       const shouldBackfill =
@@ -8740,6 +9238,7 @@ async function loadOrdersFromSupabaseForCRM(){
         upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch(()=>{});
       }
     }
+    return { bling: nextBling.length, yampi: nextYampi.length };
   }catch(_e){}
 }
 
@@ -8756,6 +9255,44 @@ async function upsertOrdersToSupabase(orders){
   upsertOrdersInFlight = true;
   setSyncDot(true);
   try{
+    let hadUpsertError = false;
+    const isNil = (v)=>v === null || typeof v === "undefined";
+    const isUuid = (v)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v||"").trim());
+    const toDateOrNull = (v)=>{
+      const s = String(v||"").trim();
+      if(!s) return null;
+      if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+      const d = new Date(s);
+      if(isNaN(d.getTime())) return null;
+      return d.toISOString().slice(0,10);
+    };
+    const toIsoOrNull = (v)=>{
+      const s = String(v||"").trim();
+      if(!s) return null;
+      const d = new Date(s);
+      if(isNaN(d.getTime())) return null;
+      return d.toISOString();
+    };
+    const splitValidRows = (rows, requiredKeys, label)=>{
+      const ok = [];
+      const invalid = [];
+      (Array.isArray(rows) ? rows : []).forEach(r=>{
+        const bad = requiredKeys.some(k=>{
+          const val = r?.[k];
+          if(isNil(val)) return true;
+          if(typeof val === "string" && !val.trim()) return true;
+          return false;
+        });
+        if(bad){
+          invalid.push(r);
+          try{ console.warn(label, "registro ignorado (campo obrigatório ausente)", sanitizeForSupabaseLog(r)); }catch(_e){}
+          return;
+        }
+        ok.push(r);
+      });
+      return { ok, invalid };
+    };
+
     const cliMap = buildCli(orders);
     const cliRows = Object.values(cliMap).map(c => {
       const sc = calcCliScores(c);
@@ -8770,7 +9307,7 @@ async function upsertOrdersToSupabase(orders){
       const nomeFinal = nome || email || telefone || String(c.doc || "").trim() || "Cliente";
       
       const row = {
-        doc: c.doc,
+        doc: String(c.doc || "").trim(),
         nome: nomeFinal,
         primeiro_pedido: c.first, 
         ultimo_pedido: c.last,
@@ -8804,13 +9341,28 @@ async function upsertOrdersToSupabase(orders){
       }
     });
     const filteredCliRows = cliRows.filter(r=>String(r.doc||"").trim());
+    const { ok: validCliRows } = splitValidRows(filteredCliRows, ["doc", "nome"], "[Upsert v2_clientes]");
     // upsert por doc (chave natural) — preserva UUID existente
-    for(let i=0; i<filteredCliRows.length; i+=50){
-      const batch = filteredCliRows.slice(i,i+50);
-      const {error} = await supaClient.from("v2_clientes").upsert(batch, { onConflict: "doc" });
+    for(let i=0; i<validCliRows.length; i+=50){
+      const batch = validCliRows.slice(i,i+50);
+      const payload = batch.map(sanitizePayload).filter(Boolean);
+      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc" });
       if(error){
+        hadUpsertError = true;
+        try{ console.error("[Upsert v2_clientes]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_clientes error", error, batch.slice(0,5));
-        throw error;
+        for(const row of payload){
+          try{
+            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc" });
+            if(rowErr){
+              hadUpsertError = true;
+              try{
+                console.warn("[Upsert v2_clientes] registro ignorado (erro no upsert)", sanitizeForSupabaseLog(row));
+                console.error("[Upsert v2_clientes]", rowErr, sanitizeForSupabaseLog(row));
+              }catch(_e){}
+            }
+          }catch(_e){}
+        }
       }
     }
 
@@ -8864,26 +9416,52 @@ async function upsertOrdersToSupabase(orders){
       if(source === "yampi" && id && !id.includes(":")){
         id = existingLegacyYampiIds.has(id) ? id : ("yampi:" + id);
       }
+      const createdAt = toIsoOrNull(o.dataCriacao || o.data) || new Date().toISOString();
       const row = {
         id,
-        bling_id: source === "bling" ? String(o.id||o.numero) : null,
-        numero_pedido: String(o.numero||o.id),
+        bling_id: source === "bling" ? (String(o.id||o.numero||"").trim() || null) : null,
+        numero_pedido: (String(o.numero||o.id||"").trim() || null),
         cliente_id: docToUuid[doc] || null,
         canal_id: canalId,
-        data_pedido: o.data,
+        data_pedido: toDateOrNull(o.data),
         total: val(o),
         status: normSt(o.situacao),
         source,
-        created_at: o.dataCriacao||o.data||new Date().toISOString()
+        created_at: createdAt
       };
       return row;
     }).filter(p => p.id); // id é obrigatório (PK)
-    for(let i=0; i<pedRows.length; i+=100){
-      const batch = pedRows.slice(i,i+100);
-      const {error} = await supaClient.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+    const { ok: validPedRows } = splitValidRows(pedRows, ["id"], "[Upsert v2_pedidos]");
+    const { ok: validPedRowsWithCli } = splitValidRows(validPedRows, ["cliente_id"], "[Upsert v2_pedidos]");
+    validPedRows.forEach(r=>{
+      if(!isNil(r.cliente_id) && !isUuid(r.cliente_id)){
+        try{
+          console.warn("[Upsert v2_pedidos] registro ignorado (cliente_id inválido)", sanitizeForSupabaseLog(r));
+        }catch(_e){}
+        r.__invalid_cliente_id = true;
+      }
+    });
+    const finalPedRows = validPedRowsWithCli.filter(r=>!r.__invalid_cliente_id);
+    for(let i=0; i<finalPedRows.length; i+=100){
+      const batch = finalPedRows.slice(i,i+100);
+      const payload = batch.map(sanitizePayload).filter(Boolean);
+      const {error} = await supaClient.from("v2_pedidos").upsert(payload, { onConflict: "id" });
       if(error){
+        hadUpsertError = true;
+        try{ console.error("[Upsert v2_pedidos]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_pedidos error", error, batch.slice(0,5));
-        throw error;
+        for(const row of payload){
+          try{
+            const {error: rowErr} = await supaClient.from("v2_pedidos").upsert([sanitizePayload(row)], { onConflict: "id" });
+            if(rowErr){
+              hadUpsertError = true;
+              try{
+                console.warn("[Upsert v2_pedidos] registro ignorado (erro no upsert)", sanitizeForSupabaseLog(row));
+                console.error("[Upsert v2_pedidos]", rowErr, sanitizeForSupabaseLog(row));
+              }catch(_e){}
+            }
+          }catch(_e){}
+        }
       }
     }
 
@@ -8891,8 +9469,8 @@ async function upsertOrdersToSupabase(orders){
       const productsById = {};
       const list = Array.isArray(orders) ? orders : [];
       list.forEach(o=>{
-        const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-        itens.filter(Boolean).forEach(it=>{
+        const itens = getPedidoItens(o);
+        itens.forEach(it=>{
           const codigo = String(it?.codigo || it?.sku || "").trim();
           const nome = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || "").trim();
           const id = String(codigo || nome).trim();
@@ -8929,10 +9507,15 @@ async function upsertOrdersToSupabase(orders){
       throw e;
     }
     upsertV2PedidosItemsFromOrders(orders).catch(()=>{});
-    if(!silent) toast('✓ Dados salvos no Supabase!');
+    if(hadUpsertError){
+      toast("⚠️ Erro ao salvar dados. Ver console F12.");
+    }else{
+      if(!silent) toast('✓ Dados salvos no Supabase!');
+    }
   }catch(e){
     logSupabaseUpsertError("upsert orders error", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null });
-    if(!silent) toast("⚠ Erro ao salvar no Supabase");
+    try{ console.error("[Upsert orders]", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null }); }catch(_e){}
+    toast("⚠️ Erro ao salvar dados. Ver console F12.");
   }finally{
     upsertOrdersInFlight = false;
     setSyncDot(false);
@@ -9189,9 +9772,9 @@ function mapComStatusFromOrder(o){
 }
 
 function summarizeOrderItems(o){
-  const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : null;
-  if(!itens || !itens.length) return "—";
-  const getName = (it)=>String(it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "").trim();
+  const itens = getPedidoItens(o);
+  if(!itens.length) return "—";
+  const getName = (it)=>String(it?.descricao || it?.codigo || "").trim();
   const getQty = (it)=>Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
   const parts = itens
     .map(it=>{
