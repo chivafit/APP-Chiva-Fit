@@ -9,7 +9,7 @@ ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS responsible_user text;
 CREATE OR REPLACE VIEW public.vw_dashboard_kpis AS
 SELECT
   COALESCE(sum(COALESCE(p.total, 0)), 0)::numeric AS faturamento_total,
-  COALESCE(count(p.*), 0)::int AS total_pedidos,
+  COALESCE(count(p.*), 0)::bigint AS total_pedidos,
   (COALESCE(sum(COALESCE(p.total, 0)), 0) / NULLIF(count(p.*), 0))::numeric AS ticket_medio,
   (SELECT count(*)::int FROM public.v2_clientes c)::int AS total_clientes,
   (SELECT avg(COALESCE(c.ltv, c.total_gasto, 0))::numeric FROM public.v2_clientes c)::numeric AS ltv_medio
