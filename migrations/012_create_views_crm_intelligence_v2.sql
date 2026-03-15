@@ -216,7 +216,8 @@ WHERE c.primeiro_pedido IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
 
-CREATE OR REPLACE VIEW public.vw_funil_recompra AS
+DROP VIEW IF EXISTS public.vw_funil_recompra;
+CREATE VIEW public.vw_funil_recompra AS
 WITH base AS (
   SELECT
     c.id AS cliente_id,
@@ -268,7 +269,8 @@ WHERE p.data_pedido IS NOT NULL
 GROUP BY 1, 2
 ORDER BY faturamento DESC NULLS LAST;
 
-CREATE OR REPLACE VIEW public.vw_produtos_favoritos AS
+DROP VIEW IF EXISTS public.vw_produtos_favoritos;
+CREATE VIEW public.vw_produtos_favoritos AS
 SELECT
   NULLIF(trim(i.produto_nome), '') AS produto,
   sum(COALESCE(i.quantidade, 0))::numeric AS unidades_vendidas,
@@ -280,7 +282,8 @@ JOIN public.v2_pedidos p
 GROUP BY 1
 ORDER BY faturamento DESC NULLS LAST;
 
-CREATE OR REPLACE VIEW public.vw_clientes_vip_risco AS
+DROP VIEW IF EXISTS public.vw_clientes_vip_risco;
+CREATE VIEW public.vw_clientes_vip_risco AS
 SELECT
   v.cliente_id,
   v.nome,
@@ -301,7 +304,8 @@ WHERE (COALESCE(v.ltv, v.total_gasto, 0) >= 650 OR COALESCE(v.total_pedidos, 0) 
   AND COALESCE(v.dias_desde_ultima_compra, 0) <= 120
 ORDER BY v.dias_desde_ultima_compra DESC NULLS LAST, COALESCE(v.ltv, v.total_gasto, 0) DESC NULLS LAST;
 
-CREATE OR REPLACE VIEW public.vw_clientes_reativacao AS
+DROP VIEW IF EXISTS public.vw_clientes_reativacao;
+CREATE VIEW public.vw_clientes_reativacao AS
 SELECT
   v.cliente_id,
   v.nome,
@@ -321,7 +325,8 @@ WHERE COALESCE(v.dias_desde_ultima_compra, 0) >= 61
   AND COALESCE(v.dias_desde_ultima_compra, 0) <= 120
 ORDER BY COALESCE(v.ltv, v.total_gasto, 0) DESC NULLS LAST, v.dias_desde_ultima_compra DESC NULLS LAST;
 
-CREATE OR REPLACE VIEW public.vw_clientes_sem_contato AS
+DROP VIEW IF EXISTS public.vw_clientes_sem_contato;
+CREATE VIEW public.vw_clientes_sem_contato AS
 SELECT
   v.cliente_id,
   v.nome,
