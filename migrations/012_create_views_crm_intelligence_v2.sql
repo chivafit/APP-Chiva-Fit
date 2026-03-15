@@ -180,10 +180,11 @@ SELECT
   b.next_best_action
 FROM base b;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_daily AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_daily;
+CREATE VIEW public.vw_dashboard_v2_daily AS
 SELECT
   p.data_pedido AS dia,
-  count(*)::int AS pedidos,
+  count(*)::bigint AS pedidos,
   sum(COALESCE(p.total, 0))::numeric AS faturamento,
   (sum(COALESCE(p.total, 0)) / NULLIF(count(*), 0))::numeric AS ticket_medio
 FROM public.v2_pedidos p
@@ -191,11 +192,12 @@ WHERE p.data_pedido IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_daily_channel AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_daily_channel;
+CREATE VIEW public.vw_dashboard_v2_daily_channel AS
 SELECT
   p.data_pedido AS dia,
   COALESCE(NULLIF(c.slug, ''), 'outros') AS canal,
-  count(*)::int AS pedidos,
+  count(*)::bigint AS pedidos,
   sum(COALESCE(p.total, 0))::numeric AS faturamento
 FROM public.v2_pedidos p
 LEFT JOIN public.v2_canais c
@@ -249,11 +251,12 @@ FROM (
 GROUP BY 1, 2
 ORDER BY 2;
 
-CREATE OR REPLACE VIEW public.vw_top_cidades AS
+DROP VIEW IF EXISTS public.vw_top_cidades;
+CREATE VIEW public.vw_top_cidades AS
 SELECT
   NULLIF(trim(c.cidade), '') AS cidade,
   upper(NULLIF(trim(c.uf), '')) AS uf,
-  count(p.*)::int AS pedidos,
+  count(p.*)::bigint AS pedidos,
   sum(COALESCE(p.total, 0))::numeric AS faturamento,
   count(DISTINCT c.id)::int AS total_clientes
 FROM public.v2_pedidos p
