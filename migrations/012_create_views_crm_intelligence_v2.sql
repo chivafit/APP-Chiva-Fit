@@ -17,7 +17,11 @@ SELECT
 FROM public.v2_pedidos p
 WHERE p.data_pedido IS NOT NULL;
 
-CREATE OR REPLACE VIEW public.vw_clientes_inteligencia AS
+DROP VIEW IF EXISTS public.vw_clientes_sem_contato;
+DROP VIEW IF EXISTS public.vw_clientes_reativacao;
+DROP VIEW IF EXISTS public.vw_clientes_vip_risco;
+DROP VIEW IF EXISTS public.vw_clientes_inteligencia;
+CREATE VIEW public.vw_clientes_inteligencia AS
 WITH pedidos_canal AS (
   SELECT
     p.cliente_id,
