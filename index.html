@@ -165,13 +165,14 @@
 
 <!-- DASHBOARD -->
 <div class="page" id="page-dashboard">
-<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">📊 Dashboard</h1>
-      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Visão geral de clientes e receita</p>
+  <div class="page-header">
+    <div class="page-header-main">
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-subtitle">Visão geral de clientes e receita</p>
+      <div class="dash-meta" id="dash-period"></div>
     </div>
   </div>
-  <div class="saas-filterbar" style="margin-bottom:12px">
+  <div class="saas-filterbar dash-filterbar">
     <div class="saas-chips">
       <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
         <option value="">Ano</option>
@@ -193,40 +194,40 @@
     </div>
   </div>
     <div id="alert-banner"></div>
-  <div id="source-row" style="display:flex;gap:var(--sp-1);flex-wrap:wrap;margin-bottom:var(--sp-4);font-size:10px;color:var(--text-3);font-weight:600"></div>
+  <div id="source-row" class="dash-source-row"></div>
   <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
   <div class="meta-card" id="dashv2-card">
-    <div class="card-hdr"><span class="card-title">🚀 Executivo v2</span></div>
+    <div class="card-hdr"><span class="card-title">Executivo v2</span></div>
     <div class="stat-grid" id="dashv2-kpis"></div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">📆 Vendas por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-dia"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">🧩 Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Vendas por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-dia"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">🆕 Novos Clientes por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-novos"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">🧪 Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Novos Clientes por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-novos"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">🧯 Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
-      <div class="chart-card"><div class="chart-title">🏆 VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
+      <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
+      <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">📦 Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
-      <div class="chart-card"><div class="chart-title">� Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
+      <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
+      <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
     </div>
     <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">⚡ Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
-      <div class="chart-card"><div class="chart-title">🧭 Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
+      <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
+      <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
     </div>
   </div>
   <div class="meta-card">
-    <div class="card-hdr"><span class="card-title">🎯 Meta Mensal</span><button class="btn-link" onclick="editMeta()">✏️ Editar</button></div>
+    <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
     <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
   </div>
   <div class="compare-card">
     <div class="card-hdr">
-      <span class="card-title">📅 Comparar Períodos</span>
+      <span class="card-title">Comparar Períodos</span>
       <div class="cmp-inputs">
         <input type="month" id="cmp-a" onchange="renderCompare()"/>
         <span style="font-size:10px;color:var(--text-3)">vs</span>
@@ -236,12 +237,12 @@
     <div id="cmp-body"></div>
   </div>
   <div class="charts-grid" style="grid-template-columns:repeat(2,1fr)">
-    <div class="chart-card"><div class="chart-title">📅 Vendas por Mês</div><div class="chart-wrap" style="height:180px"><canvas id="chart-mes"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">🛒 Pedidos por Canal</div><div class="chart-wrap" style="height:160px"><canvas id="chart-canal"></canvas></div><div id="canal-table" style="margin-top:8px"></div></div>
-    <div class="chart-card"><div class="chart-title">📈 Crescimento de Receita</div><div class="chart-wrap" style="height:160px"><canvas id="chart-crescimento"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">📍 Clientes por Cidade</div><div class="chart-wrap" style="height:160px"><canvas id="chart-cidades"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">🏆 Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
-    <div class="chart-card"><div class="chart-title">📦 Top Produtos</div><div class="top-list" id="top-produtos-dash"></div></div>
+    <div class="chart-card"><div class="chart-title">Vendas por Mês</div><div class="chart-wrap" style="height:180px"><canvas id="chart-mes"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Pedidos por Canal</div><div class="chart-wrap" style="height:160px"><canvas id="chart-canal"></canvas></div><div id="canal-table" style="margin-top:8px"></div></div>
+    <div class="chart-card"><div class="chart-title">Crescimento de Receita</div><div class="chart-wrap" style="height:160px"><canvas id="chart-crescimento"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Clientes por Cidade</div><div class="chart-wrap" style="height:160px"><canvas id="chart-cidades"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
+    <div class="chart-card"><div class="chart-title">Top Produtos</div><div class="top-list" id="top-produtos-dash"></div></div>
   </div>
 </div>
 

@@ -859,8 +859,8 @@ body {
 /* ═══ STAT GRID ═══════════════════════════════════════════════ */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(115px,1fr));
-  gap: 8px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+  gap: 12px; margin-bottom: 14px;
 }
 .stat {
   background: var(--surface); border: 1px solid var(--border);
@@ -1582,17 +1582,17 @@ body {
   height:44px;
   padding: 0 14px;
   border-radius: 12px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   transition: border-color var(--t-base), box-shadow var(--t-base), background var(--t-base);
 }
 .saas-search:hover{
-  border-color: #d1d5db;
+  border-color: var(--border2);
 }
 .saas-search:focus-within{
   border-color: var(--indigo-border);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 5px rgba(15,167,101,.10);
+  box-shadow: var(--shadow-sm), 0 0 0 5px var(--indigo-bg);
 }
 .saas-search-ico{
   font-size:12px;
@@ -1603,12 +1603,12 @@ body {
   flex:1;
   border:none;
   background:transparent;
-  color:#111827;
+  color: var(--text);
   font-size:12px;
   font-family:var(--font);
   outline:none;
 }
-.saas-search-input::placeholder{ color: #9ca3af; }
+.saas-search-input::placeholder{ color: var(--text-3); }
 .saas-chips{
   display:flex;
   gap:8px;
@@ -1626,45 +1626,46 @@ body {
   gap:8px;
   padding: 0 12px;
   border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  color: #111827;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
   font-size: 11px;
   font-family: var(--font);
   transition: border-color var(--t-base), background var(--t-base), box-shadow var(--t-base);
   white-space:nowrap;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
 }
 .saas-chip:hover{
-  border-color: #d1d5db;
+  background: var(--card-hover);
+  border-color: var(--border2);
 }
 .saas-chip:focus-within{
   border-color: var(--indigo-border);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 4px rgba(15,167,101,.10);
+  box-shadow: var(--shadow-sm), 0 0 0 4px var(--indigo-bg);
 }
 .saas-chip-label{
-  color: #111827;
+  color: var(--text-2);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .7px;
   text-transform: uppercase;
 }
 .saas-chip-prefix{
-  color: #111827;
+  color: var(--text-2);
   font-family: var(--mono);
   font-size: 10px;
 }
-.saas-chip-sep{ color: #9ca3af; font-size: 12px; }
+.saas-chip-sep{ color: var(--text-3); font-size: 12px; }
 .saas-chip-input{
   border:none;
   background:transparent;
-  color:#111827;
+  color: var(--text);
   font-size:11px;
   font-family:var(--font);
   outline:none;
   width: 120px;
 }
-.saas-chip-input::placeholder{ color: #9ca3af; }
+.saas-chip-input::placeholder{ color: var(--text-3); }
 .saas-chip-number .saas-chip-input{ width: 90px; }
 .saas-chip-select{
   cursor:pointer;
@@ -1675,17 +1676,17 @@ body {
   user-select:none;
 }
 .saas-chip-btn{
-  background: #f8fafc;
+  background: var(--surface);
 }
 .saas-chip-btn:hover{
-  background: #f1f5f9;
+  background: var(--card-hover);
 }
 button.saas-chip-btn{
   border:none;
 }
 button.saas-chip-btn.saas-chip{
-  border: 1px solid #e5e7eb;
-  color: #111827;
+  border: 1px solid var(--border);
+  color: var(--text);
   font-weight: 700;
 }
 select.saas-chip-select{
@@ -1695,8 +1696,8 @@ select.saas-chip-select{
 }
 select.saas-chip-select{
   background-image:
-    linear-gradient(45deg, transparent 50%, #9ca3af 50%),
-    linear-gradient(135deg, #9ca3af 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+    linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
   background-position:
     calc(100% - 16px) calc(50% - 2px),
     calc(100% - 11px) calc(50% - 2px);
@@ -2136,8 +2137,18 @@ html.light .prod-panel{border-color:var(--border);box-shadow:var(--shadow-sm)}
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 18px; flex-wrap: wrap; gap: 8px;
 }
-.page-title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
-.page-sub   { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.page-header-main { min-width: 220px; }
+.page-title { font-size: 17px; font-weight: 750; letter-spacing: -.35px; }
+.page-sub,
+.page-subtitle { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.dash-meta{
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.dash-filterbar{ margin-bottom: 12px; }
+.dash-source-row{ font-weight: 600; }
 
 /* Gradient accent line no topo de cards importantes */
 .card-accent::before {

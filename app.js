@@ -3126,11 +3126,23 @@ async function renderDashRevenueFromSupabase(){
   return true;
 }
 
+let dashRenderTimer = null;
+let dashLastYearRange = "";
+
 function renderDash(){
+  if(dashRenderTimer) clearTimeout(dashRenderTimer);
+  dashRenderTimer = setTimeout(()=>{
+    dashRenderTimer = null;
+    renderDashNow();
+  }, 80);
+}
+
+function renderDashNow(){
   const yearSel = document.getElementById("dash-year");
   if(yearSel){
     const stored = String(localStorage.getItem("crm_dash_year")||"").trim();
     if(stored && !yearSel.value) yearSel.value = stored;
+    if(yearSel.value) localStorage.setItem("crm_dash_year", String(yearSel.value));
   }
   const dashSel = document.getElementById("dash-canal-filter");
   if(dashSel){
@@ -3144,6 +3156,24 @@ function renderDash(){
     const storedTo = String(localStorage.getItem("crm_dash_to") || "").trim();
     if(storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
     if(storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
+
+    const selectedYear = Number(yearSel?.value || "");
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const yearKey = String(selectedYear);
+      if(dashLastYearRange !== yearKey){
+        const now = new Date();
+        const from = new Date(selectedYear, 0, 1);
+        const to = (selectedYear === now.getFullYear()) ? now : new Date(selectedYear, 11, 31);
+        fromEl.value = fmtDate(iso(from));
+        toEl.value = fmtDate(iso(to));
+        localStorage.setItem("crm_dash_from", iso(from));
+        localStorage.setItem("crm_dash_to", iso(to));
+        dashLastYearRange = yearKey;
+      }
+    }else{
+      dashLastYearRange = "";
+    }
+
     if(!fromEl.value || !toEl.value){
       const to = new Date();
       const from = new Date();
@@ -3162,13 +3192,38 @@ function renderDash(){
   const dashCh = String(dashSel?.value||"").toLowerCase().trim();
   if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
   const ordersBase = Array.isArray(allOrders) ? allOrders : [];
-  const orders = dashCh ? ordersBase.filter(o=>detectCh(o)===dashCh) : ordersBase;
+  const selectedYear = Number(yearSel?.value || "");
+  const fromIso = String(localStorage.getItem("crm_dash_from") || "").trim();
+  const toIso = String(localStorage.getItem("crm_dash_to") || "").trim();
+  const fromTs = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+  const toTs = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+  const orders = ordersBase.filter(o=>{
+    if(dashCh && detectCh(o) !== dashCh) return false;
+    const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
+    const s = String(raw || "").slice(0,10);
+    if(!s) return false;
+    const dt = new Date(s + "T12:00:00");
+    const dts = dt.getTime();
+    if(!isFinite(dts)) return false;
+    if(fromTs != null && dts < fromTs) return false;
+    if(toTs != null && dts > toTs) return false;
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const y = dt.getFullYear();
+      if(y !== selectedYear) return false;
+    }
+    return true;
+  });
 
   // Atualizar período
-  if(orders.length){
-    const dates = orders.map(o=>new Date(o.data||o.dataPedido)).filter(d=>!isNaN(d)).sort((a,b)=>a-b);
-    const dp = document.getElementById('dash-period');
-    if(dp && dates.length) dp.textContent = `${dates[0].toLocaleDateString('pt-BR')} — ${dates[dates.length-1].toLocaleDateString('pt-BR')} · ${orders.length} pedidos`;
+  const dp = document.getElementById("dash-period");
+  if(dp){
+    const fromLabel = fromEl?.value ? String(fromEl.value) : (fromIso ? fmtDate(fromIso) : "");
+    const toLabel = toEl?.value ? String(toEl.value) : (toIso ? fmtDate(toIso) : "");
+    const bits = [];
+    if(fromLabel && toLabel) bits.push(fromLabel + " — " + toLabel);
+    if(dashCh) bits.push(CH[dashCh] || dashCh);
+    bits.push(String(orders.length) + " pedidos");
+    dp.textContent = bits.filter(Boolean).join(" · ");
   }
 
   const total=orders.reduce((s,o)=>s+val(o),0);
@@ -3183,8 +3238,8 @@ function renderDash(){
   const recorrentes=cliList.filter(c=>c.orders.length>=2).length;
   const pctRec=cliList.length?Math.round(recorrentes/cliList.length*100):0;
 
-  // Source row
-  document.getElementById("source-row").innerHTML=
+  const sr = document.getElementById("source-row");
+  if(sr) sr.innerHTML=
     (blingOrders.length?`<span style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:3px 9px">🔵 Bling: ${blingOrders.length}</span>`:"")
     +(yampiOrders.length?`<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`:"")
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
@@ -3295,10 +3350,13 @@ function renderDash(){
   }
 
   renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
-  renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders);
+  renderChartCanal(orders);
+  if(!supaConnected) renderChartMes(orders);
+  renderTopCli(orders);
+  renderTopProd(orders);
   setTimeout(()=>{ renderDashChartsCidades(orders); }, 150);
   if(supaConnected && supaClient){
-    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{ renderDashChartsCrescimento(orders); }); }, 10);
+    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{}); }, 10);
     setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
   }else{
     setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
@@ -3337,6 +3395,12 @@ function setDashRange(days){
   const toIso = iso(to);
   const fromEl = document.getElementById("dash-from");
   const toEl = document.getElementById("dash-to");
+  const yearSel = document.getElementById("dash-year");
+  if(yearSel && yearSel.value){
+    yearSel.value = "";
+    localStorage.setItem("crm_dash_year", "");
+    dashLastYearRange = "";
+  }
   if(fromEl) fromEl.value = fmtDate(fromIso);
   if(toEl) toEl.value = fmtDate(toIso);
   localStorage.setItem("crm_dash_from", fromIso);
