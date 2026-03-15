@@ -82,7 +82,8 @@ BEGIN
 
   EXECUTE 'ALTER TABLE public.v2_pedidos_items ENABLE ROW LEVEL SECURITY';
   EXECUTE 'DROP POLICY IF EXISTS "Anon Full Access" ON public.v2_pedidos_items';
-  EXECUTE 'CREATE POLICY "Anon Full Access" ON public.v2_pedidos_items FOR ALL USING (true) WITH CHECK (true)';
+  EXECUTE 'DROP POLICY IF EXISTS "Authenticated Full Access" ON public.v2_pedidos_items';
+  EXECUTE 'CREATE POLICY "Authenticated Full Access" ON public.v2_pedidos_items FOR ALL TO authenticated USING (true) WITH CHECK (true)';
 
   IF viewdef IS NOT NULL AND viewdef <> '' THEN
     EXECUTE 'CREATE VIEW public.vw_vendas_por_produto AS ' || viewdef;

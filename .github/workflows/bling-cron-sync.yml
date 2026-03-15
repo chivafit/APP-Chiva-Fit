@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "*/30 * * * *"
 
+concurrency:
+  group: bling-cron-sync
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -77,4 +81,3 @@ jobs:
             echo "bling-sync still hasMore after ${max_batches} batches (possible backlog or bug)."
             exit 1
           fi
-
