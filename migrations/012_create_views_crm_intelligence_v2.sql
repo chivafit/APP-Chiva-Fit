@@ -6,7 +6,8 @@ ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS last_interaction_desc te
 ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS last_contact_at timestamptz;
 ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS responsible_user text;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_kpis AS
+DROP VIEW IF EXISTS public.vw_dashboard_kpis;
+CREATE VIEW public.vw_dashboard_kpis AS
 SELECT
   COALESCE(sum(COALESCE(p.total, 0)), 0)::numeric AS faturamento_total,
   COALESCE(count(p.*), 0)::bigint AS total_pedidos,
