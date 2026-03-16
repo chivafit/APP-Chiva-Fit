@@ -9,7 +9,7 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260313-3";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote } from "./utils.js?v=20260313-3";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260313-3";
 import { CRMStore } from "./store.js?v=20260313-3";
 import { STORAGE_KEYS } from "./constants.js?v=20260313-3";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260313-3";
@@ -328,8 +328,8 @@ function mergeOrders(){
   );
 
   computeCustomerIntelligence();
-  reconcileCarrinhosRecuperados().catch(()=>{});
-  recomputeCarrinhosScoresAndPersist().catch(()=>{});
+  reconcileCarrinhosRecuperados().catch(e=>console.warn("[reconcile carrinhos]", e?.message||e));
+  recomputeCarrinhosScoresAndPersist().catch(e=>console.warn("[recompute carrinhos]", e?.message||e));
 }
 
 function checkEstoqueCritico(){
@@ -1666,7 +1666,7 @@ async function loadCarrinhosAbandonadosFromSupabase(){
     }
     if(error || !Array.isArray(data)) return;
     carrinhosAbandonados = data.map(normalizeCarrinhoAbandonado);
-    localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+    safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
     if(document.getElementById("page-comercial")?.classList.contains("active")) {
       if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
     }
@@ -1861,7 +1861,7 @@ async function openWhatsAppCarrinho(checkoutId){
         last_etapa_enviada: etapa.id,
         last_mensagem_at: nowIso
       });
-      localStorage.setItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+      safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
       if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
       if(typeof window.renderCarrinhosAbandonados === "function") window.renderCarrinhosAbandonados();
     }
@@ -2034,7 +2034,7 @@ async function syncShopify(){
     const nextShopify = await fetchShopify(SHOP,SHOPKEY,fromEl.value,toEl.value);
     shopifyOrders.length = 0;
     shopifyOrders.push(...nextShopify);
-    localStorage.setItem("crm_shopify_orders",JSON.stringify(shopifyOrders));
+    safeSetItem("crm_shopify_orders",JSON.stringify(shopifyOrders));
     mergeOrders(); populateUFs();
     upsertOrdersToSupabase(shopifyOrders).catch(e=>console.warn(e)); renderAll();
     try{ if(supaConnected) await sbSetConfig('ultima_sync_shopify',new Date().toISOString()); }catch(e){}
@@ -2069,7 +2069,7 @@ async function recarregar(silent=false){
       fresh.filter(o=>!known.has(String(o.id||o.numero))).forEach(o=>pushNotif(`🛒 Novo pedido #${o.numero||o.id} — ${fmtBRL(val(o))}`));
       blingOrders.length = 0;
       blingOrders.push(...fresh);
-      localStorage.setItem("crm_bling_orders",JSON.stringify(blingOrders));
+      safeSetItem("crm_bling_orders",JSON.stringify(blingOrders));
     }
     mergeOrders();
     document.getElementById("sync-time").textContent="Sync: "+new Date().toLocaleTimeString("pt-BR");
@@ -4877,7 +4877,7 @@ function renderTopProd(ordersOverride){
 function renderDashChartsCrescimento(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const canvas = document.getElementById("chart-crescimento");
-  if(!canvas) return;
+  if(!canvas || !canvas.getContext) return;
   const ctx = canvas.getContext("2d");
   if(!ctx) return;
   const byMonth = {};
@@ -4918,7 +4918,7 @@ function renderDashChartsCrescimento(ordersOverride){
 function renderDashChartsCidades(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const canvas = document.getElementById("chart-cidades");
-  if(!canvas) return;
+  if(!canvas || !canvas.getContext) return;
   const ctx = canvas.getContext("2d");
   if(!ctx) return;
   const byCity = {};
@@ -8028,7 +8028,7 @@ function renderGeoChart(data){
   if(charts.geoEstados) charts.geoEstados.destroy();
   const top = data.filter(s => s.total > 0).sort((a,b) => b.total - a.total).slice(0,10);
   const ctx = document.getElementById("chart-geo-estados");
-  if(!ctx || !top.length) return;
+  if(!ctx || !ctx.getContext || !top.length) return;
 
   charts.geoEstados = new Chart(ctx, {
     type: 'bar',
@@ -8704,7 +8704,7 @@ async function loadInsumosFromSupabase(){
       obj.cat = "Insumo";
       allInsumos.push(obj);
     });
-    localStorage.setItem("crm_insumos", JSON.stringify(allInsumos));
+    safeSetItem("crm_insumos", JSON.stringify(allInsumos));
     if(document.getElementById("page-producao")?.classList.contains("active")) {
       if(typeof window.renderInsumos === "function") window.renderInsumos();
       if(typeof window.renderProdKpis === "function") window.renderProdKpis();
@@ -8745,7 +8745,7 @@ async function loadReceitasProdutosFromSupabase(){
       .select("id,produto_id,insumo_id,quantidade_por_unidade,unidade,updated_at")
       .limit(10000);
     if(error || !Array.isArray(data)) return;
-    localStorage.setItem("crm_receitas_produtos", JSON.stringify(data));
+    safeSetItem("crm_receitas_produtos", JSON.stringify(data));
     const prods = Array.from(new Set((data||[]).map(r=>String(r.produto_id||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
     if(prods.length) localStorage.setItem("crm_receitas_produtos_produtos", JSON.stringify(prods));
     if(document.getElementById("page-producao")?.classList.contains("active")) {
@@ -8773,7 +8773,7 @@ async function loadBlingProductsFromSupabase(){
       origem: r.origem || "bling",
       updated_at: r.updated_at || null
     })).filter(p=>p.id);
-    localStorage.setItem("crm_bling_products", JSON.stringify(blingProducts));
+    safeSetItem("crm_bling_products", JSON.stringify(blingProducts));
     if(document.getElementById("page-produtos")?.classList.contains("active")) {
       renderProdutos();
     }
@@ -8859,7 +8859,7 @@ async function loadOrdensProducaoFromSupabase(){
       const bd = b.data_producao ? new Date(b.data_producao).getTime() : 0;
       return bd - ad;
     }).forEach(r=>allOrdens.push(r));
-    localStorage.setItem("crm_ordens_producao", JSON.stringify(allOrdens));
+    safeSetItem("crm_ordens_producao", JSON.stringify(allOrdens));
     if(document.getElementById("page-producao")?.classList.contains("active")) {
       if(typeof window.renderOrdens === "function") window.renderOrdens();
       if(typeof window.renderProdKpis === "function") window.renderProdKpis();
@@ -8886,7 +8886,7 @@ async function loadMovimentosEstoqueFromSupabase(){
         .limit(10000));
     }
     if(error || !Array.isArray(data)) return;
-    localStorage.setItem("crm_movimentos_estoque", JSON.stringify(data));
+    safeSetItem("crm_movimentos_estoque", JSON.stringify(data));
     if(document.getElementById("page-producao")?.classList.contains("active")) {
       if(typeof window.renderMovimentosEstoque === "function") window.renderMovimentosEstoque();
     }
@@ -9583,10 +9583,10 @@ async function loadOrdersFromSupabaseForCRM(){
 
     blingOrders.length = 0;
     blingOrders.push(...nextBling);
-    localStorage.setItem("crm_bling_orders", JSON.stringify(blingOrders));
+    safeSetItem("crm_bling_orders", JSON.stringify(blingOrders));
     yampiOrders.length = 0;
     yampiOrders.push(...nextYampi);
-    localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
+    safeSetItem("crm_yampi_orders", JSON.stringify(yampiOrders));
 
     // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
     if(persistBack && (nextYampi.length || nextBling.length)){
@@ -9594,7 +9594,7 @@ async function loadOrdersFromSupabaseForCRM(){
         (!Array.isArray(pedRows) || pedRows.length === 0) ||
         (!Array.isArray(cliRows) || cliRows.length === 0);
       if(shouldBackfill){
-        upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch(()=>{});
+        upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch(e=>console.warn("[backfill upsert]", e?.message||e));
       }
     }
     return { bling: nextBling.length, yampi: nextYampi.length };
@@ -9865,7 +9865,7 @@ async function upsertOrdersToSupabase(orders){
       logSupabaseUpsertError("upsert v2_produtos from orders error", e, null);
       throw e;
     }
-    upsertV2PedidosItemsFromOrders(orders).catch(()=>{});
+    upsertV2PedidosItemsFromOrders(orders).catch(e=>console.warn("[items upsert]", e?.message||e));
     if(hadUpsertError){
       toast("⚠️ Erro ao salvar dados. Ver console F12.");
     }else{
@@ -10586,7 +10586,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 function renderChartEstoque(){
-  var ctx=document.getElementById("chart-estoque"); if(!ctx) return;
+  var ctx=document.getElementById("chart-estoque"); if(!ctx || !ctx.getContext) return;
   if(window._chartEstoque) window._chartEstoque.destroy();
   var sorted=[].concat(allInsumos).sort(function(a,b){return getEstPct(b)-getEstPct(a);}).slice(0,10);
   window._chartEstoque=new Chart(ctx,{
@@ -10620,7 +10620,7 @@ function renderChartEstoque(){
 
 function renderChartsCom(){
   var cCtx=document.getElementById("chart-com-canal");
-  if(cCtx){
+  if(cCtx && cCtx.getContext){
     if(window._chartComCanal) window._chartComCanal.destroy();
     var cData={};
     getComPedidosBase().forEach(function(p){ cData[p.canal]=(cData[p.canal]||0)+p.valor; });
@@ -10639,7 +10639,7 @@ function renderChartsCom(){
     });
   }
   var sCtx=document.getElementById("chart-com-status");
-  if(sCtx){
+  if(sCtx && sCtx.getContext){
     if(window._chartComStatus) window._chartComStatus.destroy();
     var sData={};
     getComPedidosBase().forEach(function(p){ sData[p.status]=(sData[p.status]||0)+1; });
