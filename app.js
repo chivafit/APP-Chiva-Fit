@@ -1260,6 +1260,7 @@ function saveSupabaseConfig(){
   localStorage.setItem("crm_supa_key", key);
 
   if(st){ st.textContent="✓ Salvo! Conectando..."; st.className="setup-status s-ok"; }
+  renderSupabaseShareLink();
 
   setTimeout(async()=>{
     const connected = await initSupabase();
@@ -1268,6 +1269,66 @@ function saveSupabaseConfig(){
       toast("✓ Supabase conectado com sucesso!");
     }
   }, 300);
+}
+
+function getSupabaseShareUrl(){
+  const u =
+    (document.getElementById("inp-supa-url")?.value || "").trim() ||
+    String(localStorage.getItem("crm_supa_url") || localStorage.getItem("supa_url") || localStorage.getItem("supabase_url") || "").trim();
+  const k =
+    (document.getElementById("inp-supa-key")?.value || "").trim() ||
+    String(localStorage.getItem("crm_supa_key") || localStorage.getItem("supa_key") || localStorage.getItem("supabase_key") || "").trim();
+  if(!u || !k) return "";
+  let base = "";
+  try{
+    base = String(window.location.origin || "") + String(window.location.pathname || "");
+  }catch(_e){}
+  if(!base) base = String(window.location.href || "").split("#")[0].split("?")[0];
+  const params = new URLSearchParams();
+  params.set("supa_url", u);
+  params.set("supa_key", k);
+  return base + "?" + params.toString() + "#config";
+}
+
+function renderSupabaseShareLink(){
+  const el = document.getElementById("supa-share-url");
+  const btn = document.getElementById("btn-copy-supa-link");
+  if(!el && !btn) return;
+  const link = getSupabaseShareUrl();
+  if(el) el.value = link;
+  if(btn) btn.disabled = !link;
+}
+
+function copySupabaseShareLink(){
+  const link = getSupabaseShareUrl();
+  if(!link){
+    toast("⚠ Configure o Supabase primeiro.");
+    return;
+  }
+  const fallback = ()=>{
+    try{
+      const ta = document.createElement("textarea");
+      ta.value = link;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast("✓ Link copiado");
+    }catch(_e){
+      toast("⚠ Não foi possível copiar o link");
+    }
+  };
+  try{
+    if(navigator?.clipboard?.writeText){
+      navigator.clipboard.writeText(link).then(()=>toast("✓ Link copiado")).catch(fallback);
+    }else{
+      fallback();
+    }
+  }catch(_e){
+    fallback();
+  }
 }
 // Load supa config into form on page open
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -1287,6 +1348,9 @@ document.addEventListener("DOMContentLoaded", ()=>{
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl){ urlEl.value = u; }
   if(keyEl){ keyEl.value = k; }
+  renderSupabaseShareLink();
+  if(urlEl) urlEl.addEventListener("input", renderSupabaseShareLink);
+  if(keyEl) keyEl.addEventListener("input", renderSupabaseShareLink);
 
   try{
     const fromEl = document.getElementById("date-from");

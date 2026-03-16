@@ -797,6 +797,14 @@
         <input class="inp" id="inp-supa-key" type="password" placeholder="sb-anon-key..."/>
         <button class="btn-primary" onclick="saveSupabaseConfig()">Salvar & Testar Conexão</button>
         <button class="btn" style="margin-top:8px" onclick="auditSupabaseSchema()">Auditar schema & RLS</button>
+        <label style="margin-top:14px">Link para abrir em outro navegador</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="inp" id="supa-share-url" readonly placeholder="(após configurar, o link aparecerá aqui)"/>
+          <button class="btn" id="btn-copy-supa-link" onclick="copySupabaseShareLink()" disabled>Copiar link</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.4">
+          Use este link quando abrir em modo anônimo, outro navegador ou outro computador. Ele preenche automaticamente a URL e a anon key.
+        </div>
         <div id="supa-status" class="setup-status"></div>
         <div id="supa-audit" class="setup-status" style="white-space:pre-wrap"></div>
       </div>
