@@ -3293,6 +3293,7 @@ async function renderDashRevenueFromSupabase(){
 
 let dashRenderTimer = null;
 let dashLastYearRange = "";
+let dashAutoAdjustedRange = false;
 
 function isDashCompareEnabled(){
   const v = String(localStorage.getItem("crm_dash_compare") || "1").trim();
@@ -3411,6 +3412,49 @@ function renderDashNow(){
     }
     return true;
   });
+
+  if(!selectedYear && ordersBase.length && !ordersAllRange.length && !dashAutoAdjustedRange){
+    let lastDateIso = "";
+    let lastTs = 0;
+    ordersBase.forEach(o=>{
+      const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
+      const s = String(raw || "").slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return;
+      const ts = new Date(s + "T12:00:00").getTime();
+      if(!isFinite(ts)) return;
+      if(ts > lastTs){
+        lastTs = ts;
+        lastDateIso = s;
+      }
+    });
+    if(lastDateIso){
+      const to = new Date(lastDateIso + "T12:00:00");
+      const from = new Date(to);
+      from.setDate(to.getDate() - 29);
+      const adjFrom = iso(from);
+      const adjTo = iso(to);
+      localStorage.setItem("crm_dash_from", adjFrom);
+      localStorage.setItem("crm_dash_to", adjTo);
+      if(fromEl) fromEl.value = fmtDate(adjFrom);
+      if(toEl) toEl.value = fmtDate(adjTo);
+      dashAutoAdjustedRange = true;
+      renderDash();
+      return;
+    }
+  }
+
+  try{
+    const compareBtn = document.getElementById("dash-compare-btn");
+    const maBtn = document.getElementById("dash-ma-btn");
+    const r30 = document.getElementById("dash-range-30");
+    const r90 = document.getElementById("dash-range-90");
+    if(compareBtn) compareBtn.classList.toggle("active", isDashCompareEnabled());
+    if(maBtn) maBtn.classList.toggle("active", isDashMAEnabled());
+    const diffDays = (fromTs != null && toTs != null) ? Math.round((toTs - fromTs) / (24*60*60*1000)) + 1 : 0;
+    if(r30) r30.classList.toggle("active", diffDays === 30);
+    if(r90) r90.classList.toggle("active", diffDays === 90);
+  }catch(_e){}
+
   const ordersTipo = dashTipo ? ordersAllRange.filter(o=>detectTipoVenda(o) === dashTipo) : ordersAllRange;
   const ordersSales = dashCh ? ordersTipo.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersTipo;
   const prevRange = (fromIso && toIso) ? calcPrevRange(fromIso, toIso) : null;

@@ -209,10 +209,10 @@
       </select>
       <input id="dash-from" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="de (dd/mm/aaaa)" onchange="renderDash()"/>
       <input id="dash-to" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="até (dd/mm/aaaa)" onchange="renderDash()"/>
-      <button class="saas-chip" onclick="setDashRange(30)">30d</button>
-      <button class="saas-chip" onclick="setDashRange(90)">90d</button>
-      <button class="saas-chip" onclick="toggleDashCompare()">Comparar</button>
-      <button class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
+      <button id="dash-range-30" class="saas-chip" onclick="setDashRange(30)">30d</button>
+      <button id="dash-range-90" class="saas-chip" onclick="setDashRange(90)">90d</button>
+      <button id="dash-compare-btn" class="saas-chip" onclick="toggleDashCompare()">Comparar</button>
+      <button id="dash-ma-btn" class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
     </div>
   </div>
     <div id="alert-banner"></div>
