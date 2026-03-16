@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-4";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-5";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-4";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-4";
-import { CRMStore } from "./store.js?v=20260316-4";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-4";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-4";
+} from "./ia.js?v=20260316-5";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-5";
+import { CRMStore } from "./store.js?v=20260316-5";
+import { STORAGE_KEYS } from "./constants.js?v=20260316-5";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260316-5";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -25,18 +25,18 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-4";
+} from "./viewsApi.js?v=20260316-5";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260316-4";
+} from "./sync/bling.js?v=20260316-5";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-4";
+} from "./sync/yampi.js?v=20260316-5";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -1567,11 +1567,12 @@ function getPedidoItens(o){
   if(!Array.isArray(raw) || !raw.length) return [];
   const out = [];
   raw.filter(Boolean).forEach(it=>{
-    const descricao = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || it?.produto || it?.product_name || "").trim();
-    const codigo = String(it?.codigo || it?.sku || it?.id || it?.product_id || "").trim();
-    const quantidade = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
-    const valor = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
-    const valor_total = it?.valor_total != null ? (Number(it.valor_total) || 0) : (quantidade * valor);
+    const base = (it && typeof it === "object" && it.item && typeof it.item === "object") ? it.item : it;
+    const descricao = String(base?.descricao || base?.produto_nome || base?.title || base?.nome || base?.name || base?.produto || base?.product_name || "").trim();
+    const codigo = String(base?.codigo || base?.sku || base?.id || base?.product_id || base?.produto_id || "").trim();
+    const quantidade = Number(base?.quantidade ?? base?.quantity ?? base?.qty ?? 1) || 1;
+    const valor = Number(base?.valor ?? base?.valor_unitario ?? base?.price ?? base?.preco ?? 0) || 0;
+    const valor_total = base?.valor_total != null ? (Number(base.valor_total) || 0) : (quantidade * valor);
     if(!descricao && !codigo) return;
     out.push({ descricao, codigo, quantidade, valor, valor_total });
   });
@@ -10133,12 +10134,18 @@ function normalizeOrderForCRM(o, sourceHint){
 
   const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
   if(Array.isArray(itens)){
-    next.itens = itens.map(it=>({
-      descricao: it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "",
-      codigo: it?.codigo || it?.sku || it?.id || "",
-      quantidade: Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1,
-      valor: Number(it?.valor ?? it?.price ?? it?.preco ?? 0) || 0
-    })).filter(it=>it.descricao || it.codigo);
+    next.itens = itens.map(it=>{
+      const base =
+        it && typeof it === "object" && it.item && typeof it.item === "object"
+          ? it.item
+          : (it && typeof it === "object" && it.produto && typeof it.produto === "object" ? it.produto : it);
+      const descricao = String(base?.descricao || base?.title || base?.nome || base?.name || base?.produto || base?.product_name || "").trim();
+      const codigo = String(base?.codigo || base?.sku || base?.id || base?.product_id || base?.produto_id || "").trim();
+      const quantidade = Number(base?.quantidade ?? base?.quantity ?? base?.qty ?? 1) || 1;
+      const valor = Number(base?.valor ?? base?.valor_unitario ?? base?.price ?? base?.preco ?? 0) || 0;
+      const valor_total = base?.valor_total != null ? (Number(base.valor_total) || 0) : (quantidade * valor);
+      return { descricao, codigo, quantidade, valor, valor_total };
+    }).filter(it=>it.descricao || it.codigo);
   }else{
     next.itens = [];
   }
