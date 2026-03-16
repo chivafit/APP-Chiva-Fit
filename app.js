@@ -3705,62 +3705,62 @@ function renderDashNow(){
     }
   }
 
-  const dashStatsEl = document.getElementById("dash-stats");
-  if(dashStatsEl){
-    const firstByCustomer = {};
-    ordersBase.forEach(o=>{
-      const k = orderCustomerKey(o);
-      if(!k) return;
-      const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
-      if(!d) return;
-      const ts = new Date(d + "T12:00:00").getTime();
-      if(!isFinite(ts)) return;
-      if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
-    });
-    const novosSet = new Set();
-    ordersSales.forEach(o=>{
+  const firstByCustomer = {};
+  ordersBase.forEach(o=>{
+    const k = orderCustomerKey(o);
+    if(!k) return;
+    const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
+    if(!d) return;
+    const ts = new Date(d + "T12:00:00").getTime();
+    if(!isFinite(ts)) return;
+    if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
+  });
+  const novosSet = new Set();
+  ordersSales.forEach(o=>{
+    const k = orderCustomerKey(o);
+    if(!k) return;
+    const ts = firstByCustomer[k];
+    if(ts == null) return;
+    if(fromTs != null && ts < fromTs) return;
+    if(toTs != null && ts > toTs) return;
+    novosSet.add(k);
+  });
+  const novos = novosSet.size;
+  const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+  const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
+  const pedidosPrev = ordersPrevSales.length;
+  const novosPrevSet = new Set();
+  if(prevRange){
+    const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+    const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+    ordersPrevSales.forEach(o=>{
       const k = orderCustomerKey(o);
       if(!k) return;
       const ts = firstByCustomer[k];
       if(ts == null) return;
-      if(fromTs != null && ts < fromTs) return;
-      if(toTs != null && ts > toTs) return;
-      novosSet.add(k);
+      if(ts < pf || ts > pt) return;
+      novosPrevSet.add(k);
     });
-    const novos = novosSet.size;
-    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
-    const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
-    const pedidosPrev = ordersPrevSales.length;
-    const novosPrevSet = new Set();
-    if(prevRange){
-      const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
-      const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
-      ordersPrevSales.forEach(o=>{
-        const k = orderCustomerKey(o);
-        if(!k) return;
-        const ts = firstByCustomer[k];
-        if(ts == null) return;
-        if(ts < pf || ts > pt) return;
-        novosPrevSet.add(k);
-      });
-    }
-    const novosPrev = novosPrevSet.size;
-    const showCompare = isDashCompareEnabled();
-    const deltaLine = (cur, prev)=>{
-      if(!showCompare) return `<div class="dash-kpi-delta"> </div>`;
-      const d = pctDelta(cur, prev);
-      if(d == null || !isFinite(d)) return `<div class="dash-kpi-delta">— vs período anterior</div>`;
-      const up = d >= 0;
-      const cls = up ? "dash-kpi-delta-pos" : "dash-kpi-delta-neg";
-      return `<div class="dash-kpi-delta ${cls}">${up ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}% <span class="dash-kpi-delta-sub">vs período anterior</span></div>`;
-    };
+  }
+  const novosPrev = novosPrevSet.size;
+  const showCompare = isDashCompareEnabled();
+  const deltaLine = (cur, prev)=>{
+    if(!showCompare) return `<div class="dash-kpi-delta"> </div>`;
+    const d = pctDelta(cur, prev);
+    if(d == null || !isFinite(d)) return `<div class="dash-kpi-delta">—</div>`;
+    const up = d >= 0;
+    const cls = up ? "dash-kpi-delta-pos" : "dash-kpi-delta-neg";
+    return `<div class="dash-kpi-delta ${cls}">${up ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}% <span class="dash-kpi-delta-sub">vs mês anterior</span></div>`;
+  };
+
+  const dashKpisEl = document.getElementById("dash-kpis");
+  if(dashKpisEl){
     const items = [
-      { key: "revenue", label: "Receita (período)", value: fmtBRL(total), delta: deltaLine(total, totalPrev), icon: "💹", iconCls: "dash-kpi-icon--green", spark: "kpi-spark-revenue" },
+      { key: "revenue", label: "Receita (30 dias)", value: fmtBRL(total), delta: deltaLine(total, totalPrev), icon: "💹", iconCls: "dash-kpi-icon--green", spark: "kpi-spark-revenue" },
       { key: "orders", label: "Pedidos", value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev), icon: "📦", iconCls: "dash-kpi-icon--amber", spark: "kpi-spark-orders" },
-      { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" },
-      { key: "new", label: "Clientes Novos", value: String(novos), delta: deltaLine(novos, novosPrev), icon: "👤", iconCls: "dash-kpi-icon--purple", spark: "kpi-spark-new" }
+      { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" }
     ];
-    dashStatsEl.innerHTML = items.map(s=>`
+    dashKpisEl.innerHTML = items.map(s=>`
       <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}">
         <div class="dash-kpi-top">
           <div class="dash-kpi-main">
@@ -3803,25 +3803,53 @@ function renderDashNow(){
         </div>
       </div>
     `;
-
     try{
       renderDashKpiSparklines({ ordersSales, ordersPrevSales, fromIso, toIso, firstByCustomer });
     }catch(_e){}
   }
 
-  renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
-  renderDashSalesByDay(ordersSales, ordersPrevSales);
-  renderChartMes(ordersSales);
-  renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
-  renderChartCanal(ordersSales);
-  renderTopCli(ordersSales);
-  renderTopProd(ordersSales);
-  const secEl = document.getElementById("dash-stats-secondary");
-  if(secEl){
-    secEl.innerHTML = "";
-    updateDashSecondaryFromSupabase().catch(()=>{});
+  const newCountEl = document.getElementById("dash-new-count");
+  if(newCountEl) newCountEl.textContent = String(novos || 0);
+  const newDeltaEl = document.getElementById("dash-new-delta");
+  if(newDeltaEl){
+    if(showCompare){
+      const d = pctDelta(novos, novosPrev);
+      if(d == null || !isFinite(d)) newDeltaEl.innerHTML = "";
+      else{
+        const up = d >= 0;
+        newDeltaEl.className = "dash-side-delta " + (up ? "pos" : "neg");
+        newDeltaEl.textContent = (up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%";
+      }
+    }else{
+      newDeltaEl.innerHTML = "";
+    }
   }
-  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo, fromIso, toIso }); }, 40);
+
+  const pillThis = document.getElementById("dash-pill-this");
+  const pillPrev = document.getElementById("dash-pill-prev");
+  if(pillThis) pillThis.classList.toggle("active", !showCompare);
+  if(pillPrev) pillPrev.classList.toggle("active", showCompare);
+
+  const rangeEl = document.getElementById("dash-receita-range");
+  if(rangeEl){
+    const diffDays = (fromTs != null && toTs != null) ? Math.round((toTs - fromTs) / (24*60*60*1000)) + 1 : 0;
+    rangeEl.textContent = diffDays ? `Últimos ${diffDays} dias` : "Últimos 30 dias";
+  }
+
+  try{
+    renderDashReceitaFooter(ordersSales);
+  }catch(_e){}
+
+  renderMeta(tMo); renderAlertBanner(ordersSales);
+  renderDashSalesByDay(ordersSales, ordersPrevSales);
+  const ordersNew = ordersSales.filter(o=>novosSet.has(orderCustomerKey(o)));
+  renderChartCanal(ordersNew);
+  renderDashInsightsMini(ordersSales);
+  renderDashProductsMini(ordersSales, ordersPrevSales);
+  renderDashAlertsMini(ordersSales);
+  renderDashVipMini(ordersSales);
+  renderDashGeoMini(ordersSales);
+  updateDashSecondaryFromSupabase().catch(()=>{});
 }
 
 async function updateDashSecondaryFromSupabase(){
@@ -3936,6 +3964,334 @@ function renderDashKpiSparklines(ctx){
       if(el) el.textContent = "Receita (período)";
     }
   }catch(_e){}
+}
+
+function fmtPtShortDate(d){
+  const isoStr = String(d || "").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return "—";
+  const dd = isoStr.slice(8,10);
+  const mm = Number(isoStr.slice(5,7));
+  const mons = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return dd + " " + (mons[mm-1] || "");
+}
+function dashInitials(name){
+  const s = String(name || "").trim();
+  if(!s) return "—";
+  const parts = s.split(/\s+/).filter(Boolean);
+  const a = parts[0] ? parts[0][0] : "";
+  const b = parts.length > 1 ? parts[parts.length-1][0] : (parts[0] ? parts[0][1] : "");
+  return (a + b).toUpperCase();
+}
+function dashSafeName(name){
+  const s = String(name || "").trim();
+  if(!s) return "Cliente";
+  return s.length > 34 ? s.slice(0, 31) + "..." : s;
+}
+
+function renderDashReceitaFooter(ordersSales){
+  const bestEl = document.getElementById("dash-mini-best");
+  const avgEl = document.getElementById("dash-mini-avg");
+  const ordEl = document.getElementById("dash-mini-orders");
+  if(!bestEl && !avgEl && !ordEl) return;
+  const byDay = {};
+  ordersSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    byDay[d] = (byDay[d] || 0) + val(o);
+  });
+  const keys = Object.keys(byDay).sort();
+  const total = ordersSales.reduce((s,o)=>s + val(o), 0);
+  const daysCount = keys.length || 1;
+  const avg = total / daysCount;
+  let bestDate = "";
+  let bestVal = 0;
+  keys.forEach(k=>{
+    const v = Number(byDay[k] || 0) || 0;
+    if(bestDate === "" || v > bestVal){
+      bestDate = k;
+      bestVal = v;
+    }
+  });
+  if(bestEl){
+    bestEl.innerHTML = `<div class="dash-mini-ic">↗</div><div><div class="dash-mini-label">Melhor dia</div><div class="dash-mini-value">${escapeHTML(fmtPtShortDate(bestDate))} — ${escapeHTML(fmtBRL(bestVal))}</div></div>`;
+  }
+  if(avgEl){
+    avgEl.innerHTML = `<div class="dash-mini-ic">📈</div><div><div class="dash-mini-label">Média diária</div><div class="dash-mini-value">${escapeHTML(fmtBRL(avg))}</div></div>`;
+  }
+  if(ordEl){
+    ordEl.innerHTML = `<div class="dash-mini-ic">📦</div><div><div class="dash-mini-label">Total Pedidos</div><div class="dash-mini-value">${escapeHTML(String(ordersSales.length || 0))}</div></div>`;
+  }
+}
+
+function renderDashInsightsMini(_ordersSales){
+  const el = document.getElementById("dash-insights-list");
+  if(!el) return;
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : []))
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>x.c && x.c.id && !x.s.isCnpj)
+    .filter(x=>x.s.ds >= 21 && x.s.ds <= 60)
+    .sort((a,b)=>{
+      if(a.s.status !== b.s.status) return a.s.status === "vip" ? -1 : b.s.status === "vip" ? 1 : 0;
+      if(b.s.recompraScore !== a.s.recompraScore) return b.s.recompraScore - a.s.recompraScore;
+      return (b.s.ltv || 0) - (a.s.ltv || 0);
+    })
+    .slice(0, 3);
+  if(!clis.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem insights agora.</div>`;
+    return;
+  }
+  el.innerHTML = clis.map(x=>{
+    const nm = dashSafeName(x.c.nome || "Cliente");
+    return `<div class="dash-insight-row">
+      <div class="dash-insight-left">
+        <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
+        <div class="dash-insight-main">
+          <div class="dash-insight-name">${escapeHTML(nm)}</div>
+          <div class="dash-insight-sub">${escapeHTML(String(x.s.ds))} dias desde a última compra</div>
+        </div>
+      </div>
+      <div class="dash-insight-days">${escapeHTML(String(x.s.ds))}d</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashProductsMini(ordersSales, ordersPrevSales){
+  const el = document.getElementById("dash-top-products");
+  if(!el) return;
+  const agg = (orders)=>{
+    const m = {};
+    orders.forEach(o=>{
+      getItensPedido(o).forEach(it=>{
+        const name = String(it?.descricao || "").trim();
+        if(!name) return;
+        if(!m[name]) m[name] = { name, qty: 0, rev: 0 };
+        m[name].qty += Number(it?.quantidade || 0) || 0;
+        m[name].rev += Number(it?.valor_total || 0) || 0;
+      });
+    });
+    return m;
+  };
+  const cur = agg(Array.isArray(ordersSales) ? ordersSales : []);
+  const prev = agg(Array.isArray(ordersPrevSales) ? ordersPrevSales : []);
+  const list = Object.values(cur)
+    .map(p=>{
+      const pv = prev[p.name]?.rev || 0;
+      return { ...p, prevRev: pv, delta: pctDelta(p.rev, pv) };
+    })
+    .sort((a,b)=> (b.rev||0) - (a.rev||0))
+    .slice(0, 5);
+  if(!list.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem produtos no período.</div>`;
+    return;
+  }
+  el.innerHTML = list.map((p,i)=>{
+    const d = p.delta;
+    const show = d != null && isFinite(d);
+    const up = show ? d >= 0 : true;
+    const cls = show ? (up ? "pos" : "neg") : "";
+    const txt = show ? ((up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%") : "";
+    const icon = (String(p.name).match(/[A-Za-zÀ-ÿ]/) ? String(p.name).trim()[0] : "★").toUpperCase();
+    return `<div class="dash-prod-row">
+      <div class="dash-prod-rank">${escapeHTML(String(i+1))}</div>
+      <div class="dash-prod-img">${escapeHTML(icon)}</div>
+      <div class="dash-prod-main">
+        <div class="dash-prod-name">${escapeHTML(dashSafeName(p.name))}</div>
+        <div class="dash-prod-sub">${escapeHTML(String(p.qty))} un. · ${escapeHTML(fmtBRL(p.rev))}</div>
+      </div>
+      <div class="dash-prod-delta ${escapeHTML(cls)}">${escapeHTML(txt)}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashAlertsMini(_ordersSales){
+  const el = document.getElementById("dash-alerts-mini");
+  const badge = document.getElementById("dash-alerts-badge");
+  if(!el && !badge) return;
+  const ad = parseInt(localStorage.getItem("crm_alertdays") || "60");
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : [])).map(c=>({ c, s: calcCliScores(c) })).filter(x=>x.c && x.c.id);
+  const vipRisk = clis.filter(x=>x.s.status === "vip" && !x.s.isCnpj && x.s.ds >= 45).length;
+  const inactive = clis.filter(x=>!x.s.isCnpj && x.s.ds >= ad).length;
+
+  const fromIso = String(localStorage.getItem("crm_dash_from") || "").trim();
+  const toIso = String(localStorage.getItem("crm_dash_to") || "").trim();
+  const prevRange = (fromIso && toIso) ? calcPrevRange(fromIso, toIso) : null;
+  const ordersAll = Array.isArray(allOrders) ? allOrders : [];
+  const byRange = (fromIso, toIso)=>{
+    const f = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+    const t = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+    return ordersAll.filter(o=>{
+      const d = String(o?.data || "").slice(0,10);
+      if(!d) return false;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return false;
+      if(f != null && ts < f) return false;
+      if(t != null && ts > t) return false;
+      return true;
+    });
+  };
+  let produtoQueda = "";
+  let produtoQuedaPct = null;
+  if(prevRange?.prevFromIso && prevRange?.prevToIso){
+    const curOrders = byRange(fromIso, toIso);
+    const prevOrders = byRange(prevRange.prevFromIso, prevRange.prevToIso);
+    const aggProd = (orders)=>{
+      const m = {};
+      orders.forEach(o=>{
+        getItensPedido(o).forEach(it=>{
+          const name = String(it?.descricao || "").trim();
+          if(!name) return;
+          m[name] = (m[name] || 0) + (Number(it?.valor_total || 0) || 0);
+        });
+      });
+      return m;
+    };
+    const cur = aggProd(curOrders);
+    const prev = aggProd(prevOrders);
+    Object.keys(prev).forEach(n=>{
+      const a = Number(cur[n] || 0) || 0;
+      const b = Number(prev[n] || 0) || 0;
+      const d = pctDelta(a, b);
+      if(d == null || !isFinite(d)) return;
+      if(d >= -25) return;
+      if(produtoQuedaPct == null || d < produtoQuedaPct){
+        produtoQuedaPct = d;
+        produtoQueda = n;
+      }
+    });
+  }
+
+  const rows = [];
+  if(vipRisk){
+    rows.push({ ic: "👑", cls: "red", title: "VIP em risco", sub: `${vipRisk} VIP sem comprar há 45+ dias`, right: "ver" });
+  }
+  if(inactive){
+    rows.push({ ic: "⏳", cls: "", title: "Inativos", sub: `${inactive} clientes sem comprar há ${ad}+ dias`, right: "ver" });
+  }
+  if(produtoQueda){
+    rows.push({ ic: "📉", cls: "red", title: "Queda de produto", sub: `${dashSafeName(produtoQueda)} (${Math.abs(produtoQuedaPct).toFixed(0)}%)`, right: "ver" });
+  }
+
+  if(badge){
+    if(rows.length){
+      badge.style.display = "";
+      badge.textContent = rows.length + " itens";
+    }else{
+      badge.style.display = "none";
+    }
+  }
+  if(!el) return;
+  if(!rows.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem alertas agora.</div>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 3).map(r=>`
+    <div class="dash-alert-row">
+      <div class="dash-alert-left">
+        <div class="dash-ic ${escapeHTML(r.cls)}">${escapeHTML(r.ic)}</div>
+        <div class="dash-alert-main">
+          <div class="dash-alert-title">${escapeHTML(r.title)}</div>
+          <div class="dash-alert-sub">${escapeHTML(r.sub)}</div>
+        </div>
+      </div>
+      <div class="dash-alert-right">${escapeHTML(r.right || "")}</div>
+    </div>
+  `).join("");
+}
+
+function renderDashVipMini(_ordersSales){
+  const el = document.getElementById("dash-vips-mini");
+  if(!el) return;
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : []))
+    .map(c=>({ c, s: calcCliScores(c), tot: (Array.isArray(c?.orders) ? c.orders.reduce((sum,o)=>sum+val(o),0) : 0) }))
+    .filter(x=>x.s.status === "vip" && !x.s.isCnpj)
+    .sort((a,b)=> (b.tot||0) - (a.tot||0))
+    .slice(0, 4);
+  if(!clis.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem VIPs na base.</div>`;
+    return;
+  }
+  el.innerHTML = clis.map(x=>{
+    const nm = dashSafeName(x.c.nome || "VIP");
+    return `<div class="dash-vip-row">
+      <div class="dash-vip-left">
+        <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
+        <div class="dash-vip-main">
+          <div class="dash-vip-name">${escapeHTML(nm)}</div>
+          <div class="dash-vip-sub">${escapeHTML(String(x.s.n || 0))} pedidos · ${escapeHTML(fmtBRL(x.tot || 0))}</div>
+        </div>
+      </div>
+      <div class="dash-vip-right">${escapeHTML(String(x.s.ds || 0))}d</div>
+    </div>`;
+  }).join("");
+}
+
+let _dashBrazilSvgText = null;
+async function ensureDashBrazilSvg(){
+  if(_dashBrazilSvgText) return _dashBrazilSvgText;
+  try{
+    const res = await fetch("./assets/brazil-states.svg");
+    _dashBrazilSvgText = await res.text();
+    return _dashBrazilSvgText;
+  }catch(_e){
+    _dashBrazilSvgText = "";
+    return "";
+  }
+}
+
+function renderDashGeoMini(ordersSales){
+  const mapEl = document.getElementById("dash-brazil-map");
+  const listEl = document.getElementById("dash-top-cities");
+  if(!mapEl && !listEl) return;
+  const cityAgg = {};
+  const ufAgg = {};
+  (Array.isArray(ordersSales) ? ordersSales : []).forEach(o=>{
+    const city = cleanText(o?.contato?.endereco?.municipio || o?.contato?.endereco?.cidade || o?.endereco?.municipio || o?.cidade || "");
+    const uf = normalizeUF(o?.contato?.endereco?.uf || o?.contato?.endereco?.estado || o?.uf || o?.estado || "");
+    if(city) cityAgg[city] = (cityAgg[city] || 0) + 1;
+    if(uf) ufAgg[uf] = (ufAgg[uf] || 0) + 1;
+  });
+  if(listEl){
+    const list = Object.entries(cityAgg).sort((a,b)=>b[1]-a[1]).slice(0, 6);
+    if(!list.length) listEl.innerHTML = `<div class="empty" style="padding:14px 0">Sem cidades no período.</div>`;
+    else listEl.innerHTML = list.map(([city,n])=>`
+      <div class="dash-city-row">
+        <div class="dash-city-name">${escapeHTML(dashSafeName(city))}</div>
+        <div class="dash-city-val">${escapeHTML(String(n))}</div>
+      </div>
+    `).join("");
+  }
+  if(!mapEl) return;
+  ensureDashBrazilSvg().then(txt=>{
+    if(!txt){
+      mapEl.innerHTML = `<div class="dash-map-loading">Mapa indisponível.</div>`;
+      return;
+    }
+    mapEl.innerHTML = txt;
+    try{
+      const svg = mapEl.querySelector("svg");
+      if(svg){
+        svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      }
+      const vals = Object.values(ufAgg);
+      const max = vals.length ? Math.max(...vals) : 0;
+      const min = vals.length ? Math.min(...vals) : 0;
+      const lerp = (a,b,t)=>Math.round(a + (b-a)*t);
+      const fillFor = (v)=>{
+        const t = max === min ? 0 : (v - min) / (max - min);
+        const r = lerp(226, 22, t);
+        const g = lerp(245, 163, t);
+        const b = lerp(234, 74, t);
+        return `rgb(${r},${g},${b})`;
+      };
+      mapEl.querySelectorAll(".state").forEach(node=>{
+        const id = String(node.getAttribute("id") || "").trim().toUpperCase();
+        const v = id ? (ufAgg[id] || 0) : 0;
+        node.setAttribute("fill", v ? fillFor(v) : "rgba(148,163,184,.15)");
+        node.setAttribute("stroke", "rgba(15,23,42,.06)");
+        node.setAttribute("stroke-width", "1");
+      });
+    }catch(_e){}
+  });
 }
 
 function setDashCanvasState(canvasId, hasData, msg, showClear){
@@ -4077,12 +4433,78 @@ function renderDashSalesByDay(orders, prevOrders){
     pointHitRadius: 16
   });
 
+  const calloutPlugin = {
+    id: "dashCallouts",
+    afterDatasetsDraw: (chart)=>{
+      try{
+        const area = chart.chartArea;
+        if(!area) return;
+        const x = chart.scales?.x;
+        const y = chart.scales?.y;
+        if(!x || !y) return;
+        if(maxIdx < 0 || minIdx < 0) return;
+        const ctx2 = chart.ctx;
+        if(!ctx2) return;
+
+        const xMax = x.getPixelForValue(maxIdx);
+        const yMax = y.getPixelForValue(maxVal);
+        const xMin = x.getPixelForValue(minIdx);
+        const yMin = y.getPixelForValue(minVal);
+
+        const drawRounded = (x0,y0,w,h,r)=>{
+          const rr = Math.min(r, w/2, h/2);
+          ctx2.beginPath();
+          ctx2.moveTo(x0+rr, y0);
+          ctx2.arcTo(x0+w, y0, x0+w, y0+h, rr);
+          ctx2.arcTo(x0+w, y0+h, x0, y0+h, rr);
+          ctx2.arcTo(x0, y0+h, x0, y0, rr);
+          ctx2.arcTo(x0, y0, x0+w, y0, rr);
+          ctx2.closePath();
+        };
+        const tag = (text, bg, xC, yC)=>{
+          const padX = 10;
+          const padY = 6;
+          ctx2.save();
+          ctx2.font = "800 11px Plus Jakarta Sans";
+          const tw = ctx2.measureText(text).width;
+          const w = tw + padX*2;
+          const h = 24;
+          let x0 = xC - w/2;
+          let y0 = yC - h - 10;
+          x0 = Math.max(area.left + 6, Math.min(x0, area.right - w - 6));
+          y0 = Math.max(area.top + 6, y0);
+          ctx2.fillStyle = bg;
+          drawRounded(x0, y0, w, h, 10);
+          ctx2.fill();
+          ctx2.fillStyle = "#ffffff";
+          ctx2.textBaseline = "middle";
+          ctx2.fillText(text, x0 + padX, y0 + h/2 + 1);
+          ctx2.restore();
+        };
+
+        ctx2.save();
+        ctx2.setLineDash([4,4]);
+        ctx2.lineWidth = 1;
+        ctx2.strokeStyle = "rgba(15,23,42,.18)";
+        ctx2.beginPath();
+        ctx2.moveTo(xMax, area.top + 6);
+        ctx2.lineTo(xMax, area.bottom - 6);
+        ctx2.stroke();
+        ctx2.restore();
+
+        tag("Pico: " + fmtBRL(maxVal), "#16a34a", xMax, yMax);
+        tag("Baixa: " + fmtBRL(minVal), "#ef4444", xMin, yMin);
+      }catch(_e){}
+    }
+  };
+
   charts.v2dia = new Chart(ctx, {
     type: "line",
     data: {
       labels: cur.keys.map(k=>fmtDate(k)),
       datasets
     },
+    plugins: [calloutPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
