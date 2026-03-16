@@ -67,36 +67,39 @@
 <!-- SIDEBAR -->
 <nav id="sidebar">
   <div class="sidebar-logo">
-    <div class="sidebar-logo-icon" id="sidebar-logo-img">🌿</div>
+    <div class="sidebar-logo-icon" id="sidebar-logo-img">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+    </div>
     <div class="sidebar-logo-text">
       <div class="sidebar-logo-name">Chiva Fit</div>
       <div class="sidebar-logo-sub">CRM</div>
     </div>
+    <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Recolher sidebar" aria-label="Recolher sidebar">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
   </div>
 
   <div class="sidebar-nav">
     <div class="sidebar-section-label">Principal</div>
-    <div class="nav-item" data-page="dashboard" id="nav-dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
-    <div class="nav-item" data-page="clientes" id="nav-clientes"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></div>
-    <div class="nav-item" data-page="inteligencia" id="nav-inteligencia"><span class="nav-icon">🧠</span><span class="nav-label">Inteligência</span></div>
-    <div class="nav-item" data-page="pedidos-page" id="nav-pedidos"><span class="nav-icon">🛒</span><span class="nav-label">Pedidos</span></div>
-    <div class="nav-item" data-page="cidades" id="nav-cidades"><span class="nav-icon">📍</span><span class="nav-label">Cidades</span></div>
-    <div class="nav-item" data-page="produtos" id="nav-produtos"><span class="nav-icon">📦</span><span class="nav-label">Produtos</span></div>
+    <div class="nav-item" data-page="dashboard" id="nav-dashboard" data-tooltip="Dashboard"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg></span><span class="nav-label">Dashboard</span></div>
+    <div class="nav-item" data-page="clientes" id="nav-clientes" data-tooltip="Clientes"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-label">Clientes</span></div>
+    <div class="nav-item" data-page="inteligencia" id="nav-inteligencia" data-tooltip="Inteligência"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg></span><span class="nav-label">Inteligência</span></div>
+    <div class="nav-item" data-page="pedidos-page" id="nav-pedidos" data-tooltip="Pedidos"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg></span><span class="nav-label">Pedidos</span></div>
+    <div class="nav-item" data-page="cidades" id="nav-cidades" data-tooltip="Cidades"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="nav-label">Cidades</span></div>
+    <div class="nav-item" data-page="produtos" id="nav-produtos" data-tooltip="Produtos"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/><path d="m7.5 4.27 9 5.15"/></svg></span><span class="nav-label">Produtos</span></div>
 
     <div class="sidebar-section-label">Operacional</div>
-    <div class="nav-item" data-page="tarefas" id="nav-tarefas"><span class="nav-icon">✅</span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
-    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">📡</span><span class="nav-label">Radar</span></div>
-    <div class="nav-item" data-page="alertas" id="nav-alertas"><span class="nav-icon">🚨</span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
-    <div class="nav-item ai-item" data-page="ia" id="nav-ia"><span class="nav-icon">🤖</span><span class="nav-label">IA</span></div>
-    <div class="nav-item active" data-page="segmentos" id="nav-segmentos"><span class="nav-icon">🎯</span><span class="nav-label">Segmentos</span></div>
+    <div class="nav-item" data-page="tarefas" id="nav-tarefas" data-tooltip="Tarefas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
+    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades" data-tooltip="Radar"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg></span><span class="nav-label">Radar</span></div>
+    <div class="nav-item" data-page="alertas" id="nav-alertas" data-tooltip="Alertas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
 
     <div class="sidebar-section-label">Módulos</div>
-    <div class="nav-item" data-page="comercial" id="nav-comercial"><span class="nav-icon">📈</span><span class="nav-label">Comercial</span></div>
-    <div class="nav-item" data-page="producao" id="nav-producao"><span class="nav-icon">🏭</span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
-    <div class="nav-item" data-page="marca" id="nav-marca"><span class="nav-icon">✨</span><span class="nav-label">Marca</span></div>
+    <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span></div>
+    <div class="nav-item" data-page="producao" id="nav-producao" data-tooltip="Produção"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></svg></span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
+    <div class="nav-item" data-page="marca" id="nav-marca" data-tooltip="Marca"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></span><span class="nav-label">Marca</span></div>
 
     <hr class="sidebar-divider"/>
-    <div class="nav-item" data-page="config" id="nav-config"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></div>
+    <div class="nav-item" data-page="config" id="nav-config" data-tooltip="Configurações"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="nav-label">Configurações</span></div>
   </div>
 
   <div class="sidebar-footer">
@@ -110,7 +113,7 @@
       <span id="sync-time" style="margin-left:auto;font-size:9px"></span>
     </div>
     <div class="sidebar-user" onclick="goLogout()" title="Sair">
-      <div class="sidebar-user-avatar"><span id="user-emoji">👩‍💼</span></div>
+      <div class="sidebar-user-avatar"><span id="user-emoji">👤</span></div>
       <div class="sidebar-user-info">
         <div class="sidebar-user-name" id="user-name-hdr">Loja</div>
         <div class="sidebar-user-role">CRM Chiva Fit</div>
@@ -176,17 +179,21 @@
 
 <!-- DASHBOARD -->
 <div class="page" id="page-dashboard">
-  <div class="page-header">
+
+  <!-- ── Header ── -->
+  <div class="page-header dash-page-header">
     <div class="page-header-main">
       <h1 class="page-title">Dashboard</h1>
       <p class="page-subtitle">Visão geral de clientes e receita</p>
-      <div class="dash-meta" id="dash-period"></div>
+      <div class="dash-period-badge" id="dash-period"></div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="btn" onclick="openDashActionsModal()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
-      <button class="btn" onclick="renderDash()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
+    <div class="dash-header-actions">
+      <button class="btn btn-dash-primary" onclick="openDashActionsModal()">⚡ Ações do dia</button>
+      <button class="btn" onclick="renderDash()">↻ Atualizar</button>
     </div>
   </div>
+
+  <!-- ── Filtros ── -->
   <div class="saas-filterbar dash-filterbar">
     <div class="saas-chips">
       <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
@@ -215,65 +222,138 @@
       <button id="dash-ma-btn" class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
     </div>
   </div>
-    <div id="alert-banner"></div>
+
+  <!-- ── Banners & Insights ── -->
+  <div id="alert-banner"></div>
   <div id="source-row" class="dash-source-row"></div>
   <div id="dash-insights-day"></div>
   <div id="auto-insights"></div>
+
+  <!-- ── KPIs ── -->
   <div class="stat-grid" id="dash-stats"></div>
-  <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
-  <div class="section-label" style="margin-top:8px">Diagnóstico</div>
-  <div class="dash-hero-grid" style="margin-top:12px">
-    <div class="chart-card">
-      <div class="chart-title">Vendas por Dia</div>
-      <div class="chart-wrap" style="height:260px"><canvas id="chart-v2-dia"></canvas></div>
+  <div class="stat-grid dash-stats-secondary" id="dash-stats-secondary"></div>
+
+  <!-- ══ Seção: Diagnóstico ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot"></span>
+    <span class="dash-section-title">Diagnóstico</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <div class="dash-hero-grid">
+    <div class="chart-card dash-hero-chart">
+      <div class="chart-card-header">
+        <div class="chart-title">Vendas por Dia</div>
+      </div>
+      <div class="chart-wrap" style="height:300px"><canvas id="chart-v2-dia"></canvas></div>
     </div>
     <div class="chart-card">
-      <div class="chart-title">Total por Canal</div>
+      <div class="chart-card-header">
+        <div class="chart-title">Total por Canal</div>
+      </div>
       <div class="chart-wrap" style="height:190px"><canvas id="chart-canal"></canvas></div>
       <div id="canal-table" style="margin-top:10px"></div>
     </div>
   </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+
+  <!-- Vendas por Mês + Funil -->
+  <div class="dash-grid-2">
     <div class="chart-card">
-      <div class="chart-title">Vendas por Mês</div>
-      <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">Vendas por Canal</div>
-      <div id="dash-channel-breakdown" style="margin-top:2px"></div>
-    </div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
-    <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
-  </div>
-  <div class="section-label" style="margin-top:12px">Ações prioritárias</div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
-    <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="top-produtos-dash"></div></div>
-    <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
-    <div class="chart-card chart-card-compact" id="dash-next-actions-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
-  </div>
-  <div class="meta-card">
-    <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
-    <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
-  </div>
-  <div class="compare-card" id="cmp-card">
-    <div class="card-hdr">
-      <span class="card-title">Comparar Períodos</span>
-      <div class="cmp-inputs">
-        <input type="month" id="cmp-a" onchange="renderCompare()" disabled/>
-        <span style="font-size:10px;color:var(--text-3)">vs</span>
-        <input type="month" id="cmp-b" onchange="renderCompare()" disabled/>
+      <div class="chart-card-header">
+        <div class="chart-title">Vendas por Mês</div>
       </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-mes"></canvas></div>
+      <div id="dash-channel-breakdown" style="margin-top:14px"></div>
     </div>
-    <div id="cmp-body"></div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Funil de Recompra</div>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-v2-funil"></canvas></div>
+    </div>
   </div>
+
+  <!-- Top Clientes + Top Cidades -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Clientes por LTV</div>
+        <span class="chart-card-badge">clique para ver</span>
+      </div>
+      <div class="top-list" id="top-clientes"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Cidades</div>
+      </div>
+      <div class="top-list" id="dashv2-top-cidades"></div>
+    </div>
+  </div>
+
+  <!-- ══ Seção: Ações Prioritárias ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot dash-section-dot--amber"></span>
+    <span class="dash-section-title">Ações Prioritárias</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <!-- Reativação + VIP em Risco + Próximas Ações -->
+  <div class="dash-grid-3">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Reativação Prioritária</div>
+      </div>
+      <div class="top-list" id="dashv2-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">VIP em Risco</div>
+      </div>
+      <div class="top-list" id="dashv2-vip-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Próximas Ações</div>
+      </div>
+      <div class="top-list" id="dashv2-next-actions"></div>
+    </div>
+  </div>
+
+  <!-- Top Produtos + Sem Contato -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Produtos no Período</div>
+      </div>
+      <div class="top-list" id="top-produtos-dash"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Clientes sem Contato</div>
+      </div>
+      <div class="top-list" id="dashv2-sem-contato"></div>
+    </div>
+  </div>
+
+  <!-- ── Rodapé: Meta + Comparar ── -->
+  <div class="dash-grid-2">
+    <div class="meta-card">
+      <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
+      <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
+    </div>
+    <div class="compare-card">
+      <div class="card-hdr">
+        <span class="card-title">Comparar Períodos</span>
+        <div class="cmp-inputs">
+          <input type="month" id="cmp-a" onchange="renderCompare()"/>
+          <span style="font-size:10px;color:var(--text-3)">vs</span>
+          <input type="month" id="cmp-b" onchange="renderCompare()"/>
+        </div>
+      </div>
+      <div id="cmp-body"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- OPORTUNIDADES -->
@@ -334,25 +414,88 @@
   <div id="tasks-list"></div>
 </div>
 
-<!-- IA PAGE -->
-<div class="page" id="page-ia">
-  <div class="ai-header">
-    <div class="ai-icon">🤖</div>
-    <div><h2>Inteligência Comercial</h2><p>Resumo de risco, recompra e ações recomendadas</p></div>
+<!-- INTELIGÊNCIA DE CLIENTES — Página Unificada -->
+<div class="page" id="page-inteligencia">
+
+  <!-- ── Header ── -->
+  <div class="page-header dash-page-header">
+    <div class="page-header-main">
+      <h1 class="page-title">Inteligência de Clientes</h1>
+      <p class="page-subtitle">Segmentos · Diagnóstico · Radar · Análise IA · WhatsApp</p>
+    </div>
+    <div class="dash-header-actions">
+      <button class="btn btn-dash-primary" onclick="computeCustomerIntelligence();renderInteligencia();recalculateSegments();renderIADashboard()">↻ Atualizar tudo</button>
+      <button class="btn" onclick="exportSegmentData()">↓ Exportar CSV</button>
+    </div>
   </div>
-  <div id="ia-summary" class="card" style="margin-bottom:12px"></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px">
+
+  <!-- ── KPIs ── -->
+  <div id="intel-summary" style="margin-bottom:24px"></div>
+
+  <!-- ══ SECTION: Segmentos ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot"></div>
+    <div class="dash-section-title">Segmentos de Clientes</div>
+    <div class="dash-section-line"></div>
+    <button class="btn intel-section-btn" onclick="recalculateSegments()">Recalcular</button>
+  </div>
+  <div id="segment-stats" class="stat-grid" style="margin-bottom:16px"></div>
+  <div id="segment-list" class="intel-segment-grid" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Diagnóstico de Clientes ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot dash-section-dot--amber"></div>
+    <div class="dash-section-title">Diagnóstico de Clientes</div>
+    <div class="dash-section-line"></div>
+  </div>
+
+  <!-- Crescimento de Receita — full width -->
+  <div class="chart-card dash-hero-chart" style="margin-bottom:16px">
+    <div class="chart-card-header">
+      <div class="chart-title">Crescimento de Receita</div>
+      <span class="chart-card-badge">Mensal</span>
+    </div>
+    <div class="chart-wrap" style="height:240px"><canvas id="chart-crescimento"></canvas></div>
+  </div>
+
+  <!-- Top / Risco — row 1 -->
+  <div class="dash-grid-2" style="margin-bottom:16px">
+    <div class="intel-list-card" id="intel-top"></div>
+    <div class="intel-list-card" id="intel-risk"></div>
+  </div>
+  <!-- Novos / Recorrentes — row 2 -->
+  <div class="dash-grid-2" style="margin-bottom:16px">
+    <div class="intel-list-card" id="intel-new"></div>
+    <div class="intel-list-card" id="intel-rec"></div>
+  </div>
+  <!-- Ações recomendadas — full width -->
+  <div class="intel-list-card intel-actions-full" id="intel-actions" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Radar de Clientes ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot intel-dot-green"></div>
+    <div class="dash-section-title">Radar de Clientes</div>
+    <div class="dash-section-line"></div>
+  </div>
+  <div id="ia-summary" style="margin-bottom:14px"></div>
+  <div class="dash-grid-3" style="margin-bottom:14px">
     <div class="card" id="ia-risk-list"></div>
     <div class="card" id="ia-rebuy-list"></div>
     <div class="card" id="ia-vip-list"></div>
+  </div>
+  <div class="dash-grid-2" style="margin-bottom:14px">
     <div class="card" id="ia-subscription-list"></div>
     <div class="card" id="ia-potential-list"></div>
   </div>
-  <div class="card" id="ia-today-actions" style="margin-bottom:16px"></div>
-  <div class="card" style="margin-bottom:16px" id="ia-actions"></div>
-  <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border-sub)">
-    <h3 style="font-size:14px;font-weight:700">Análise Inteligente</h3>
-    <p style="font-size:11px;color:var(--text-3)">IA analisa seus dados reais para maximizar recompra</p>
+  <div class="card" id="ia-today-actions" style="margin-bottom:14px"></div>
+  <div class="card" id="ia-actions" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Análise IA ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot intel-dot-ai"></div>
+    <div class="dash-section-title">Análise com IA</div>
+    <div class="dash-section-line"></div>
+    <span class="intel-ai-badge">Powered by Claude</span>
   </div>
   <div class="ai-grid">
     <div class="ai-card">
@@ -380,38 +523,18 @@
       <div class="ai-card-body" id="ai-oportunidades">Cross-sell e upsell baseados no comportamento real.</div>
       <button class="btn-ai" onclick="runAI('oportunidades')" id="btn-oportunidades">✨ Analisar</button>
     </div>
+    <div class="ai-card">
+      <div class="ai-card-title">💬 WhatsApp por Segmento</div>
+      <div class="ai-card-body" id="ai-whatsapp">Gera mensagens personalizadas por segmento para disparo via WhatsApp.</div>
+      <button class="btn-ai" onclick="runAI('whatsapp')" id="btn-whatsapp">✨ Gerar Mensagens</button>
+    </div>
     <div class="ai-card" style="grid-column:1/-1">
       <div class="ai-card-title">🧠 Análise Completa + Plano de Ação</div>
       <div class="ai-card-body" id="ai-completa">Análise profunda de todos os dados com plano de ação para maximizar recompra e LTV.</div>
       <button class="btn-ai" onclick="runAI('completa')" id="btn-completa">✨ Análise Completa</button>
     </div>
   </div>
-</div>
 
-<!-- INTELIGÊNCIA DE CLIENTES -->
-<div class="page" id="page-inteligencia">
-  <div class="page-header" style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 class="page-title">🧠 Inteligência de Clientes</h1>
-      <p class="page-sub">Top clientes, risco, recompra e ações rápidas</p>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn" onclick="computeCustomerIntelligence();renderInteligencia()" style="padding:8px 10px;font-size:11px">↻ Atualizar</button>
-      <button class="btn" data-page="segmentos" style="padding:8px 10px;font-size:11px">Ver Segmentos</button>
-    </div>
-  </div>
-  <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
-  <div class="profile-grid">
-    <div class="profile-card profile-span-2">
-      <div class="profile-h2">Crescimento de Receita</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-crescimento"></canvas></div>
-    </div>
-    <div class="profile-card" id="intel-top"></div>
-    <div class="profile-card" id="intel-risk"></div>
-    <div class="profile-card" id="intel-new"></div>
-    <div class="profile-card" id="intel-rec"></div>
-    <div class="profile-card profile-span-2" id="intel-actions"></div>
-  </div>
 </div>
 
 <!-- CLIENTES -->
@@ -919,31 +1042,10 @@
   </div>
 </div>
 
-<!-- SEGMENTOS -->
-<div class="page" id="page-segmentos">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 style="font-size:20px;font-weight:800;letter-spacing:-.5px;display:flex;align-items:center;gap:10px">🎯 Segmentos</h1>
-      <p style="font-size:12px;color:var(--text-3);margin-top:4px;font-weight:500">Inteligência de clientes para marketing e recompra</p>
-    </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn" onclick="toast('Em breve: Criar segmento personalizado')">Novo segmento</button>
-      <button class="btn" onclick="recalculateSegments()">Recalcular segmentos</button>
-      <button class="btn-primary" onclick="exportSegmentData()">Exportar clientes</button>
-    </div>
-  </div>
-
-  <!-- Cards de Indicadores -->
-  <div id="segment-stats" class="stat-grid" style="margin-bottom:24px"></div>
-
-  <!-- Lista de Segmentos -->
-  <div id="segment-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px"></div>
-</div>
-
-<!-- SEGMENTO DETALHE (Interna) -->
+<!-- SEGMENTO DETALHE (Interna — drill-down dos segmentos) -->
 <div class="page" id="page-segmento-detalhe">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border-sub)">
-    <button class="btn" data-page="segmentos">← Voltar</button>
+    <button class="btn" data-page="inteligencia">← Voltar</button>
     <div>
       <h1 id="seg-detalhe-title" style="font-size:20px;font-weight:800;letter-spacing:-.5px">Nome do Segmento</h1>
       <p id="seg-detalhe-desc" style="font-size:12px;color:var(--text-3);margin-top:4px"></p>
