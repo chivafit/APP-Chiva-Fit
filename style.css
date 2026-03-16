@@ -373,6 +373,9 @@
 html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
+  background-image:
+    radial-gradient(900px 520px at 18% -10%, rgba(15,167,101,.10) 0%, transparent 60%),
+    radial-gradient(900px 520px at 88% -12%, rgba(164,233,107,.06) 0%, transparent 62%);
   color: var(--text);
   font-family: var(--font);
   font-size: 13px;
@@ -592,12 +595,13 @@ body {
 }
 .geo-map-legend .lbl{
   font-size: 10px;
-  color: var(--text-3);
+  color: var(--text-2);
   font-weight: 700;
-  background: rgba(255,255,255,0.75);
+  background: rgba(12,20,16,.82);
+  backdrop-filter: blur(10px);
   padding: 3px 6px;
   border-radius: 999px;
-  border: 1px solid rgba(15,23,42,0.08);
+  border: 1px solid var(--border);
 }
 
 /* ─── SIDEBAR ─────────────────────────────────────────────── */
@@ -649,7 +653,9 @@ body {
 .nav-item.active { background: var(--chiva-primary-dim); color: var(--chiva-primary-light); border-left-color: var(--chiva-primary); font-weight: 600; }
 .nav-item.ai-item { color: var(--ai); }
 .nav-item.ai-item.active { background: rgba(167,139,250,.1); color: var(--ai); border-left-color: var(--ai); }
-.nav-icon  { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.nav-icon  { font-size: 14px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; text-align: center; flex-shrink: 0; border-radius: 8px; }
+.nav-item:hover .nav-icon { background: rgba(255,255,255,.02); }
+.nav-item.active .nav-icon { background: rgba(15,167,101,.14); }
 .nav-label { flex: 1; }
 .nav-badge { background: var(--red); color: #fff; font-size: 9px; font-weight: 700; border-radius: var(--r-full); padding: 1px 5px; min-width: 16px; text-align: center; }
 
@@ -686,20 +692,20 @@ body {
 .topbar-search-wrap { position: relative; display: flex; align-items: center; flex: 1; max-width: 280px; }
 #topbar-search {
   width: 100%;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 9px 12px 9px 32px;
   font-size: 12px;
-  color: #111827;
+  color: var(--text);
   font-family: var(--font);
   outline: none;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
   transition: border-color var(--t-base), box-shadow var(--t-base), background var(--t-base);
 }
-#topbar-search::placeholder { color: #9ca3af; }
-#topbar-search:hover:not(:focus) { border-color: #d1d5db; }
-#topbar-search:focus { border-color: var(--chiva-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 3px rgba(15,167,101,.10); }
+#topbar-search::placeholder { color: var(--text-3); }
+#topbar-search:hover:not(:focus) { border-color: var(--border2); background: var(--card-hover); }
+#topbar-search:focus { border-color: var(--indigo-border); box-shadow: var(--shadow-sm), 0 0 0 5px var(--indigo-bg); }
 .topbar-search-icon { position: absolute; left: 9px; font-size: 12px; color: var(--text-3); pointer-events: none; }
 .topbar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
@@ -3363,33 +3369,39 @@ html.light .chart-card{
 }
 
 .filter-bar input, .filter-bar select{
-  border-color: #e5e7eb;
+  background: var(--card);
+  border-color: var(--border);
   border-radius: 12px;
   padding: 9px 12px;
-  color: #111827;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
 }
-.filter-bar input{ background: #ffffff; }
-.filter-bar select{ background: #f8fafc; }
-.filter-bar input::placeholder{ color: #9ca3af; }
+.filter-bar input{ background: var(--card); }
+.filter-bar select{ background: var(--card); }
+.filter-bar input::placeholder{ color: var(--text-3); }
 html.light .filter-bar input, html.light .filter-bar select{
   border-color: #e5e7eb;
 }
 .filter-bar input:hover, .filter-bar select:hover{
-  border-color: #d1d5db;
+  border-color: var(--border2);
 }
 html.light .filter-bar input:hover, html.light .filter-bar select:hover{
   border-color: #d1d5db;
 }
 .filter-bar input:focus, .filter-bar select:focus{
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 4px rgba(15,167,101,.10);
+  box-shadow: var(--shadow-sm), 0 0 0 5px var(--indigo-bg);
 }
 
 .btn{
-  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  background: rgba(255,255,255,.01);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 9px 12px;
   color: var(--text-2);
   font-size: 11px;
   font-weight: 700;
@@ -3398,10 +3410,16 @@ html.light .filter-bar input:hover, html.light .filter-bar select:hover{
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
 }
 .btn:hover{
-  background: rgba(255,255,255,.02);
+  background: rgba(255,255,255,.03);
   border-color: rgba(15,167,101,.22);
   color: var(--text);
   transform: translateY(-1px);
+}
+.btn:active{ transform: translateY(0); }
+.btn:focus-visible{
+  outline: none;
+  border-color: var(--indigo-border);
+  box-shadow: 0 0 0 5px var(--indigo-bg);
 }
 html.light .btn:hover{
   background: var(--card-hover);
