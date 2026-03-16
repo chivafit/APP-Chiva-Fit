@@ -6,17 +6,22 @@ ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS last_interaction_desc te
 ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS last_contact_at timestamptz;
 ALTER TABLE public.v2_clientes ADD COLUMN IF NOT EXISTS responsible_user text;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_kpis AS
+DROP VIEW IF EXISTS public.vw_dashboard_kpis;
+CREATE VIEW public.vw_dashboard_kpis AS
 SELECT
   COALESCE(sum(COALESCE(p.total, 0)), 0)::numeric AS faturamento_total,
-  COALESCE(count(p.*), 0)::int AS total_pedidos,
+  COALESCE(count(p.*), 0)::bigint AS total_pedidos,
   (COALESCE(sum(COALESCE(p.total, 0)), 0) / NULLIF(count(p.*), 0))::numeric AS ticket_medio,
-  (SELECT count(*)::int FROM public.v2_clientes c)::int AS total_clientes,
+  (SELECT count(*)::bigint FROM public.v2_clientes c)::bigint AS total_clientes,
   (SELECT avg(COALESCE(c.ltv, c.total_gasto, 0))::numeric FROM public.v2_clientes c)::numeric AS ltv_medio
 FROM public.v2_pedidos p
 WHERE p.data_pedido IS NOT NULL;
 
-CREATE OR REPLACE VIEW public.vw_clientes_inteligencia AS
+DROP VIEW IF EXISTS public.vw_clientes_sem_contato;
+DROP VIEW IF EXISTS public.vw_clientes_reativacao;
+DROP VIEW IF EXISTS public.vw_clientes_vip_risco;
+DROP VIEW IF EXISTS public.vw_clientes_inteligencia;
+CREATE VIEW public.vw_clientes_inteligencia AS
 WITH pedidos_canal AS (
   SELECT
     p.cliente_id,
@@ -76,7 +81,7 @@ base AS (
     c.primeiro_pedido,
     c.ultimo_pedido,
     c.intervalo_medio_dias,
-    COALESCE(NULLIF(cp.canal_principal_calc, ''), NULLIF(c.canal_principal, ''), 'outros') AS canal_principal,
+    COALESCE(NULLIF(cp.canal_principal_calc, '')::tipo_canal, c.canal_principal, 'outros'::tipo_canal) AS canal_principal,
     ci.score_final,
     NULLIF(ci.segmento, '') AS segmento_ci,
     NULLIF(ci.next_best_action, '') AS next_best_action,
@@ -104,7 +109,7 @@ SELECT
   b.celular,
   b.cidade,
   b.uf,
-  b.total_pedidos,
+  (b.total_pedidos::bigint) AS total_pedidos,
   b.total_gasto,
   b.ltv,
   b.ticket_medio,
@@ -175,10 +180,11 @@ SELECT
   b.next_best_action
 FROM base b;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_daily AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_daily;
+CREATE VIEW public.vw_dashboard_v2_daily AS
 SELECT
   p.data_pedido AS dia,
-  count(*)::int AS pedidos,
+  count(*)::bigint AS pedidos,
   sum(COALESCE(p.total, 0))::numeric AS faturamento,
   (sum(COALESCE(p.total, 0)) / NULLIF(count(*), 0))::numeric AS ticket_medio
 FROM public.v2_pedidos p
@@ -186,11 +192,12 @@ WHERE p.data_pedido IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_daily_channel AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_daily_channel;
+CREATE VIEW public.vw_dashboard_v2_daily_channel AS
 SELECT
   p.data_pedido AS dia,
   COALESCE(NULLIF(c.slug, ''), 'outros') AS canal,
-  count(*)::int AS pedidos,
+  count(*)::bigint AS pedidos,
   sum(COALESCE(p.total, 0))::numeric AS faturamento
 FROM public.v2_pedidos p
 LEFT JOIN public.v2_canais c
@@ -199,11 +206,152 @@ WHERE p.data_pedido IS NOT NULL
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
-CREATE OR REPLACE VIEW public.vw_dashboard_v2_new_customers_daily AS
+DROP VIEW IF EXISTS public.vw_dashboard_v2_new_customers_daily;
+CREATE VIEW public.vw_dashboard_v2_new_customers_daily AS
 SELECT
   c.primeiro_pedido AS dia,
-  count(*)::int AS novos_clientes
+  count(*)::bigint AS novos_clientes
 FROM public.v2_clientes c
 WHERE c.primeiro_pedido IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
+
+DROP VIEW IF EXISTS public.vw_funil_recompra;
+CREATE VIEW public.vw_funil_recompra AS
+WITH base AS (
+  SELECT
+    c.id AS cliente_id,
+    c.ultimo_pedido,
+    CASE
+      WHEN c.ultimo_pedido IS NULL THEN NULL
+      ELSE (now()::date - c.ultimo_pedido)::int
+    END AS dias
+  FROM public.v2_clientes c
+)
+SELECT
+  s.etapa,
+  s.ordem,
+  count(*)::int AS clientes
+FROM (
+  SELECT
+    CASE
+      WHEN b.dias IS NULL THEN 'Sem compra'
+      WHEN b.dias <= 30 THEN 'Ativos (0–30d)'
+      WHEN b.dias <= 60 THEN 'Atenção (31–60d)'
+      WHEN b.dias <= 120 THEN 'Risco (61–120d)'
+      ELSE 'Churn (121+d)'
+    END AS etapa,
+    CASE
+      WHEN b.dias IS NULL THEN 5
+      WHEN b.dias <= 30 THEN 1
+      WHEN b.dias <= 60 THEN 2
+      WHEN b.dias <= 120 THEN 3
+      ELSE 4
+    END AS ordem
+  FROM base b
+) s
+GROUP BY 1, 2
+ORDER BY 2;
+
+DROP VIEW IF EXISTS public.vw_top_cidades;
+CREATE VIEW public.vw_top_cidades AS
+SELECT
+  NULLIF(trim(c.cidade), '') AS cidade,
+  upper(NULLIF(trim(c.uf), '')) AS uf,
+  count(p.*)::bigint AS pedidos,
+  sum(COALESCE(p.total, 0))::numeric AS faturamento,
+  count(DISTINCT c.id)::int AS total_clientes
+FROM public.v2_pedidos p
+JOIN public.v2_clientes c
+  ON c.id = p.cliente_id
+WHERE p.data_pedido IS NOT NULL
+  AND NULLIF(trim(c.cidade), '') IS NOT NULL
+GROUP BY 1, 2
+ORDER BY faturamento DESC NULLS LAST;
+
+DROP VIEW IF EXISTS public.vw_produtos_favoritos;
+CREATE VIEW public.vw_produtos_favoritos AS
+SELECT
+  NULLIF(trim(i.produto_nome), '') AS produto,
+  sum(COALESCE(i.quantidade, 0))::numeric AS unidades_vendidas,
+  sum(COALESCE(i.valor_total, 0))::numeric AS faturamento,
+  count(DISTINCT p.cliente_id)::int AS total_clientes
+FROM public.v2_pedidos_items i
+JOIN public.v2_pedidos p
+  ON p.id = i.pedido_id
+GROUP BY 1
+ORDER BY faturamento DESC NULLS LAST;
+
+DROP VIEW IF EXISTS public.vw_clientes_vip_risco;
+CREATE VIEW public.vw_clientes_vip_risco AS
+SELECT
+  v.cliente_id,
+  v.nome,
+  v.email,
+  v.telefone,
+  v.celular,
+  v.cidade,
+  v.uf,
+  v.total_pedidos,
+  v.total_gasto,
+  v.ltv,
+  v.dias_desde_ultima_compra,
+  v.canal_principal,
+  v.risco_churn
+FROM public.vw_clientes_inteligencia v
+WHERE (COALESCE(v.ltv, v.total_gasto, 0) >= 650 OR COALESCE(v.total_pedidos, 0) >= 6)
+  AND COALESCE(v.dias_desde_ultima_compra, 0) >= 30
+  AND COALESCE(v.dias_desde_ultima_compra, 0) <= 120
+ORDER BY v.dias_desde_ultima_compra DESC NULLS LAST, COALESCE(v.ltv, v.total_gasto, 0) DESC NULLS LAST;
+
+DROP VIEW IF EXISTS public.vw_clientes_reativacao;
+CREATE VIEW public.vw_clientes_reativacao AS
+SELECT
+  v.cliente_id,
+  v.nome,
+  v.email,
+  v.telefone,
+  v.celular,
+  v.cidade,
+  v.uf,
+  v.total_pedidos,
+  v.total_gasto,
+  v.ltv,
+  v.dias_desde_ultima_compra,
+  v.canal_principal,
+  v.risco_churn
+FROM public.vw_clientes_inteligencia v
+WHERE COALESCE(v.dias_desde_ultima_compra, 0) >= 61
+  AND COALESCE(v.dias_desde_ultima_compra, 0) <= 120
+ORDER BY COALESCE(v.ltv, v.total_gasto, 0) DESC NULLS LAST, v.dias_desde_ultima_compra DESC NULLS LAST;
+
+DROP VIEW IF EXISTS public.vw_clientes_sem_contato;
+CREATE VIEW public.vw_clientes_sem_contato AS
+SELECT
+  v.cliente_id,
+  v.nome,
+  v.email,
+  v.telefone,
+  v.celular,
+  v.cidade,
+  v.uf,
+  v.total_pedidos,
+  v.total_gasto,
+  v.ltv,
+  v.dias_desde_ultima_compra,
+  v.canal_principal,
+  v.last_contact_at,
+  v.responsible_user,
+  CASE
+    WHEN NULLIF(trim(COALESCE(v.celular, v.telefone)), '') IS NULL AND NULLIF(trim(v.email), '') IS NULL THEN 'sem whatsapp/email'
+    WHEN v.last_contact_at IS NULL THEN 'sem contato registrado'
+    WHEN v.last_contact_at < (now() - interval '30 days') THEN '30+ dias sem contato'
+    ELSE '—'
+  END AS motivo
+FROM public.vw_clientes_inteligencia v
+WHERE (
+  (NULLIF(trim(COALESCE(v.celular, v.telefone)), '') IS NULL AND NULLIF(trim(v.email), '') IS NULL)
+  OR v.last_contact_at IS NULL
+  OR v.last_contact_at < (now() - interval '30 days')
+)
+ORDER BY COALESCE(v.ltv, v.total_gasto, 0) DESC NULLS LAST, v.dias_desde_ultima_compra DESC NULLS LAST;

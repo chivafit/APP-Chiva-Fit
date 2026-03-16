@@ -3,6 +3,8 @@
 -- Rodar no SQL Editor do Supabase
 -- ==========================================
 
+create extension if not exists pgcrypto;
+
 -- 1. TABELA DE INSUMOS
 CREATE TABLE IF NOT EXISTS public.insumos (
     id text PRIMARY KEY,
@@ -292,6 +294,7 @@ BEGIN
           AND table_type = 'BASE TABLE'
     LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Anon Full Access" ON public.%I', t);
-        EXECUTE format('CREATE POLICY "Anon Full Access" ON public.%I FOR ALL USING (true) WITH CHECK (true)', t);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated Full Access" ON public.%I', t);
+        EXECUTE format('CREATE POLICY "Authenticated Full Access" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', t);
     END LOOP;
 END $$;

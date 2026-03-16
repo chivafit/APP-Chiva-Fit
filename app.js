@@ -35,7 +35,8 @@ import {
 } from "./sync/bling.js?v=20260313-3";
 import {
   syncYampi as syncYampiImpl,
-  syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl
+  syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
+  scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
 } from "./sync/yampi.js?v=20260313-3";
 
 document.addEventListener("DOMContentLoaded",function(){
@@ -69,6 +70,13 @@ let canaisLookup = {};
 let clientesIntelCache = [];
 let clientesIntelLoadedAt = 0;
 let clientesIntelInFlight = false;
+let clientesIntelCursor = null;
+let clientesIntelHasMore = true;
+let clientesIntelObserver = null;
+let clientesIntelDomMode = "";
+let clientesIntelDomCount = 0;
+let clientesIntelUfSet = new Set();
+let clientesIntelSegSet = new Set();
 
 // ═══════════════════════════════════════════════════
 //  THEME SYSTEM
@@ -152,6 +160,9 @@ let allTasks = safeJsonParse("crm_tasks", null) || [
 let taskIdSeq = allTasks.length ? Math.max(...allTasks.map(t=>t.id))+1 : 1;
 let CRM_BOOTSTRAPPED = false;
 let CRM_BOOTSTRAP_ERROR = null;
+let dataReady = false;
+let isLoadingData = false;
+let lastDetectChDebugCanal = "";
 
 CRMStore.data.orders = allOrders;
 CRMStore.data.customers = allCustomers;
@@ -239,18 +250,84 @@ try{
 }
 
 function mergeOrders(){
-  const seen=new Set();
-  allOrders.length=0;
-  [...blingOrders,...yampiOrders].forEach(o=>{
-    const k=(o._source||"b")+":"+(o.id||o.numero);
-    if(!seen.has(k)){ seen.add(k); allOrders.push(o); }
+  if(isLoadingData) return;
+  const seen = new Set();
+  allOrders.length = 0;
+
+  const normKey = (v)=>String(v ?? "").trim();
+  const safeLower = (v)=>String(v ?? "").toLowerCase().trim();
+
+  (Array.isArray(blingOrders) ? blingOrders : []).forEach((o, idx)=>{
+    const key = normKey(o?.numero || o?.id) || ("idx:" + idx);
+    const sk = "b:" + key;
+    if(seen.has(sk)) return;
+    seen.add(sk);
+    try{ o._source = "bling"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "bling"));
   });
+
+  (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((o, idx)=>{
+    const keyNum = normKey(o?.numero || o?.id);
+    if(keyNum && seen.has("b:" + keyNum)) return;
+
+    const keyEmail = [
+      safeLower(o?.email || o?.contato?.email),
+      String(o?.data || o?.dataPedido || o?.data_pedido || "").slice(0,10),
+      String(Math.round(Number(o?.total || o?.valor || o?.totalProdutos || 0)))
+    ].join("|");
+
+    if(keyEmail !== "||0" && seen.has("y:" + keyEmail)) return;
+    if(keyEmail !== "||0") seen.add("y:" + keyEmail);
+    if(!keyEmail || keyEmail === "||0"){
+      const fallback = "y:idx:" + idx;
+      if(seen.has(fallback)) return;
+      seen.add(fallback);
+    }
+
+    try{ o._source = "yampi"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "yampi"));
+  });
+
+  (Array.isArray(shopifyOrders) ? shopifyOrders : []).forEach((o, idx)=>{
+    const keyNum = normKey(o?.numero || o?.order_number || o?.name || o?.id);
+    if(keyNum && (seen.has("b:" + keyNum) || seen.has("y:" + keyNum))) return;
+    const key = keyNum || ("idx:" + idx);
+    const sk = "s:" + key;
+    if(seen.has(sk)) return;
+    seen.add(sk);
+    try{ o._source = "shopify"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "shopify"));
+  });
+
   const nextCustomers = Object.values(buildCli(allOrders)).map(c=>{
-    const sc=calcCliScores(c);
-    return {...c, total_gasto:sc.ltv, status:sc.status, canal_principal:c.channels&&c.channels.size?[...c.channels][0]:""};
+    const sc = calcCliScores(c);
+    return { ...c, total_gasto: sc.ltv, status: sc.status, canal_principal: c.channels && c.channels.size ? [...c.channels][0] : "" };
   });
-  allCustomers.length=0;
+  allCustomers.length = 0;
   allCustomers.push(...nextCustomers);
+
+  (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((yo)=>{
+    const email = safeLower(yo?.email || yo?.contato?.email);
+    if(!email) return;
+    const cliente = allCustomers.find(c => safeLower(c?.email) === email);
+    if(!cliente) return;
+    const tel = String(yo?.telefone || yo?.contato?.telefone || yo?.contato?.celular || "").trim();
+    const doc = String(yo?.doc || yo?.cpfCnpj || yo?.contato?.cpfCnpj || yo?.contato?.numeroDocumento || "").trim();
+    if(!cliente.telefone && tel) cliente.telefone = tel;
+    if(!cliente.doc && doc) cliente.doc = doc;
+  });
+
+  console.log(
+    "[mergeOrders] Total:",
+    allOrders.length,
+    "| Bling:",
+    allOrders.filter(o=>o._source==="bling").length,
+    "| Yampi exclusivo:",
+    allOrders.filter(o=>o._source==="yampi").length,
+    "| Shopify:",
+    allOrders.filter(o=>o._source==="shopify").length
+  );
+
   computeCustomerIntelligence();
   reconcileCarrinhosRecuperados().catch(()=>{});
   recomputeCarrinhosScoresAndPersist().catch(()=>{});
@@ -375,9 +452,6 @@ async function bootstrapFromSupabase(){
   try{
     const connected = await initSupabase();
     if(connected) await loadSupabaseData();
-    mergeOrders();
-    populateUFs();
-    renderAll();
 
     CRM_BOOTSTRAPPED = true;
     CRM_BOOTSTRAP_ERROR = null;
@@ -558,6 +632,8 @@ function enterApp(userEmail){
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
       try{ scheduleAutoBlingSync(); }catch(_e){}
+      try{ scheduleAutoCarrinhosSync(); }catch(_e){}
+      localStorage.setItem('crm_last_bling_sync', new Date().toISOString());
     }catch(e){
       console.warn("Erro no bootstrap, usando cache local:", e.message);
       // Fallback: usar dados locais se existirem
@@ -576,6 +652,7 @@ function enterApp(userEmail){
       safeInvokeName("renderAll");
       safeInvokeName("updateBadge");
       try{ scheduleAutoBlingSync(); }catch(_e){}
+      try{ scheduleAutoCarrinhosSync(); }catch(_e){}
     }finally{
       clearTimeout(overlayKill);
       if(overlay){ overlay.style.display="none"; overlay.style.pointerEvents="none"; }
@@ -1008,6 +1085,119 @@ function hydrateConfigPage(){
 
   loadTemplatesUI();
   renderAccessUsers();
+  refreshBlingAutoCard();
+  startBlingAutoCardRefresh();
+}
+
+let blingAutoCardTimer = null;
+
+function startBlingAutoCardRefresh(){
+  if(blingAutoCardTimer) clearInterval(blingAutoCardTimer);
+  blingAutoCardTimer = setInterval(()=>{
+    const active = document.getElementById("page-config")?.classList.contains("active");
+    if(!active) return;
+    refreshBlingAutoCard();
+  }, 30000);
+}
+
+function fmtDateTimePtBR(iso){
+  const ts = iso ? new Date(String(iso)).getTime() : NaN;
+  if(!isFinite(ts)) return "—";
+  return new Date(ts).toLocaleString("pt-BR");
+}
+
+function blingStateBadge(state){
+  const el = document.getElementById("bling-auto-state");
+  if(!el) return;
+  const s = String(state||"").toLowerCase();
+  const label =
+    s === "ok" ? "OK" :
+    s === "running" ? "Executando" :
+    s === "late" ? "Atrasado" :
+    s === "error" ? "Erro" :
+    s === "waiting" ? "Aguardando" :
+    "—";
+  const cls =
+    s === "ok" ? "chiva-badge chiva-badge-green" :
+    s === "running" ? "chiva-badge chiva-badge-amber" :
+    s === "late" ? "chiva-badge chiva-badge-amber" :
+    s === "waiting" ? "chiva-badge chiva-badge-amber" :
+    s === "error" ? "chiva-badge chiva-badge-red" :
+    "chiva-badge";
+  el.textContent = label;
+  el.className = cls;
+}
+
+async function refreshBlingAutoCard(){
+  const card = document.getElementById("bling-auto-card");
+  if(!card) return;
+
+  const lastEl = document.getElementById("bling-auto-last");
+  const nextEl = document.getElementById("bling-auto-next");
+  const ordersEl = document.getElementById("bling-auto-orders");
+  const productsEl = document.getElementById("bling-auto-products");
+  const msgEl = document.getElementById("bling-auto-message");
+
+  let lastOrdersIso = "";
+  let lastProductsIso = "";
+
+  if(supaConnected && supaClient){
+    try{
+      const {data} = await supaClient
+        .from("configuracoes")
+        .select("chave,valor_texto")
+        .in("chave", ["ultima_sync_bling","ultima_sync_bling_produtos"])
+        .limit(10);
+      (data||[]).forEach(r=>{
+        const k = String(r?.chave||"").trim();
+        const v = String(r?.valor_texto||"").trim();
+        if(k === "ultima_sync_bling") lastOrdersIso = v;
+        if(k === "ultima_sync_bling_produtos") lastProductsIso = v;
+      });
+    }catch(_e){}
+  }
+
+  const lastOrdersTs = lastOrdersIso ? new Date(lastOrdersIso).getTime() : NaN;
+  const lastProductsTs = lastProductsIso ? new Date(lastProductsIso).getTime() : NaN;
+  const lastTs = Math.max(isFinite(lastOrdersTs)?lastOrdersTs:0, isFinite(lastProductsTs)?lastProductsTs:0) || 0;
+  const lastIso = lastTs ? new Date(lastTs).toISOString() : "";
+
+  const nowTs = Date.now();
+  const ageMin = lastTs ? Math.max(0, Math.floor((nowTs - lastTs) / 60000)) : null;
+
+  let state = "waiting";
+  if(lastTs){
+    if(ageMin != null && ageMin <= 30) state = "ok";
+    else if(ageMin != null && ageMin <= 180) state = "late";
+    else state = "error";
+  }
+  blingStateBadge(state);
+
+  if(lastEl) lastEl.textContent = lastIso ? fmtDateTimePtBR(lastIso) : "—";
+
+  const nextTs = lastTs ? (lastTs + 20*60*1000) : 0;
+  if(nextEl){
+    if(!lastTs) nextEl.textContent = "—";
+    else nextEl.textContent = fmtDateTimePtBR(new Date(nextTs).toISOString());
+  }
+
+  if(ordersEl){
+    const n = Array.isArray(blingOrders) ? blingOrders.length : 0;
+    ordersEl.textContent = n ? String(n) : "—";
+  }
+  if(productsEl){
+    const n = Array.isArray(blingProducts) ? blingProducts.length : 0;
+    productsEl.textContent = n ? String(n) : "—";
+  }
+
+  if(msgEl){
+    let msg = "";
+    if(state === "waiting") msg = "Aguardando primeira sincronização.";
+    if(state === "late") msg = "Sem atualização recente. Verifique se a sincronização está rodando.";
+    if(state === "error") msg = "Falha ou atraso crítico. Tente sincronizar manualmente ou verifique o backend.";
+    msgEl.textContent = msg;
+    msgEl.style.display = msg ? "block" : "none";
+  }
 }
 
 ensureBootstrapAdminUser().catch(()=>{});
@@ -1148,12 +1338,14 @@ function scheduleAutoBlingSync(){
 async function syncBling(){
   const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
   checkEstoqueCritico();
+  try{ refreshBlingAutoCard(); }catch(_e){}
   return res;
 }
 
 async function syncBlingProdutos(){
   const res = await syncBlingProdutosImpl(getSyncCtx());
   checkEstoqueCritico();
+  try{ refreshBlingAutoCard(); }catch(_e){}
   return res;
 }
 
@@ -1164,6 +1356,10 @@ async function backfillBlingEnderecos(){
 // ═══════════════════════════════════════════════════
 //  YAMPI
 // ═══════════════════════════════════════════════════
+function scheduleAutoCarrinhosSync(){
+  return scheduleAutoCarrinhosSyncImpl(getSyncCtx());
+}
+
 async function syncYampi(){
   const res = await syncYampiImpl(getSyncCtx());
   checkEstoqueCritico();
@@ -1261,6 +1457,26 @@ function val(o){
   if(!o) return 0;
   const v = o.total_pedido || o.total_venda || o.totalProdutos || o.total || o.valor || 0;
   return parseFloat(v) || 0; 
+}
+function getPedidoItens(o){
+  const raw =
+    Array.isArray(o?.itens) ? o.itens :
+    Array.isArray(o?.items) ? o.items :
+    Array.isArray(o?.produtos) ? o.produtos :
+    Array.isArray(o?.itensPedido) ? o.itensPedido :
+    [];
+  if(!Array.isArray(raw) || !raw.length) return [];
+  const out = [];
+  raw.filter(Boolean).forEach(it=>{
+    const descricao = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || it?.produto || it?.product_name || "").trim();
+    const codigo = String(it?.codigo || it?.sku || it?.id || it?.product_id || "").trim();
+    const quantidade = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
+    const valor = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
+    const valor_total = it?.valor_total != null ? (Number(it.valor_total) || 0) : (quantidade * valor);
+    if(!descricao && !codigo) return;
+    out.push({ descricao, codigo, quantidade, valor, valor_total });
+  });
+  return out;
 }
 function cliKey(o){
   const contato = o?.contato || {};
@@ -1675,6 +1891,61 @@ async function openWhatsAppCarrinho(checkoutId){
   }
 }
 
+function openCarrinhoLinkFromRadar(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  const link = c?.link_finalizacao ? String(c.link_finalizacao) : "";
+  if(!link){ toast("⚠ Carrinho sem link"); return; }
+  window.open(link, "_blank");
+}
+
+function openCarrinhoInComercialFromRadar(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid) || {};
+  const q = String(c.email || c.telefone || cid || "").trim();
+  try{
+    showPage("comercial");
+    setComTab("carrinhos");
+    const inp = document.getElementById("car-search");
+    if(inp) inp.value = q;
+    renderCarrinhosAbandonados();
+  }catch(_e){}
+}
+
+function openRadarVisitouDrawer(checkoutId){
+  const cid = String(checkoutId||"");
+  const c0 = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c0){ toast("⚠ Carrinho não encontrado"); return; }
+  const c = normalizeCarrinhoAbandonado(c0);
+  const lookup = buildClienteLookupParaCarrinhos();
+  const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+  const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+  const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+  const tempo = fmtTempoDesde(calc.mins);
+  const nome = String(c.cliente_nome || "Cliente").trim();
+  const contato = [c.telefone?fmtPhone(c.telefone):"", c.email?String(c.email):""].filter(Boolean).join(" · ") || "—";
+  const resumo = (Array.isArray(c.produtos) ? c.produtos : []).slice(0,4).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join(", ");
+  const body = `
+    <div class="drawer-section">
+      <div class="drawer-section-title">Visita / Carrinho</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Cliente</span><span>${escapeHTML(nome)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Contato</span><span>${escapeHTML(contato)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Tempo</span><span class="chiva-table-mono">${escapeHTML(tempo||"—")}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Valor</span><span class="chiva-table-mono" style="color:var(--green)">${escapeHTML(fmtBRL(c.valor||0))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Score</span><span class="chiva-table-mono">${escapeHTML(String(Math.round(score||0)))}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Próxima mensagem</span><span>${escapeHTML(String(etapa?.label||"—"))}</span></div>
+    </div>
+    ${resumo ? `<div class="drawer-section"><div class="drawer-section-title">Itens</div><div style="font-size:12px;color:var(--text-2);line-height:1.6">${escapeHTML(resumo)}</div></div>` : ""}
+  `;
+  const actions = `
+    <button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>
+    <button class="drawer-btn drawer-btn-ghost" onclick="openCarrinhoInComercialFromRadar('${escapeJsSingleQuote(cid)}')">Abrir carrinho</button>
+    ${c.link_finalizacao ? `<button class="drawer-btn drawer-btn-ghost" onclick="openCarrinhoLinkFromRadar('${escapeJsSingleQuote(cid)}')">Link</button>` : ""}
+    ${rawPhone(c.telefone||"") ? `<button class="drawer-btn drawer-btn-primary" onclick="openWhatsAppCarrinho('${escapeJsSingleQuote(cid)}')">WhatsApp</button>` : ""}
+  `;
+  openDrawer("👀 Visitou", "Carrinho aberto (sem compra)", body, actions);
+}
+
 async function reconcileCarrinhosRecuperados(){
   try{
     carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
@@ -1891,6 +2162,12 @@ function showPage(id){
   if(id==="cliente") setTimeout(()=>safeInvokeName("renderClientePage"),0);
   if(id==="inteligencia") setTimeout(()=>safeInvokeName("renderInteligencia"),0);
   if(id==="cidades") setTimeout(()=>safeInvokeName("renderCidades"),50);
+  if(id==="produtos") setTimeout(async ()=>{
+    try{
+      if(supaConnected && supaClient) await loadBlingProductsFromSupabase();
+    }catch(_e){}
+    safeInvokeName("renderProdutos");
+  },50);
   if(id==="ia") setTimeout(()=>safeInvokeName("renderIADashboard"),50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
 
@@ -2024,7 +2301,7 @@ function openTaskModal(id, cliente, customerId){
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px" id="task-modal-overlay">
       <div style="background:var(--surface);border-radius:16px;padding:20px;width:100%;max-width:400px;border:1px solid var(--border)">
         <div style="font-size:14px;font-weight:800;margin-bottom:14px">${t?"✏️ Editar":"➕ Nova"} Tarefa</div>
-        <input type="hidden" id="tm-customer-id" value="${escapeHTML(String(customerId||""))}"/>
+        <input type="hidden" id="tm-customer-id" value="${escapeHTML(String(t?.customer_id||customerId||""))}"/>
         <input id="tm-titulo" placeholder="Título da tarefa *" value="${escapeHTML(t?.titulo||"")}" 
           style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box"/>
         <textarea id="tm-desc" placeholder="Descrição (opcional)" rows="2"
@@ -2066,6 +2343,7 @@ function saveTask(id){
     titulo,
     desc: document.getElementById("tm-desc")?.value.trim()||"",
     cliente: document.getElementById("tm-cliente")?.value.trim()||"",
+    customer_id: String(document.getElementById("tm-customer-id")?.value || "").trim(),
     prioridade: document.getElementById("tm-prio")?.value||"media",
     status: document.getElementById("tm-status")?.value||"pendente",
     data: parseDateToIso(document.getElementById("tm-data")?.value||"") || "",
@@ -2075,26 +2353,34 @@ function saveTask(id){
   saveTasks();
   // Sincronizar com v2_tarefas (fire-and-forget)
   if(supaConnected && supaClient){
-    const sbTask = {
+    const sbTaskBase = {
       titulo: task.titulo,
       descricao: task.desc||null,
       prioridade: task.prioridade,
       status: task.status === 'pendente' ? 'aberta' : task.status,
       vencimento: task.data||null,
     };
-    if(task._supaId){
-      // tarefa existente com UUID conhecido — atualizar
-      supaClient.from('v2_tarefas').update(sbTask).eq('id', task._supaId).then(()=>{});
-    } else {
-      // nova tarefa — inserir
-      supaClient.from('v2_tarefas').insert({...sbTask, created_at: new Date().toISOString()})
-        .select('id').single().then(({data})=>{
-          if(data?.id){
-            // guardar UUID para sincronizações futuras
-            const t2=allTasks.find(t=>t.id===task.id);
-            if(t2){ t2._supaId=data.id; saveTasks(); }
-          }
-        });
+    const syncToSupabase = (sbTask)=>{
+      if(task._supaId){
+        supaClient.from('v2_tarefas').update(sbTask).eq('id', task._supaId).then(()=>{});
+      } else {
+        supaClient.from('v2_tarefas').insert({...sbTask, created_at: new Date().toISOString()})
+          .select('id').single().then(({data})=>{
+            if(data?.id){
+              const t2=allTasks.find(t=>t.id===task.id);
+              if(t2){ t2._supaId=data.id; saveTasks(); }
+            }
+          });
+      }
+    };
+    const cid = String(task.customer_id||"").trim();
+    if(cid){
+      resolveCustomerUuid(cid).then(uuid=>{
+        const sbTask = uuid ? { ...sbTaskBase, cliente_id: uuid } : sbTaskBase;
+        syncToSupabase(sbTask);
+      }).catch(()=>{ syncToSupabase(sbTaskBase); });
+    }else{
+      syncToSupabase(sbTaskBase);
     }
   }
   document.getElementById("task-modal-overlay")?.remove();
@@ -2551,41 +2837,83 @@ function detectCh(o){
   const doc=(o.contato?.cpfCnpj||o.contato?.numeroDocumento||"").replace(/\D/g,"");
   if(doc.length===14) return "cnpj";
 
-  if(o._source==="shopify") return "shopify";
-
   const norm=(v)=>String(v||"")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g,"");
 
-  const fields=[
+  const known={ml:1,shopee:1,amazon:1,shopify:1,cnpj:1,yampi:1,outros:1};
+  const origemCanal = norm(o?.origem_canal || o?.origemCanal || "");
+  if(origemCanal){
+    if(origemCanal === "mercado_livre") return "ml";
+    if(origemCanal === "b2b") return "cnpj";
+    if(known[origemCanal]) return origemCanal;
+  }
+  const canalRaw = norm(o?.canal?.nome || o?.canal?.descricao || o?.canal);
+  const origemRaw = norm(o?.origem?.nome || o?.origem?.descricao || o?.origem);
+  const lojaRaw = norm(o?.loja?.nome || o?.loja?.descricao || o?.loja);
+  const srcRaw = norm(o?._source || o?.source);
+  const numRaw = norm(o?.numero || o?.numeroPedidoEcommerce || o?._raw?.numeroPedidoEcommerce || o?.numero_pedido || o?.id);
+
+  const guess = (s)=>{
+    const t = norm(s);
+    if(!t) return "";
+    if(/\bshopify\b|\bsite\b/.test(t)) return "shopify";
+    if(/\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(t)) return "ml";
+    if(/\bshopee\b/.test(t)) return "shopee";
+    if(/\byampi\b/.test(t)) return "yampi";
+    if(/\bamazon\b/.test(t)) return "amazon";
+    return "";
+  };
+
+  const g1 = guess(canalRaw);
+  if(g1) return g1;
+  const g2 = guess(origemRaw);
+  if(g2) return g2;
+  const g3 = guess(lojaRaw);
+  if(g3) return g3;
+
+  if(srcRaw && known[srcRaw]) return srcRaw;
+
+  const fields = [
     o.observacoes,
-    o.loja?.nome, o.loja?.descricao,
-    o.origem?.nome, o.origem?.descricao,
-    o.canal?.nome, o.canal?.descricao,
     o.ecommerce?.nome, o.ecommerce?.descricao,
     o.numeroPedidoEcommerce,
-    // Busca profunda no _raw para garantir retrocompatibilidade e precisão
     o._raw?.loja?.nome,
-    o._raw?.numeroPedidoEcommerce,
     o._raw?.observacoes
   ].map(norm).join(" ");
+  const gx = guess(fields);
+  if(gx) return gx;
 
-  if(fields.includes("shopify")) return "shopify";
+  if(/^mlb/.test(numRaw) || /^ml[\W_]/.test(numRaw) || /^ml\d/.test(numRaw)) return "ml";
+  if(/^shopee/.test(numRaw) || /^sp[\W_]/.test(numRaw) || /^sp\d/.test(numRaw)) return "shopee";
+  if(/^shopify/.test(numRaw) || /^sh[\W_]/.test(numRaw) || /^sh\d/.test(numRaw)) return "shopify";
 
-  const numExt=norm(o.numeroPedidoEcommerce || o._raw?.numeroPedidoEcommerce);
-  if(/\bmercado\s*livre\b|\bmercadolivre\b|\bmlb\b|\bmeli\b/.test(fields) || /^mlb/.test(numExt)) return "ml";
-  if(/\bshopee\b/.test(fields) || /^shopee/.test(numExt)) return "shopee";
-  if(/\bamazon\b/.test(fields)) return "amazon";
-
-  if(/\byampi\b/.test(fields)) return "yampi";
-
-  const known={ml:1,shopee:1,amazon:1,shopify:1,cnpj:1,yampi:1,outros:1};
-  if(o._canal && known[o._canal]) return o._canal;
+  const canal = norm(o?._canal);
+  if(canal && known[canal]) return canal;
   return "outros";
 }
 const CH={ml:"Mercado Livre",shopee:"Shopee",amazon:"Amazon",shopify:"Site (Shopify)",cnpj:"B2B (Atacado)",yampi:"Yampi",outros:"Outros"};
 const CH_COLOR={ml:"#f3b129",shopee:"#f06320",amazon:"#00a8e0",shopify:"#96bf48",yampi:"#e040fb",cnpj:"#f59e0b",outros:"#9b8cff"};
+function normCanalKey(v){
+  return String(v||"").toLowerCase().trim();
+}
+function clienteTemPedidoNoCanal(clienteId, canal){
+  const canalFiltro = normCanalKey(canal);
+  if(!canalFiltro) return true;
+  const cid = String(clienteId||"").trim();
+  if(!cid) return false;
+  const list = Array.isArray(allOrders) ? allOrders : [];
+  return list.some(o=>{
+    const ehDoCliente =
+      String(cliKey(o)||"").trim() === cid ||
+      String(orderCustomerKey(o)||"").trim() === cid ||
+      String(o?.cliente_id||"").trim() === cid;
+    if(!ehDoCliente) return false;
+    const ch = normCanalKey(detectCh(o));
+    return ch === canalFiltro;
+  });
+}
 function normSt(s){ const v=(s?.nome||s?.id||s||"").toString().toLowerCase(); if(/aprovado|pago|conclu|fatur|enviado|entregue|paid|authorized/i.test(v)) return "aprovado"; if(/pendent|aguard|aberto|novo|pending/i.test(v)) return "pendente"; if(/cancel|refund|void/i.test(v)) return "cancelado"; return "outros"; }
 const ST_LABEL={aprovado:"Aprovado",pendente:"Pendente",cancelado:"Cancelado"};
 const ST_CLASS={aprovado:"s-aprovado",pendente:"s-pendente",cancelado:"s-cancelado"};
@@ -2712,6 +3040,19 @@ function buildCli(list){
 
 // ── Scores ──────────────────────────────────────────
 function calcCliScores(c){
+  if(!c || typeof c !== "object") return {ltv:0,recorrencia:0,recompraScore:0,churnRisk:0,avgInterval:null,status:"outros",n:0,ds:9999,isCnpj:false};
+  if(!Array.isArray(c.orders)) c.orders = [];
+  if(!c.orders.length && Array.isArray(allOrders) && allOrders.length){
+    const cid = String(c.id || "").trim();
+    if(cid){
+      const rebuilt = allOrders.filter(o=>{
+        const ok1 = String(orderCustomerKey(o)||"").trim() === cid;
+        const ok2 = String(cliKey(o)||"").trim() === cid;
+        return ok1 || ok2 || String(o?.cliente_id||"").trim() === cid;
+      });
+      if(rebuilt.length) c.orders = rebuilt;
+    }
+  }
   const tot=c.orders.reduce((s,o)=>s+val(o),0);
   const n=c.orders.length;
   const ds=daysSince(c.last);
@@ -2739,6 +3080,9 @@ function calcCliScores(c){
   if(tot>=650&&!isCnpj) recompraScore+=20;
   if(avgInterval&&avgInterval<45) recompraScore+=10;
   recompraScore=Math.min(recompraScore,100);
+  if(recompraScore === 0 && n > 0){
+    try{ console.warn("[Score zero inesperado]", c.id, c.nome, "pedidos:", n); }catch(_e){}
+  }
 
   // Risco de churn (0-100)
   let churnRisk=0;
@@ -2947,16 +3291,60 @@ async function renderDashRevenueFromSupabase(){
   return true;
 }
 
+let dashRenderTimer = null;
+let dashLastYearRange = "";
+
+function isDashCompareEnabled(){
+  const v = String(localStorage.getItem("crm_dash_compare") || "1").trim();
+  return v !== "0";
+}
+function toggleDashCompare(){
+  const next = isDashCompareEnabled() ? "0" : "1";
+  localStorage.setItem("crm_dash_compare", next);
+  renderDash();
+}
+function isDashMAEnabled(){
+  const v = String(localStorage.getItem("crm_dash_ma") || "0").trim();
+  return v === "1";
+}
+function toggleDashMA(){
+  const next = isDashMAEnabled() ? "0" : "1";
+  localStorage.setItem("crm_dash_ma", next);
+  renderDash();
+}
+
+function detectTipoVenda(o){
+  const raw = String(o?.tipo_venda ?? o?.tipoVenda ?? "").trim().toLowerCase();
+  if(raw === "b2b" || raw === "b2c") return raw;
+  const doc = String(o?.contato?.cpfCnpj || o?.contato?.numeroDocumento || "").replace(/\D/g,"");
+  if(doc.length === 14) return "b2b";
+  return "b2c";
+}
+
 function renderDash(){
+  if(dashRenderTimer) clearTimeout(dashRenderTimer);
+  dashRenderTimer = setTimeout(()=>{
+    dashRenderTimer = null;
+    renderDashNow();
+  }, 80);
+}
+
+function renderDashNow(){
   const yearSel = document.getElementById("dash-year");
   if(yearSel){
     const stored = String(localStorage.getItem("crm_dash_year")||"").trim();
     if(stored && !yearSel.value) yearSel.value = stored;
+    if(yearSel.value) localStorage.setItem("crm_dash_year", String(yearSel.value));
   }
   const dashSel = document.getElementById("dash-canal-filter");
   if(dashSel){
     const stored = String(localStorage.getItem("crm_dash_canal")||"").toLowerCase().trim();
     if(stored && !dashSel.value) dashSel.value = stored;
+  }
+  const dashTipoSel = document.getElementById("dash-tipo-filter");
+  if(dashTipoSel){
+    const stored = String(localStorage.getItem("crm_dash_tipo")||"").toLowerCase().trim();
+    if(stored && !dashTipoSel.value) dashTipoSel.value = stored;
   }
   const fromEl = document.getElementById("dash-from");
   const toEl = document.getElementById("dash-to");
@@ -2965,6 +3353,24 @@ function renderDash(){
     const storedTo = String(localStorage.getItem("crm_dash_to") || "").trim();
     if(storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
     if(storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
+
+    const selectedYear = Number(yearSel?.value || "");
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const yearKey = String(selectedYear);
+      if(dashLastYearRange !== yearKey){
+        const now = new Date();
+        const from = new Date(selectedYear, 0, 1);
+        const to = (selectedYear === now.getFullYear()) ? now : new Date(selectedYear, 11, 31);
+        fromEl.value = fmtDate(iso(from));
+        toEl.value = fmtDate(iso(to));
+        localStorage.setItem("crm_dash_from", iso(from));
+        localStorage.setItem("crm_dash_to", iso(to));
+        dashLastYearRange = yearKey;
+      }
+    }else{
+      dashLastYearRange = "";
+    }
+
     if(!fromEl.value || !toEl.value){
       const to = new Date();
       const from = new Date();
@@ -2980,45 +3386,125 @@ function renderDash(){
       if(toIso) localStorage.setItem("crm_dash_to", toIso);
     }
   }
-  const dashCh = String(dashSel?.value||"").toLowerCase().trim();
+  const dashCh = normCanalKey(dashSel?.value||"");
   if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
+  const dashTipo = String(dashTipoSel?.value || "").trim().toLowerCase();
+  if(dashTipoSel) localStorage.setItem("crm_dash_tipo", dashTipo);
   const ordersBase = Array.isArray(allOrders) ? allOrders : [];
-  const orders = dashCh ? ordersBase.filter(o=>detectCh(o)===dashCh) : ordersBase;
+  const selectedYear = Number(yearSel?.value || "");
+  const fromIso = String(localStorage.getItem("crm_dash_from") || "").trim();
+  const toIso = String(localStorage.getItem("crm_dash_to") || "").trim();
+  const fromTs = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+  const toTs = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+  const ordersAllRange = ordersBase.filter(o=>{
+    const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
+    const s = String(raw || "").slice(0,10);
+    if(!s) return false;
+    const dt = new Date(s + "T12:00:00");
+    const dts = dt.getTime();
+    if(!isFinite(dts)) return false;
+    if(fromTs != null && dts < fromTs) return false;
+    if(toTs != null && dts > toTs) return false;
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const y = dt.getFullYear();
+      if(y !== selectedYear) return false;
+    }
+    return true;
+  });
+  const ordersTipo = dashTipo ? ordersAllRange.filter(o=>detectTipoVenda(o) === dashTipo) : ordersAllRange;
+  const ordersSales = dashCh ? ordersTipo.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersTipo;
+  const prevRange = (fromIso && toIso) ? calcPrevRange(fromIso, toIso) : null;
+  const ordersPrevAll = prevRange ? ordersBase.filter(o=>{
+    const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
+    const s = String(raw || "").slice(0,10);
+    if(!s) return false;
+    const dt = new Date(s + "T12:00:00");
+    const dts = dt.getTime();
+    if(!isFinite(dts)) return false;
+    const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+    const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+    if(dts < pf || dts > pt) return false;
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const y = dt.getFullYear();
+      if(y !== selectedYear) return false;
+    }
+    return true;
+  }) : [];
+  const ordersPrevTipo = dashTipo ? ordersPrevAll.filter(o=>detectTipoVenda(o) === dashTipo) : ordersPrevAll;
+  const ordersPrevSales = dashCh ? ordersPrevTipo.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersPrevTipo;
 
   // Atualizar período
-  if(orders.length){
-    const dates = orders.map(o=>new Date(o.data||o.dataPedido)).filter(d=>!isNaN(d)).sort((a,b)=>a-b);
-    const dp = document.getElementById('dash-period');
-    if(dp && dates.length) dp.textContent = `${dates[0].toLocaleDateString('pt-BR')} — ${dates[dates.length-1].toLocaleDateString('pt-BR')} · ${orders.length} pedidos`;
+  const dp = document.getElementById("dash-period");
+  if(dp){
+    const fromLabel = fromEl?.value ? String(fromEl.value) : (fromIso ? fmtDate(fromIso) : "");
+    const toLabel = toEl?.value ? String(toEl.value) : (toIso ? fmtDate(toIso) : "");
+    const bits = [];
+    if(fromLabel && toLabel) bits.push(fromLabel + " — " + toLabel);
+    if(dashCh) bits.push(CH[dashCh] || dashCh);
+    if(dashTipo) bits.push(dashTipo.toUpperCase());
+    bits.push(String(ordersSales.length) + " pedidos");
+    dp.textContent = bits.filter(Boolean).join(" · ");
   }
 
-  const total=orders.reduce((s,o)=>s+val(o),0);
+  const total=ordersSales.reduce((s,o)=>s+val(o),0);
+  const totalPrev=ordersPrevSales.reduce((s,o)=>s+val(o),0);
   const now=new Date();
-  const thisMo=orders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
-  const prevMo=orders.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
+  const thisMo=ordersSales.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
+  const prevMo=ordersSales.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
   const tMo=thisMo.reduce((s,o)=>s+val(o),0),pMo=prevMo.reduce((s,o)=>s+val(o),0);
   const delta=pMo>0?((tMo-pMo)/pMo*100):0;
-  const cliMap=buildCli(orders);
+  const cliMap=buildCli(ordersSales);
   const cliList=Object.values(cliMap);
   const vipCount=cliList.filter(c=>calcCliScores(c).status==="vip").length;
   const recorrentes=cliList.filter(c=>c.orders.length>=2).length;
   const pctRec=cliList.length?Math.round(recorrentes/cliList.length*100):0;
 
-  // Source row
-  document.getElementById("source-row").innerHTML=
+  const sr = document.getElementById("source-row");
+  if(sr) sr.innerHTML=
     (blingOrders.length?`<span style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:3px 9px">🔵 Bling: ${blingOrders.length}</span>`:"")
     +(yampiOrders.length?`<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`:"")
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
     +(dashCh?`<span style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:7px;padding:3px 9px">Filtro: ${escapeHTML(CH[dashCh]||dashCh)}</span>`:"")
-    +(!orders.length?`<span style="color:var(--text-3)">Nenhum dado — vá em ⚙️ Config</span>`:"");
+    +(!ordersSales.length?`<span style="color:var(--text-3)">Sem dados no período</span>`:"");
+
+  const dayEl = document.getElementById("dash-insights-day");
+  if(dayEl){
+    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+    const inativos30 = cliList.filter(c=>daysSince(c.last) >= 30).length;
+    const potencial = inativos30 ? (inativos30 * ticket) : 0;
+    const deltaTicket = pctDelta(ticket, (ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0));
+    const insights = [];
+    if(inativos30){
+      insights.push(`⚠️ ${inativos30} clientes sem comprar há mais de 30 dias → potencial de recuperação de ${fmtBRL(potencial)}`);
+    }
+    if(deltaTicket != null && isFinite(deltaTicket) && Math.abs(deltaTicket) >= 8){
+      const dir = deltaTicket >= 0 ? "subiu" : "caiu";
+      insights.push(`📈 ticket médio ${dir} ${Math.abs(deltaTicket).toFixed(0)}% → oportunidade de kits promocionais`);
+    }
+    if(vipCount){
+      insights.push(`💎 ${vipCount} clientes VIP ativos na base → priorize retenção e recompra`);
+    }
+    if(!insights.length){
+      dayEl.innerHTML = "";
+    }else{
+      dayEl.innerHTML = `
+        <div class="dash-day-insights">
+          <div class="dash-day-insights-title">Insights do Dia</div>
+          <div class="dash-day-insights-body">
+            ${insights.slice(0,3).map(t=>`<div class="dash-day-insight">${escapeHTML(t)}</div>`).join("")}
+          </div>
+        </div>
+      `;
+    }
+  }
 
   const autoEl = document.getElementById("auto-insights");
   if(autoEl){
     const weekMs = 7*86400000;
     const nowTs = Date.now();
-    const inLast = (days)=>orders.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
+    const inLast = (days)=>ordersSales.filter(o=>{ const d=new Date(o.data); return !isNaN(d) && (nowTs - d.getTime()) <= days*86400000; });
     const w1 = inLast(7);
-    const w2 = orders.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
+    const w2 = ordersSales.filter(o=>{ const d=new Date(o.data); const dt=d.getTime(); return !isNaN(d) && (nowTs - dt) > weekMs && (nowTs - dt) <= 2*weekMs; });
     const t1 = w1.reduce((s,o)=>s+val(o),0);
     const t2 = w2.reduce((s,o)=>s+val(o),0);
     const ticket1 = w1.length ? t1/w1.length : 0;
@@ -3032,16 +3518,16 @@ function renderDash(){
 
     const prod7 = {};
     w1.forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
         const k = String(it?.codigo||it?.descricao||"—");
         prod7[k] = (prod7[k]||0) + (Number(it?.quantidade||1)||1);
       });
     });
     const prod14 = {};
     w2.forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
         const k = String(it?.codigo||it?.descricao||"—");
         prod14[k] = (prod14[k]||0) + (Number(it?.quantidade||1)||1);
       });
@@ -3094,59 +3580,479 @@ function renderDash(){
 
   const dashStatsEl = document.getElementById("dash-stats");
   if(dashStatsEl){
-    if(supaConnected && supaClient){
-      dashStatsEl.innerHTML=[
-        {l:"Faturamento Total",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Pedidos",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Ticket Médio",v:"—",s:"vw_dashboard_kpis"},
-        {l:"Clientes",v:"—",s:"vw_dashboard_kpis"},
-        {l:"LTV Médio",v:"—",s:"vw_dashboard_kpis"},
-      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
-      updateDashMainKpisFromSupabase().catch(()=>{});
-    }else{
-      dashStatsEl.innerHTML=[
-        {l:"Volume Total",v:fmtBRL(total),s:"consolidado"},
-        {l:"Este Mês",v:fmtBRL(tMo),s:`<span style="color:${delta>=0?"var(--green)":"var(--red)"}">${delta>=0?"▲":"▼"}${Math.abs(delta).toFixed(1)}%</span>`},
-        {l:"Clientes",v:cliList.length,s:`${vipCount} VIPs`},
-        {l:"Taxa Recompra",v:pctRec+"%",s:`${recorrentes} com 2+ pedidos`},
-        {l:"Ticket Médio",v:fmtBRL(orders.length?total/orders.length:0),s:"por pedido"},
-        {l:"Pedidos Total",v:orders.length,s:`${yampiOrders.length} Yampi · ${blingOrders.length} Bling`},
-      ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s}</div></div>`).join("");
+    const firstByCustomer = {};
+    ordersBase.forEach(o=>{
+      const k = orderCustomerKey(o);
+      if(!k) return;
+      const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
+      if(!d) return;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return;
+      if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
+    });
+    const novosSet = new Set();
+    ordersSales.forEach(o=>{
+      const k = orderCustomerKey(o);
+      if(!k) return;
+      const ts = firstByCustomer[k];
+      if(ts == null) return;
+      if(fromTs != null && ts < fromTs) return;
+      if(toTs != null && ts > toTs) return;
+      novosSet.add(k);
+    });
+    const novos = novosSet.size;
+    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+    const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
+    const pedidosPrev = ordersPrevSales.length;
+    const novosPrevSet = new Set();
+    if(prevRange){
+      const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+      const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+      ordersPrevSales.forEach(o=>{
+        const k = orderCustomerKey(o);
+        if(!k) return;
+        const ts = firstByCustomer[k];
+        if(ts == null) return;
+        if(ts < pf || ts > pt) return;
+        novosPrevSet.add(k);
+      });
     }
+    const novosPrev = novosPrevSet.size;
+    const showCompare = isDashCompareEnabled();
+    const deltaLine = (cur, prev)=>{
+      if(!showCompare) return `<div class="exec-kpi-delta"> </div>`;
+      const d = pctDelta(cur, prev);
+      if(d == null || !isFinite(d)) return `<div class="exec-kpi-delta">— vs período anterior</div>`;
+      const up = d >= 0;
+      const cls = up ? "exec-kpi-delta-pos" : "exec-kpi-delta-neg";
+      return `<div class="exec-kpi-delta ${cls}">${up ? "↑" : "↓"} ${Math.abs(d).toFixed(0)}% vs período anterior</div>`;
+    };
+    dashStatsEl.innerHTML=[
+      {l:"Faturamento",v:fmtBRL(total),d:deltaLine(total, totalPrev)},
+      {l:"Pedidos",v:String(ordersSales.length),d:deltaLine(ordersSales.length, pedidosPrev)},
+      {l:"Ticket médio",v:fmtBRL(ticket),d:deltaLine(ticket, ticketPrev)},
+      {l:"Novos clientes",v:String(novos),d:deltaLine(novos, novosPrev)}
+    ].map(s=>`<div class="exec-kpi"><div class="exec-kpi-label">${s.l}</div><div class="exec-kpi-value">${s.v}</div>${s.d}</div>`).join("")
+    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">LTV médio</div><div class="exec-kpi-value"><span id="kpi-ltv-medio">—</span></div><div class="exec-kpi-delta"> </div></div>`
+    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">Clientes base</div><div class="exec-kpi-value"><span id="kpi-clientes-base">—</span></div><div class="exec-kpi-delta"> </div></div>`;
   }
 
-  renderMeta(tMo); renderCompare(orders); renderAlertBanner(orders);
-  renderChartCanal(orders); renderChartMes(orders); renderTopCli(orders); renderTopProd(orders);
-  setTimeout(()=>{ renderDashChartsCidades(orders); }, 150);
-  if(supaConnected && supaClient){
-    setTimeout(()=>{ renderDashRevenueFromSupabase().catch(()=>{ renderDashChartsCrescimento(orders); }); }, 10);
-    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
-  }else{
-    setTimeout(()=>{ renderDashChartsCrescimento(orders); }, 150);
-    setTimeout(()=>{ renderDashV2().catch(()=>{}); }, 40);
+  renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
+  renderDashSalesByDay(ordersSales);
+  renderChartMes(ordersSales);
+  renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
+  renderTopCli(ordersSales);
+  renderTopProd(ordersSales);
+  const secEl = document.getElementById("dash-stats-secondary");
+  if(secEl){
+    secEl.innerHTML = "";
+    updateDashSecondaryFromSupabase().catch(()=>{});
   }
+  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo, fromIso, toIso }); }, 40);
 }
 
-async function updateDashMainKpisFromSupabase(){
-  if(!supaConnected || !supaClient) return;
-  const el = document.getElementById("dash-stats");
-  if(!el) return;
+async function updateDashSecondaryFromSupabase(){
+  const elLtv = document.getElementById("kpi-ltv-medio");
+  const elCli = document.getElementById("kpi-clientes-base");
+  if(!elLtv || !elCli) return;
+  if(!supaConnected || !supaClient){
+    const list = Array.isArray(allCustomers) ? allCustomers : [];
+    const ltvMedio = list.length ? (list.reduce((s,c)=>s + (Number(c?.total_gasto || 0) || 0), 0) / list.length) : 0;
+    elLtv.textContent = fmtBRL(ltvMedio);
+    elCli.textContent = String(list.length);
+    return;
+  }
   try{
     const k = await getDashboardKpisView(supaClient);
     if(!k) return;
-    const faturamento = Number(k.faturamento_total || 0) || 0;
-    const pedidos = Number(k.total_pedidos || 0) || 0;
-    const ticket = Number(k.ticket_medio || 0) || 0;
     const clientes = Number(k.total_clientes || 0) || 0;
     const ltvMedio = Number(k.ltv_medio || 0) || 0;
-    el.innerHTML=[
-      {l:"Faturamento Total",v:fmtBRL(faturamento),s:""},
-      {l:"Pedidos",v:String(pedidos),s:""},
-      {l:"Ticket Médio",v:fmtBRL(ticket),s:""},
-      {l:"Clientes",v:String(clientes),s:""},
-      {l:"LTV Médio",v:fmtBRL(ltvMedio),s:""},
-    ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
+    elLtv.textContent = fmtBRL(ltvMedio);
+    elCli.textContent = String(clientes);
   }catch(_e){}
+}
+
+function setDashCanvasState(canvasId, hasData, msg, showClear){
+  const canvas = document.getElementById(canvasId);
+  const wrap = canvas ? canvas.parentElement : null;
+  if(!wrap) return { canvas: null, shouldRender: false };
+  const id = canvasId + "-empty";
+  let box = document.getElementById(id);
+  if(!box){
+    box = document.createElement("div");
+    box.id = id;
+    box.className = "empty";
+    box.style.padding = "18px 0";
+    wrap.appendChild(box);
+  }
+  if(hasData){
+    canvas.style.display = "";
+    box.style.display = "none";
+    return { canvas, shouldRender: true };
+  }
+  canvas.style.display = "none";
+  box.style.display = "";
+  const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+  box.innerHTML = `${escapeHTML(msg || "Sem dados no período")}${btn}`;
+  return { canvas, shouldRender: false };
+}
+
+function renderDashSalesByDay(orders){
+  const list = Array.isArray(orders) ? orders : [];
+  const byDay = {};
+  list.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!d) return;
+    const ts = new Date(d + "T12:00:00").getTime();
+    if(!isFinite(ts)) return;
+    byDay[d] = (byDay[d] || 0) + val(o);
+  });
+  const keys = Object.keys(byDay).sort();
+  const state = setDashCanvasState("chart-v2-dia", keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
+  const ctx = state.canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.v2dia) charts.v2dia.destroy();
+  const values = keys.map(k=>byDay[k]);
+  const showMA = isDashMAEnabled();
+  const maWindow = 7;
+  const ma = showMA ? values.map((_, i)=>{
+    const start = Math.max(0, i - (maWindow - 1));
+    const slice = values.slice(start, i + 1);
+    const sum = slice.reduce((s,v)=>s + (Number(v)||0), 0);
+    return slice.length ? (sum / slice.length) : null;
+  }) : [];
+  charts.v2dia = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: keys.map(k=>fmtDate(k)),
+      datasets: [{
+        label: "Faturamento",
+        data: values,
+        tension: 0.35,
+        fill: true,
+        borderColor: "#0FA765",
+        backgroundColor: "rgba(15,167,101,.18)",
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHitRadius: 12
+      }].concat(showMA ? [{
+        label: "Média móvel (7d)",
+        data: ma,
+        tension: 0.35,
+        fill: false,
+        borderColor: "rgba(164,233,107,.9)",
+        borderWidth: 2,
+        borderDash: [6,6],
+        pointRadius: 0,
+        pointHitRadius: 10
+      }] : [])
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 12 } },
+        y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+      }
+    }
+  });
+}
+
+function renderDashChannelBreakdown(input){
+  const el = document.getElementById("dash-channel-breakdown");
+  if(!el) return;
+  const ordersAllRange = Array.isArray(input?.ordersAllRange) ? input.ordersAllRange : [];
+  const ordersSales = Array.isArray(input?.ordersSales) ? input.ordersSales : [];
+  const dashCh = normCanalKey(input?.dashCh || "");
+  const base = dashCh ? ordersSales : ordersAllRange;
+  if(!base.length){
+    if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+    const btn = dashCh ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos</button></div>` : "";
+    const msg = dashCh ? `Sem vendas via ${escapeHTML(CH[dashCh]||dashCh)} no período` : "Sem dados no período";
+    el.innerHTML = `<div class="empty">${msg}${btn}</div>`;
+    return;
+  }
+
+  const by = {};
+  const byN = {};
+  base.forEach(o=>{
+    const ch = normCanalKey(detectCh(o) || "outros") || "outros";
+    by[ch] = (by[ch] || 0) + val(o);
+    byN[ch] = (byN[ch] || 0) + 1;
+  });
+  const preferred = ["shopee","ml","yampi","shopify","amazon","cnpj","outros"];
+  const rows = preferred
+    .filter(c=>Number(by[c]||0) > 0 || Number(byN[c]||0) > 0)
+    .map(c=>({ canal: c, total: Number(by[c]||0) || 0, pedidos: Number(byN[c]||0) || 0 }))
+    .filter(r=>r.total > 0 || r.pedidos > 0);
+
+  if(!rows.length){
+    if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+    const btn = dashCh ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos</button></div>` : "";
+    const msg = dashCh ? `Sem vendas via ${escapeHTML(CH[dashCh]||dashCh)} no período` : "Sem dados no período";
+    el.innerHTML = `<div class="empty">${msg}${btn}</div>`;
+    return;
+  }
+
+  if(!document.getElementById("chart-vendas-canal")){
+    el.innerHTML = `<div class="chart-wrap" style="height:220px"><canvas id="chart-vendas-canal"></canvas></div>`;
+  }
+  const canvas = document.getElementById("chart-vendas-canal");
+  if(!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext("2d");
+  if(!ctx) return;
+  if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
+  charts.vendasCanal = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: rows.map(r=>CH[r.canal] || r.canal),
+      datasets: [{
+        data: rows.map(r=>r.total),
+        backgroundColor: rows.map(r=>CH_COLOR[r.canal] || "#0FA765"),
+        borderRadius: 6,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (c)=>{
+              const idx = c.dataIndex;
+              const row = rows[idx] || {};
+              return ` ${fmtBRL(row.total || 0)} · ${Number(row.pedidos||0)} pedidos`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.8)", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
+        y: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.9)", font: { size: 11, weight: 800 } } }
+      }
+    }
+  });
+}
+
+async function renderDashExtraLists(ctx){
+  const ordersAllRange = Array.isArray(ctx?.ordersAllRange) ? ctx.ordersAllRange : [];
+  const ordersSales = Array.isArray(ctx?.ordersSales) ? ctx.ordersSales : ordersAllRange;
+  const dashCh = String(ctx?.dashCh || "").trim();
+  const dashTipo = String(ctx?.dashTipo || "").trim().toLowerCase();
+  const filterActive = !!(dashCh || dashTipo);
+  if(!ordersAllRange.length){
+    const showClear = !!dashCh;
+    const msg = "Sem dados no período";
+    ["top-clientes","top-produtos-dash","dashv2-top-cidades"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+      el.innerHTML = `<div class="empty">${escapeHTML(msg)}${btn}</div>`;
+    });
+  }
+
+  if(supaConnected && supaClient){
+    try{
+      if(filterActive){
+        const cli = Object.values(buildCli(ordersSales));
+        const c1 = cli.filter(c=>c.orders.length === 1).length;
+        const c2 = cli.filter(c=>c.orders.length === 2).length;
+        const c3 = cli.filter(c=>c.orders.length >= 3).length;
+        renderDashV2Funil([
+          { etapa: "1ª compra", clientes: c1, ordem: 1 },
+          { etapa: "2ª compra", clientes: c2, ordem: 2 },
+          { etapa: "3+ compras", clientes: c3, ordem: 3 }
+        ]);
+      }else{
+        const funil = await getFunilRecompraView(supaClient);
+        renderDashV2Funil(funil);
+      }
+    }catch(_e){
+      setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
+    }
+    try{
+      if(filterActive){
+        renderDashTopCidadesFromOrders(ordersSales);
+      }else{
+        const topCities = await getTopCidadesView(supaClient, 10);
+        renderDashV2TopCidades(topCities);
+      }
+    }catch(_e){}
+    try{
+      if(filterActive){
+        const el = document.getElementById("dashv2-sem-contato");
+        if(el){
+          const rows = (clientesIntelCache||[])
+            .filter(r=>r && r.cliente_id && (!r.last_interaction_at || String(r.last_interaction_at).trim() === ""))
+            .slice(0,8);
+          if(!rows.length) el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+          else el.innerHTML = rows.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.cliente_id || c.id || ""));
+            const nome = String(c.nome || "Cliente");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· sem contato</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+            </div>`;
+          }).join("");
+        }
+      }else{
+        const semContato = await getClientesSemContatoView(supaClient, 8);
+        renderDashV2SemContato(semContato);
+      }
+    }catch(_e){}
+    try{
+      const riskEl = document.getElementById("dashv2-risk");
+      if(riskEl){
+        if(filterActive){
+          const list = Object.values(buildCli(ordersSales))
+            .filter(c=>!isCNPJ(c.doc) && daysSince(c.last) >= 30)
+            .sort((a,b)=>daysSince(b.last)-daysSince(a.last) || (b.total-a.total))
+            .slice(0,8);
+          riskEl.innerHTML = list.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.id || ""));
+            const nome = String(c.nome || "Cliente");
+            const dias = String(daysSince(c.last) || 0) + "d";
+            const ltv = fmtBRL(c.total || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }else{
+          const rows = await getClientesReativacaoView(supaClient, 8);
+          riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+            const nome = String(c?.nome || "Cliente");
+            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }
+      }
+    }catch(_e){}
+    try{
+      const vipRiskEl = document.getElementById("dashv2-vip-risk");
+      if(vipRiskEl){
+        if(filterActive){
+          const list = Object.values(buildCli(ordersSales))
+            .filter(c=>calcCliScores(c).status === "vip" && daysSince(c.last) >= 45)
+            .sort((a,b)=>daysSince(b.last)-daysSince(a.last) || (b.total-a.total))
+            .slice(0,8);
+          vipRiskEl.innerHTML = list.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.id || ""));
+            const nome = String(c.nome || "VIP");
+            const dias = String(daysSince(c.last) || 0) + "d";
+            const ltv = fmtBRL(c.total || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }else{
+          const rows = await getClientesVipRiscoView(supaClient, 8);
+          vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+            const nome = String(c?.nome || "VIP");
+            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }
+      }
+    }catch(_e){}
+    try{
+      renderDashV2NextActions((clientesIntelCache||[]));
+    }catch(_e){}
+  }else{
+    setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
+    renderDashTopCidadesFromOrders(ordersAllRange);
+    const riskEl = document.getElementById("dashv2-risk");
+    if(riskEl) riskEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const vipRiskEl = document.getElementById("dashv2-vip-risk");
+    if(vipRiskEl) vipRiskEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const semContatoEl = document.getElementById("dashv2-sem-contato");
+    if(semContatoEl) semContatoEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
+    const nextEl = document.getElementById("dashv2-next-actions");
+    if(nextEl) nextEl.innerHTML = `<div class="empty">Conecte o Supabase para ver ações sugeridas.</div>`;
+  }
+}
+
+function openDashActionsModal(){
+  const modal = document.getElementById("modal-dash-actions");
+  const bodyEl = document.getElementById("dash-actions-modal-body");
+  if(!modal || !bodyEl) return;
+
+  const actions = getTodaySalesActionsImpl({
+    customerIntelligence: customerIntelligence,
+    customerIntel: clientesIntelCache
+  });
+
+  const rows = Array.isArray(actions) ? actions : [];
+  const list = rows.slice(0,20);
+
+  const renderRow = (r, idx)=>{
+    const id = escapeJsSingleQuote(String(r?.cliente_id || r?.cliente_uuid || r?.id || r?.cliente || ""));
+    const nome = String(r?.nome || r?.cliente_nome || "Cliente");
+    const act = String(r?.next_best_action || r?.acao_recomendada || r?.acao || "").trim() || "Ação sugerida";
+    const dias = r?.dias_desde_ultima_compra != null ? (String(r.dias_desde_ultima_compra) + "d") : "";
+    const ltv = fmtBRL(Number(r?.valor_total ?? r?.ltv ?? r?.total_gasto ?? 0) || 0);
+    const phone = String(r?.celular || r?.telefone || "").replace(/\D/g,"");
+    return `<div class="top-item" onclick="openClientePage('${id}')">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias || act)}</span></div>
+      <div class="top-val">${escapeHTML(ltv)}</div>
+      ${phone?`<button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>`:""}
+    </div>`;
+  };
+
+  bodyEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="profile-card" style="padding:14px">
+        <div class="profile-h2" style="margin-bottom:8px">Clientes para contato hoje</div>
+        <div class="top-list">${list.length ? list.map(renderRow).join("") : `<div class="empty">Sem ações sugeridas ainda.</div>`}</div>
+      </div>
+      <div class="profile-card" style="padding:14px">
+        <div class="profile-h2" style="margin-bottom:8px">Atalhos rápidos</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn" onclick="showPage('segmentos');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>🎯 Abrir Segmentos</span><span style="color:var(--text-3)">→</span>
+          </button>
+          <button class="btn" onclick="showPage('clientes');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>👥 Abrir Clientes</span><span style="color:var(--text-3)">→</span>
+          </button>
+          <button class="btn" onclick="showPage('tarefas');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>✅ Abrir Tarefas</span><span style="color:var(--text-3)">→</span>
+          </button>
+        </div>
+        <div style="margin-top:12px;font-size:11px;color:var(--text-3);line-height:1.5">
+          Use este painel para executar rapidamente as ações recomendadas pela inteligência do CRM.
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add("open");
 }
 
 function setDashRange(days){
@@ -3158,6 +4064,12 @@ function setDashRange(days){
   const toIso = iso(to);
   const fromEl = document.getElementById("dash-from");
   const toEl = document.getElementById("dash-to");
+  const yearSel = document.getElementById("dash-year");
+  if(yearSel && yearSel.value){
+    yearSel.value = "";
+    localStorage.setItem("crm_dash_year", "");
+    dashLastYearRange = "";
+  }
   if(fromEl) fromEl.value = fmtDate(fromIso);
   if(toEl) toEl.value = fmtDate(toIso);
   localStorage.setItem("crm_dash_from", fromIso);
@@ -3538,7 +4450,9 @@ function renderDashV2Funil(rows){
   mapped.sort((a,b)=>a.ord-b.ord);
   const labels = mapped.map(x=>x.label);
   const values = mapped.map(x=>x.value);
-  const ctx = canvas.getContext("2d");
+  const state = setDashCanvasState("chart-v2-funil", values.some(v=>Number(v||0)>0), "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   if(charts.v2funil) charts.v2funil.destroy();
   charts.v2funil = new Chart(ctx, {
@@ -3566,6 +4480,35 @@ function renderDashV2Funil(rows){
       }
     }
   });
+}
+
+function renderDashTopCidadesFromOrders(orders){
+  const el = document.getElementById("dashv2-top-cidades");
+  if(!el) return;
+  const list = Array.isArray(orders) ? orders : [];
+  if(!list.length){
+    el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+    return;
+  }
+  const m = {};
+  list.forEach(o=>{
+    const cidade = String(o?.cidade_entrega || o?.contato?.endereco?.municipio || o?.contato?.municipio || "").trim();
+    const uf = normalizeUF(o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || "");
+    if(!cidade) return;
+    const key = cidade + "|" + (uf || "");
+    if(!m[key]) m[key] = { cidade, uf, faturamento: 0, pedidos: 0 };
+    m[key].faturamento += val(o);
+    m[key].pedidos += 1;
+  });
+  const top = Object.values(m).sort((a,b)=>b.faturamento - a.faturamento).slice(0,10);
+  el.innerHTML = top.map((r, idx)=>{
+    const label = [r.cidade, r.uf].filter(Boolean).join(" / ");
+    return `<div class="top-item">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(label)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(String(r.pedidos))} pedidos</span></div>
+      <div class="top-val">${escapeHTML(fmtBRL(r.faturamento))}</div>
+    </div>`;
+  }).join("") || `<div class="empty">Sem dados no período</div>`;
 }
 
 function renderDashV2TopProdutos(rows){
@@ -3808,7 +4751,9 @@ function renderChartMes(ordersOverride){
   if(charts.mes) charts.mes.destroy();
   const canvas = document.getElementById("chart-mes");
   if(!canvas) return;
-  const ctx = canvas.getContext("2d");
+  const state = setDashCanvasState("chart-mes", sk.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   charts.mes=new Chart(ctx,{
     type:"bar",
@@ -3841,28 +4786,48 @@ function renderChartMes(ordersOverride){
 }
 function renderTopCli(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const el = document.getElementById("top-clientes");
+  if(!el) return;
+  if(!orders.length){
+    const showClear = !!String(document.getElementById("dash-canal-filter")?.value||"");
+    const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+    el.innerHTML = `<div class="empty">Sem dados no período${btn}</div>`;
+    return;
+  }
   const m={}; orders.forEach(o=>{
     const k=cliKey(o);
     if(!m[k]){ m[k]={n:o.contato?.nome||"?",t:0,id:k}; }
     m[k].t+=val(o);
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
-  document.getElementById("top-clientes").innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
+  el.innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
 }
 function renderTopProd(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
+  const el = document.getElementById("top-produtos-dash");
+  if(!el) return;
+  if(!orders.length){
+    const showClear = !!String(document.getElementById("dash-canal-filter")?.value||"");
+    const btn = showClear ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('dash-canal-filter'); if(s) s.value=''; localStorage.setItem('crm_dash_canal',''); renderDash();})()">Ver todos os dados</button></div>` : "";
+    el.innerHTML = `<div class="empty">Sem dados no período${btn}</div>`;
+    return;
+  }
   const m={}; orders.forEach(o=>{
-    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-    itens.filter(Boolean).forEach(it=>{
-      const desc = String(it?.descricao || it?.title || it?.name || "").trim();
-      const code = String(it?.codigo || it?.sku || it?.id || "").trim();
+    const itens = getPedidoItens(o);
+    if(!itens.length){
+      try{ console.warn("[TopProd] pedido sem itens:", o?.id, Object.keys(o||{})); }catch(_e){}
+      return;
+    }
+    itens.forEach(it=>{
+      const desc = String(it?.descricao || "").trim();
+      const code = String(it?.codigo || "").trim();
       const k = desc || code || "?";
       if(!m[k]) m[k] = { n: desc || code || "—", t: 0 };
-      m[k].t += (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
+      m[k].t += Number(it?.valor_total != null ? it.valor_total : ((Number(it?.valor||0)||0) * (Number(it?.quantidade||1)||1))) || 0;
     });
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,5); const max=top[0]?.t||1;
-  document.getElementById("top-produtos-dash").innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div style="padding:10px;font-size:11px;color:var(--text-3)">Nenhum produto</div>`;
+  el.innerHTML=top.length?top.map((p,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(p.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`).join(""):`<div class="empty">Sem dados no período</div>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -4024,6 +4989,7 @@ function renderInteligencia(){
       <div class="profile-kpi"><div class="profile-kpi-label">Receita total</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(total))}</div></div>
     </div>
   `;
+  renderDashChartsCrescimento(allOrders);
 
   const top = clis
     .map(c=>({ c, s: calcCliScores(c), ltv: c.orders.reduce((x,o)=>x+val(o),0) }))
@@ -4119,6 +5085,49 @@ function renderInteligencia(){
 // ═══════════════════════════════════════════════════
 function setChCli(ch){ activeCh=ch; renderClientes(); }
 
+function ensureClientesSentinel(){
+  const listEl = document.getElementById("client-list");
+  if(!listEl) return null;
+  let sentinel = document.getElementById("clientes-sentinel");
+  if(!sentinel){
+    sentinel = document.createElement("div");
+    sentinel.id = "clientes-sentinel";
+    sentinel.style.height = "1px";
+  }
+  if(sentinel.parentElement !== listEl) listEl.appendChild(sentinel);
+  return sentinel;
+}
+
+function observeClientesSentinel(){
+  const sentinel = ensureClientesSentinel();
+  if(!sentinel) return;
+  if(!("IntersectionObserver" in window)) return;
+  if(!clientesIntelObserver){
+    clientesIntelObserver = new IntersectionObserver((entries)=>{
+      const hit = entries && entries.some(e=>e && e.isIntersecting);
+      if(!hit) return;
+      const active = document.getElementById("page-clientes")?.classList.contains("active");
+      if(!active) return;
+      if(clientesIntelInFlight) return;
+      if(!clientesIntelHasMore) return;
+      loadClientesInteligenciaCache(false).then(()=>{
+        renderClientes();
+      }).catch(()=>{});
+    }, { root: null, rootMargin: "800px 0px", threshold: 0 });
+  }
+  clientesIntelObserver.disconnect();
+  clientesIntelObserver.observe(sentinel);
+}
+
+function appendClienteCards(html){
+  if(!html) return;
+  const listEl = document.getElementById("client-list");
+  if(!listEl) return;
+  const sentinel = ensureClientesSentinel();
+  if(sentinel) sentinel.insertAdjacentHTML("beforebegin", html);
+  else listEl.insertAdjacentHTML("beforeend", html);
+}
+
 function renderClientes(){
   const usingViews = !!(supaConnected && supaClient);
   const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
@@ -4126,10 +5135,11 @@ function renderClientes(){
   const segFil=document.getElementById("fil-cli-seg")?.value||"";
   const canalFil=document.getElementById("fil-cli-canal")?.value||"";
   const uf=document.getElementById("fil-estado")?.value||"";
+  const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === "all";
 
   if(usingViews){
     if(!clientesIntelCache.length){
-      loadClientesInteligenciaCache().catch(()=>{});
+      loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(()=>{});
       document.getElementById("cli-label").textContent = "Carregando…";
       document.getElementById("client-list").innerHTML = `<div class="empty">Carregando inteligência de clientes…</div>`;
       document.getElementById("ch-pills-cli").innerHTML = "";
@@ -4145,11 +5155,38 @@ function renderClientes(){
     document.getElementById("ch-pills-cli").innerHTML = pills.map(p=>`<div class="ch-pill ${p.id} ${activeCh===p.id?"active":""}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`).join("");
 
     let rows = clientesIntelCache.slice();
-    if(canalFil) rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===String(canalFil).toLowerCase());
-    else if(activeCh!=="all") rows = rows.filter(c=>String(c.canal_principal||"outros").toLowerCase()===activeCh);
+    const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+    if(canalFiltro){
+      let count = 0;
+      rows = rows.filter(c=>{
+        const cid = String(c?.cliente_id || c?.id || "").trim();
+        const docDigits = String(c?.doc || "").replace(/\D/g,"");
+        const email = String(c?.email || "").trim().toLowerCase();
+        const tel = String(c?.telefone || c?.celular || "").replace(/\D/g,"");
+        const key = docDigits || email || tel || cid;
+        const ok = clienteTemPedidoNoCanal(key, canalFiltro);
+        if(ok) count += 1;
+        return ok;
+      });
+      console.log("[Filtro Canal]", canalFiltro, "clientes que têm pedidos nesse canal:", count);
+      if(lastDetectChDebugCanal !== canalFiltro){
+        lastDetectChDebugCanal = canalFiltro;
+        try{
+          (Array.isArray(allOrders) ? allOrders.slice(0,10) : []).forEach(o=>{
+            console.log("[detectCh]", o?.numero || o?.numero_pedido || o?.id, detectCh(o));
+          });
+        }catch(_e){}
+      }
+    }
     if(uf) rows = rows.filter(c=>String(c.uf||"").toUpperCase()===String(uf).toUpperCase());
-    if(statusFil) rows = rows.filter(c=>String(c.status||"")===statusFil);
-    if(segFil) rows = rows.filter(c=>String(c.segmento_crm||"")===segFil);
+    if(statusFil){
+      const st = String(statusFil||"").trim().toLowerCase();
+      rows = rows.filter(c=>String(c.status||"").trim().toLowerCase()===st);
+    }
+    if(segFil){
+      const sg = String(segFil||"").trim().toLowerCase();
+      rows = rows.filter(c=>String(c.segmento_crm||"").trim().toLowerCase()===sg);
+    }
     if(q){
       const qDigits = q.replace(/\D/g,"");
       rows = rows.filter(c=>{
@@ -4168,20 +5205,39 @@ function renderClientes(){
       });
     }
 
-    rows.sort((a,b)=>{
-      const ar = Number(a.risco_churn||0)||0;
-      const br = Number(b.risco_churn||0)||0;
-      if(br !== ar) return br - ar;
-      const as = Number(a.score_recompra||0)||0;
-      const bs = Number(b.score_recompra||0)||0;
-      if(bs !== as) return bs - as;
-      const ag = Number(a.total_gasto||a.ltv||0)||0;
-      const bg = Number(b.total_gasto||b.ltv||0)||0;
-      return bg - ag;
-    });
-    document.getElementById("cli-label").textContent=`${rows.length} cliente${rows.length!==1?"s":""}`;
-    if(!rows.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
-    document.getElementById("client-list").innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+    console.log("[Filtro Clientes]", { busca: q, status: statusFil, segmento: segFil, canal: canalFiltro, uf }, "clientes encontrados:", rows.length);
+
+    const suffix = clientesIntelHasMore ? "+" : "";
+    document.getElementById("cli-label").textContent = isDefaultFilters ? `${rows.length}${suffix} cliente${rows.length!==1?"s":""}` : `${rows.length} encontrado${rows.length!==1?"s":""}`;
+    const listEl = document.getElementById("client-list");
+    if(!listEl) return;
+
+    if(isDefaultFilters){
+      if(clientesIntelDomMode !== "default"){
+        clientesIntelDomMode = "default";
+        clientesIntelDomCount = 0;
+        listEl.innerHTML = "";
+      }
+      const next = rows.slice(clientesIntelDomCount);
+      if(next.length){
+        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i))).join("");
+        appendClienteCards(html);
+        clientesIntelDomCount += next.length;
+      }
+      if(!rows.length) listEl.innerHTML = `<div class="empty">Nenhum cliente encontrado.</div>`;
+    }else{
+      clientesIntelDomMode = "filtered";
+      clientesIntelDomCount = 0;
+      if(rows.length){
+        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+      }else{
+        const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+        const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
+        const msg = canalFiltro ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro]||canalFiltro)} — limpar filtro?` : "Nenhum cliente encontrado.";
+        listEl.innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+      }
+    }
+    observeClientesSentinel();
     return;
   }
 
@@ -4199,8 +5255,17 @@ function renderClientes(){
 
   let clis=Object.values(buildCli(filt)).sort((a,b)=>b.orders.reduce((s,o)=>s+val(o),0)-a.orders.reduce((s,o)=>s+val(o),0));
 
-  document.getElementById("cli-label").textContent=`${clis.length} cliente${clis.length!==1?"s":""}`;
-  if(!clis.length){ document.getElementById("client-list").innerHTML=`<div class="empty">Nenhum cliente encontrado.</div>`; return; }
+  console.log("[Filtro Clientes]", { busca: q, status: statusFil, segmento: segFil, canal: canalFil || activeCh, uf }, "clientes encontrados:", clis.length);
+
+  const labelEl = document.getElementById("cli-label");
+  if(labelEl) labelEl.textContent = isDefaultFilters ? `${clis.length} cliente${clis.length!==1?"s":""}` : `${clis.length} encontrado${clis.length!==1?"s":""}`;
+  if(!clis.length){
+    const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
+    const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
+    const msg = canalFiltro ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro]||canalFiltro)} — limpar filtro?` : "Nenhum cliente encontrado.";
+    document.getElementById("client-list").innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+    return;
+  }
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
 }
 
@@ -4231,62 +5296,52 @@ function renderCliIntelCard(c, eid){
   const isVip = segmento === "VIP" || String(c?.pipeline_stage||"") === "vip";
   const actionHot = (isVip && (dias||0) >= 45) || churn >= 70 || String(c?.pipeline_stage||"") === "reativacao";
 
-  const badge = (txt, bg, fg)=>`<span class="badge" style="background:${bg};color:${fg};border-color:transparent">${escapeHTML(txt)}</span>`;
   const statusBadge = (()=>{
     if(status === "VIP") return `<span class="badge vip">⭐ VIP</span>`;
     if(status === "Em Risco") return `<span class="badge alerta">⚠️ Em Risco</span>`;
     if(status === "Churn") return `<span class="badge inativo">😴 Churn</span>`;
     if(status === "Recompra") return `<span class="badge ativo">🎯 Recompra</span>`;
-    if(status === "Novo Lead") return `<span class="badge novo">🆕 Novo Lead</span>`;
+    if(status === "Novo Lead") return `<span class="badge novo">🆕 Novo</span>`;
     if(status === "Ativo") return `<span class="badge ativo">✅ Ativo</span>`;
-    return status ? badge(status, "rgba(148,163,184,.10)", "var(--text-2)") : "";
+    return status ? `<span class="badge" style="background:rgba(148,163,184,.10);color:var(--text-2);border-color:transparent">${escapeHTML(status)}</span>` : "";
   })();
-  const scoreColor=(s)=>s>70?"var(--green)":s>40?"var(--amber)":"var(--red)";
-  const churnColor=(s)=>s>60?"var(--red)":s>30?"var(--amber)":"var(--green)";
+  const riskBadge = churn >= 70 ? `<span class="badge alerta">⚠️ Crítico</span>` : "";
+  const scoreShown = scoreFinal != null ? Number(scoreFinal||0) : score;
+  const line2 = `${dias!=null?`${escapeHTML(String(dias))}d sem comprar`:"—"} · ${escapeHTML(String(pedidos))} pedidos`;
+  const line3Parts = [];
+  if(pipeline) line3Parts.push(`Pipeline ${pipeline}`);
+  if(scoreShown != null) line3Parts.push(`Score ${Number(scoreShown||0).toFixed(0)}`);
+  if(churn) line3Parts.push(`Risco ${Number(churn||0).toFixed(0)}`);
+  const line3 = line3Parts.join(" · ");
 
   return `<div class="client-card" id="${eid}">
     <div class="client-head" onclick="openClientePage('${id}')">
       <div>
-        <div class="client-name-row">
+        <div class="client-name-row" style="align-items:flex-start">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
-          <span class="badge cli-channel-flag ${mainChClass}">${escapeHTML(CH[canal]||canal)}</span>
-          ${statusBadge}
-          ${segmento && segmento !== status ? badge(segmento, isVip ? "rgba(250,204,21,.12)" : "rgba(96,165,250,.10)", isVip ? "var(--amber)" : "var(--blue)") : ""}
-          ${faixaV ? badge(faixaV, "rgba(148,163,184,.10)", "var(--text-2)") : ""}
-          ${faixaF ? badge(faixaF, "rgba(148,163,184,.08)", "var(--text-3)") : ""}
-          ${actionHot ? `<span class="badge-hint churn">⚡ Ação</span>` : ""}
         </div>
-        <div class="client-meta">${escapeHTML(loc||"—")}${dias!=null?` · ${escapeHTML(String(dias))}d sem comprar`:""} · ${escapeHTML(String(pedidos))} pedidos${pipeline?` · Pipeline ${escapeHTML(pipeline)}`:""}${scoreFinal!=null?` · Score ${escapeHTML(String(scoreFinal.toFixed(0)))} `:""}</div>
+        <div class="client-meta" style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${statusBadge}
+          ${riskBadge}
+          <span style="font-size:11px;color:var(--text-3);font-weight:600">${line2}</span>
+        </div>
+        <div class="client-meta" style="margin-top:6px;font-size:10px;color:var(--text-3)">${escapeHTML(line3 || (loc||"—"))}</div>
       </div>
       <div class="client-right">
         <div class="client-total">${fmtBRL(ltv)}</div>
-        <div class="client-count">${escapeHTML(String(pedidos))} ped.<span class="chevron">▾</span></div>
+        <div class="client-count" style="opacity:.75">${escapeHTML(CH[canal]||canal)}</div>
       </div>
     </div>
-    <div class="client-body">
-      <div class="score-bar-wrap">
-        <span class="score-label">Score Recompra</span>
-        <div class="score-track"><div class="score-fill" style="width:${score}%;background:${scoreColor(score)}"></div></div>
-        <span class="score-num" style="color:${scoreColor(score)}">${score.toFixed(0)}</span>
+    ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
+      <div class="contact-info">
+        ${phone?`<span>📱 ${escapeHTML(fmtPhone(phone))}</span>`:""}
+        ${email?`<span>✉️ ${escapeHTML(email)}</span>`:""}
       </div>
-      <div class="score-bar-wrap">
-        <span class="score-label">Risco de Churn</span>
-        <div class="score-track"><div class="score-fill" style="width:${churn}%;background:${churnColor(churn)}"></div></div>
-        <span class="score-num" style="color:${churnColor(churn)}">${churn.toFixed(0)}</span>
+      <div class="contact-actions">
+        ${phone?`<a class="btn-wa" href="#" onclick="openWa('${escapeJsSingleQuote(phone)}','${escapeJsSingleQuote(nome)}','');return false;">💬 WA</a>`:""}
+        ${email?`<a class="btn-email" href="mailto:${encodeURIComponent(email)}">✉️</a>`:""}
       </div>
-      ${(lastIntAt||respUser||lastIntType||lastIntDesc)?`<div class="cli-marketing"><div class="cli-marketing-title">Última interação</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML([lastIntAt?fmtDate(lastIntAt):"", lastIntType||"", respUser?("Resp: "+respUser):""].filter(Boolean).join(" · "))}${lastIntDesc?`<div style="font-size:10px;color:var(--text-3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHTML(lastIntDesc)}</div>`:""}</div></div>`:""}
-      ${next ? `<div class="cli-marketing"><div class="cli-marketing-title">Próxima ação sugerida</div><div style="font-size:11px;color:var(--text-2);line-height:1.35">${escapeHTML(next)}</div></div>` : ""}
-      ${(phone||email)?`<div class="contact-bar" onclick="event.stopPropagation()">
-        <div class="contact-info">
-          ${phone?`<span>📱 ${escapeHTML(fmtPhone(phone))}</span>`:""}
-          ${email?`<span>✉️ ${escapeHTML(email)}</span>`:""}
-        </div>
-        <div class="contact-actions">
-          ${phone?`<a class="btn-wa" href="#" onclick="openWa('${escapeJsSingleQuote(phone)}','${escapeJsSingleQuote(nome)}','');return false;">💬 WA</a>`:""}
-          ${email?`<a class="btn-email" href="mailto:${encodeURIComponent(email)}">✉️</a>`:""}
-        </div>
-      </div>`:""}
-    </div>
+    </div>`:""}
   </div>`;
 }
 
@@ -4325,11 +5380,11 @@ function clienteAddNegotiation(){
 }
 
 function summarizeOrderItemsMini(o){
-  const itens = Array.isArray(o?.itens) ? o.itens : [];
+  const itens = getPedidoItens(o);
   if(!itens.length) return "—";
   const parts = itens
     .map(it=>{
-      const name = String(it?.descricao || it?.name || it?.produto || "").trim();
+      const name = String(it?.descricao || it?.codigo || "").trim();
       const qty = Number(it?.quantidade ?? it?.quantity ?? 0) || 0;
       if(!name) return "";
       return qty > 1 ? `${name} x${qty}` : name;
@@ -4345,7 +5400,7 @@ function openCRMOrderDrawer(orderKey){
   if(!o) return;
   const st = normSt(o.situacao);
   const ch = detectCh(o);
-  const items = (Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : []).filter(Boolean);
+  const items = getPedidoItens(o);
   const total = fmtBRL(val(o));
   const bodyHTML = `
     <div class="drawer-section">
@@ -4470,8 +5525,8 @@ function renderClientePage(){
     chAgg[ch] = chAgg[ch] || { total:0, n:0 };
     chAgg[ch].n += 1;
     chAgg[ch].total += val(o);
-    const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-    itens.filter(Boolean).forEach(it=>{
+    const itens = getPedidoItens(o);
+    itens.forEach(it=>{
       const key = String(it?.codigo||it?.descricao||"—");
       if(!prodAgg[key]) prodAgg[key] = { nome: it?.descricao||key, qty:0, total:0 };
       const qty = Number(it?.quantidade||1) || 1;
@@ -4818,6 +5873,26 @@ const OPP_STAGES = [
 let oppRemoteLimit = 600;
 const OPP_REMOTE_PAGE_STEP = 600;
 
+let radarOppFilters = safeJsonParse("crm_radar_filters", { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false });
+let radarOppLastModel = null;
+
+function saveRadarOppFilters(){
+  try{ localStorage.setItem("crm_radar_filters", JSON.stringify(radarOppFilters||{})); }catch(_e){}
+}
+
+function radarToggleOppFilter(key){
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+  const k = String(key||"").trim();
+  if(!k) return;
+  if(k === "todos"){
+    radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+  }else{
+    radarOppFilters[k] = !radarOppFilters[k];
+  }
+  saveRadarOppFilters();
+  renderOportunidades();
+}
+
 function saveOppPipeline(){
   localStorage.setItem("crm_opp_pipeline", JSON.stringify(oppPipeline || []));
 }
@@ -4911,90 +5986,44 @@ function addOpportunity(){
 }
 
 async function renderOportunidadesFromSupabase(){
-  const host = document.getElementById("opp-kanban");
-  if(!host) return;
+  const kpisEl = document.getElementById("radar-kpis");
+  const chipsEl = document.getElementById("radar-chips");
+  const groupsEl = document.getElementById("radar-groups");
+  if(!kpisEl || !chipsEl || !groupsEl) return;
+
   if(!supaConnected || !supaClient){
-    host.innerHTML = `<div class="empty">Conecte o Supabase para ver o pipeline real.</div>`;
-    return;
+    groupsEl.innerHTML = `<div class="empty">Conecte o Supabase para ver o radar em tempo real.</div>`;
+    return null;
   }
 
-  const parseOppCommand = (raw)=>{
-    const txt = String(raw||"").trim();
-    const lower = txt.toLowerCase();
-    const out = {
-      segment: "",
-      statusSaude: "",
-      responsible: "",
-      onlySla: false,
-      slaDays: 3,
-      q: ""
-    };
-    if(!lower) return out;
-    if(/\blimpar\b/.test(lower)) return out;
-    if(/\bs[oó]\s*sla\b/.test(lower) || /\bonly\s*sla\b/.test(lower)) out.onlySla = true;
-    const mSla = lower.match(/\bsla\s*([0-9]{1,3})\b/);
-    if(mSla) out.slaDays = Math.max(0, parseInt(mSla[1]||"0")||0);
-    const mResp = lower.match(/\brespons[aá]vel\s+(.+)$/);
-    if(mResp) out.responsible = String(mResp[1]||"").trim();
-    if(/\bvip\b/.test(lower)) out.segment = "VIP";
-    if(/\bem\s*risco\b/.test(lower) || /\brisco\b/.test(lower)) out.segment = "Em Risco";
-    if(/\bchurn\b/.test(lower)) out.segment = "Churn";
-    if(/\bnovo\b/.test(lower)) out.segment = "Novo";
-    if(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/.test(lower)){
-      const mm = lower.match(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/);
-      const v = String(mm?.[1]||"").trim();
-      if(v === "vip") out.statusSaude = "VIP";
-      else if(v === "churn") out.statusSaude = "Churn";
-      else if(v === "novo") out.statusSaude = "Novo";
-      else out.statusSaude = "Em Risco";
-    }
-    const cleaned = lower
-      .replace(/\brespons[aá]vel\s+.+$/,"")
-      .replace(/\bs[oó]\s*sla\b/g,"")
-      .replace(/\bsla\s*[0-9]{1,3}\b/g,"")
-      .replace(/\bfiltrar\b/g,"")
-      .replace(/\b(vip|churn|novo|risco|em\s*risco)\b/g,"")
-      .replace(/\bsaude\s*:\s*(vip|churn|novo|risco|em\s*risco)\b/g,"")
-      .trim();
-    out.q = cleaned;
-    return out;
-  };
+  const q = String(document.getElementById("radar-q")?.value || "").trim().toLowerCase();
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
 
-  const cmdText = String(document.getElementById("opp-cmd")?.value || "").trim();
-  const cmd = parseOppCommand(cmdText);
+  const chips = [
+    { id: "visitou", label: "Visitou" },
+    { id: "visitou_quente", label: "Carrinho quente" },
+    { id: "visitou_frio", label: "Visitou frio" },
+    { id: "vip", label: "VIP" },
+    { id: "churn", label: "Churn" },
+    { id: "recompra", label: "Recompra" },
+    { id: "alto_valor", label: "Alto valor" },
+    { id: "dias30", label: "30+ dias" },
+    { id: "carrinho", label: "Carrinho abandonado" },
+    { id: "todos", label: "Todos" },
+  ];
+  chipsEl.innerHTML = chips.map(c=>{
+    const active = c.id==="todos" ? !Object.values(radarOppFilters).some(Boolean) : !!radarOppFilters[c.id];
+    return `<button class="radar-chip ${active?"active":""}" onclick="radarToggleOppFilter('${escapeJsSingleQuote(c.id)}')">${escapeHTML(c.label)}</button>`;
+  }).join("");
 
-  const renderOppSkeleton = ()=>{
-    return OPP_STAGES.map(s=>{
-      const sk = Array.from({length:6}).map(()=>{
-        return `
-          <div class="opp-card opp-skeleton">
-            <div class="opp-skel-block">
-              <div class="opp-skel-row">
-                <div class="opp-skel-ico"></div>
-                <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-                  <div class="skel" style="width:72%;height:12px"></div>
-                  <div class="skel" style="width:56%;height:10px"></div>
-                </div>
-              </div>
-              <div class="skel" style="width:88%;height:10px"></div>
-              <div class="skel" style="width:78%;height:10px"></div>
-            </div>
-          </div>
-        `;
-      }).join("");
-      return `
-        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-          <div class="kanban-col-title">
-            <span>${escapeHTML(s.label)}</span>
-            <span class="kanban-col-count">—</span>
-          </div>
-          <div class="kanban-drop">${sk}</div>
-        </div>
-      `;
-    }).join("");
-  };
+  kpisEl.innerHTML = `
+    <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">—</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Novos clientes hoje</div><div class="radar-kpi-val">—</div></div>
+  `;
 
-  host.innerHTML = renderOppSkeleton();
+  groupsEl.innerHTML = `<div class="empty">Carregando radar…</div>`;
 
   try{
     let healthMap = {};
@@ -5039,71 +6068,9 @@ async function renderOportunidadesFromSupabase(){
       .range(0, Math.max(0, oppRemoteLimit - 1));
     if(error) throw error;
     const rows = Array.isArray(data) ? data : [];
-
-    const byStage = {};
-    OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
-    rows.forEach(r=>{
-      const st = byStage[r.pipeline_stage] ? r.pipeline_stage : "novo_lead";
-      const resp = String(r.responsible_user||"").trim();
-      if(cmd.responsible && !resp.toLowerCase().includes(cmd.responsible.toLowerCase())) return;
-      const health = healthMap[String(r.id||"").trim()] || {};
-      const intel = intelMap[String(r.id||"").trim()] || {};
-      const segment = String(health?.segmento || health?.segment || intel?.segmento || "").trim();
-      const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
-      if(cmd.segment && segment.toLowerCase() !== cmd.segment.toLowerCase()) return;
-      if(cmd.statusSaude && statusSaude.toLowerCase() !== cmd.statusSaude.toLowerCase()) return;
-      if(cmd.q){
-        const q = cmd.q.toLowerCase();
-        const nm = String(r.nome||"").toLowerCase();
-        const loc = [r.cidade, r.uf].filter(Boolean).join(" ").toLowerCase();
-        if(!nm.includes(q) && !loc.includes(q) && !resp.toLowerCase().includes(q)) return;
-      }
-      const dsContact = daysSince(r.last_contact_at || r.last_interaction_at);
-      const slaHit = cmd.slaDays>0 && dsContact<9999 && dsContact>cmd.slaDays && (st==="contato_iniciado" || st==="negociacao");
-      if(cmd.onlySla && !slaHit) return;
-      r.__dsContact = dsContact;
-      r.__slaHit = slaHit;
-      byStage[st].push(r);
-    });
-    OPP_STAGES.forEach(s=>{
-      byStage[s.id].sort((a,b)=>{
-        const ad = a.last_interaction_at ? new Date(a.last_interaction_at).getTime() : 0;
-        const bd = b.last_interaction_at ? new Date(b.last_interaction_at).getTime() : 0;
-        return bd - ad;
-      });
-    });
-
-    const stageLabel = Object.fromEntries(OPP_STAGES.map(s=>[s.id,s.label]));
-    const typeLabel = {
-      mensagem_enviada: "Mensagem enviada",
-      mensagem_recebida: "Mensagem recebida",
-      ligacao: "Interação",
-      tarefa_criada: "Tarefa criada",
-      tarefa_concluida: "Tarefa concluída",
-      negociacao_registrada: "Negociação",
-      pedido_criado: "Pedido criado",
-      pagamento_confirmado: "Pagamento confirmado",
-      status_pedido_atualizado: "Status do pedido",
-      nota: "Nota"
-    };
-
-    const fmtHours = (h)=>{
-      const n = Number(h);
-      if(!Number.isFinite(n) || n < 0) return "—";
-      if(n < 24) return `${Math.floor(n)}h`;
-      const d = Math.floor(n/24);
-      const r = Math.floor(n%24);
-      return r ? `${d}d ${r}h` : `${d}d`;
-    };
-
-    const hoursSinceIso = (iso)=>{
-      const t = iso ? new Date(String(iso)).getTime() : NaN;
-      if(!t || isNaN(t)) return null;
-      return (Date.now() - t) / 3600000;
-    };
-
     const segMeta = (seg)=>{
       const s = String(seg||"").trim().toLowerCase();
+      if(s === "visitou") return { cls: "seg-visitou", label: "Visitou" };
       if(s === "vip") return { cls: "seg-vip", label: "VIP" };
       if(s === "em risco" || s === "risco") return { cls: "seg-risco", label: "Em Risco" };
       if(s === "churn") return { cls: "seg-churn", label: "Churn" };
@@ -5120,76 +6087,352 @@ async function renderOportunidadesFromSupabase(){
       return "Registrar próxima ação";
     };
 
-    host.innerHTML = OPP_STAGES.map(s=>{
-      const list = byStage[s.id] || [];
-      return `
-        <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-          <div class="kanban-col-title">
-            <span>${escapeHTML(s.label)}</span>
-            <span class="kanban-col-count">${list.length}</span>
+    const todayIso = new Date().toISOString().slice(0,10);
+    const cartsOpen = []
+      .concat(carrinhosAbandonados||[])
+      .map(normalizeCarrinhoAbandonado)
+      .filter(c=>c && c.checkout_id && !c.recuperado);
+
+    const cartByEmail = {};
+    cartsOpen.forEach(c=>{
+      const em = String(c.email || c.customer_email || "").trim().toLowerCase();
+      if(!em) return;
+      cartByEmail[em] = (cartByEmail[em]||0) + 1;
+    });
+
+    const items = rows.map(r=>{
+      const uuid = String(r.id || "").trim();
+      const health = healthMap[uuid] || {};
+      const intel = intelMap[uuid] || {};
+      const key = String(r.doc || r.id || "").trim();
+      const nm = String(r.nome || "Cliente").trim();
+      const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
+      const resp = String(r.responsible_user || "").trim();
+      const localCust = allCustomers.find(c=>String(c.id||"")===key);
+      const phone = rawPhone(localCust?.telefone||"");
+      const email = String(localCust?.email || r.email || "").trim().toLowerCase();
+      const segment = String(health?.segmento || health?.segment || intel?.segmento || r.status || localCust?.status || "").trim();
+      const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
+      const churnRisk = Number(health?.risco_churn ?? health?.churn_risk ?? r.risco_churn ?? 0) || 0;
+      const recompraScore = Number(health?.score_recompra ?? health?.recompra_score ?? r.score_recompra ?? intel?.score_final ?? 0) || 0;
+      const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? r.dias_desde_ultima_compra ?? daysSince(health?.ultimo_pedido || r.ultimo_pedido) ?? 0) || 0;
+      const totalPedidos = Number(health?.total_pedidos ?? r.total_pedidos ?? 0) || 0;
+      const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? r.total_gasto ?? 0) || 0;
+      const ticket = Number(health?.ticket_medio ?? r.ticket_medio ?? (totalPedidos>0 ? (ltv/totalPedidos) : 0) ) || 0;
+      const prob = Math.max(0, Math.min(100, Math.round(recompraScore)));
+      const potencial = Math.max(0, ticket) * (prob/100);
+      const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || r.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
+      const primeiro = String(health?.primeiro_pedido || r.primeiro_pedido || "").slice(0,10);
+      const cartCount = email ? (cartByEmail[email]||0) : 0;
+      const lastInteractionAt = r.last_interaction_at || r.lastInteractionAt || null;
+      const lastContactAt = r.last_contact_at || r.lastContactAt || null;
+      const lastInteractionType = r.last_interaction_type || r.lastInteractionType || null;
+      const lastInteractionDesc = r.last_interaction_desc || r.lastInteractionDesc || null;
+      return { uuid, key, nm, loc, resp, phone, email, segment, statusSaude, churnRisk, prob, diasSemComprar, totalPedidos, ltv, ticket, potencial, nextAction, primeiro, cartCount, last_interaction_at: lastInteractionAt, last_contact_at: lastContactAt, last_interaction_type: lastInteractionType, last_interaction_desc: lastInteractionDesc };
+    }).filter(x=>x.uuid && x.key);
+
+    const ltvVals = items.map(i=>i.ltv).filter(v=>Number.isFinite(v) && v>0).sort((a,b)=>a-b);
+    const p90 = ltvVals.length ? ltvVals[Math.max(0, Math.floor(ltvVals.length*0.9)-1)] : 0;
+    const highValueThreshold = Math.max(400, Number(p90)||0);
+
+    const purchasedByEmail = {};
+    items.forEach(i=>{
+      const em = String(i.email||"").trim().toLowerCase();
+      if(!em) return;
+      purchasedByEmail[em] = (Number(i.totalPedidos||0) > 0) || (Number(i.ltv||0) > 0);
+    });
+
+    const lookupCarr = buildClienteLookupParaCarrinhos();
+    const visitouLeads = cartsOpen
+      .filter(c=>{
+        const em = String(c.email||"").trim().toLowerCase();
+        if(!em) return true;
+        return purchasedByEmail[em] !== true;
+      })
+      .map(c=>{
+        const cid = String(c.checkout_id||"").trim();
+        const calc = calcularScoreRecuperacaoCarrinho(c, lookupCarr);
+        const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+        const prio = prioridadePorScore(score);
+        const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+        const valor = Number(c.valor||0)||0;
+        const nm = String(c.cliente_nome || c.email || "Visitante").trim() || "Visitante";
+        const em = String(c.email||"").trim().toLowerCase();
+        const phone = rawPhone(c.telefone||"");
+        const ds = daysSince(c.criado_em);
+        const dias = ds>=9999 ? 0 : ds;
+        const acao = etapa?.label ? `Carrinho: ${String(etapa.label)}` : "Recuperar carrinho";
+        return {
+          kind: "visitou",
+          uuid: "visitou:"+cid,
+          key: "visitou:"+cid,
+          checkoutId: cid,
+          nm,
+          loc: "",
+          resp: "",
+          phone,
+          email: em,
+          segment: "Visitou",
+          statusSaude: "Visitou",
+          churnRisk: 0,
+          prob: Math.max(0, Math.min(100, Math.round(score))),
+          diasSemComprar: dias,
+          tempoMin: calc.mins,
+          prioridade_id: prio.id,
+          prioridade_label: prio.label,
+          totalPedidos: 0,
+          ltv: 0,
+          ticket: valor,
+          potencial: valor,
+          nextAction: acao,
+          primeiro: "",
+          cartCount: 1,
+          cartValue: valor,
+          link_finalizacao: c.link_finalizacao || null,
+          criado_em: c.criado_em || null,
+        };
+      })
+      .filter(x=>x.checkoutId);
+
+    const allItems = [...visitouLeads, ...items];
+
+    const vipRiskCount = items.filter(i=>String(i.segment||i.statusSaude).toLowerCase()==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70)).length;
+    const cartsCount = cartsOpen.length;
+    const d30Count = items.filter(i=>i.diasSemComprar>=30).length;
+    const leadsTodayCount = visitouLeads.filter(x=>String(x.criado_em||"").slice(0,10)===todayIso).length;
+
+    kpisEl.innerHTML = `
+      <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">${escapeHTML(String(vipRiskCount))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">${escapeHTML(String(cartsCount))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">${escapeHTML(String(d30Count))}</div></div>
+      <div class="radar-kpi"><div class="radar-kpi-label">Leads novos hoje</div><div class="radar-kpi-val">${escapeHTML(String(leadsTodayCount))}</div></div>
+    `;
+
+    const filtered = allItems.filter(i=>{
+      if(q){
+        const hay = [i.nm, i.loc, i.resp, i.email].filter(Boolean).join(" ").toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      const isLead = i.kind === "visitou";
+      const isHotLead = isLead && String(i.prioridade_id||"") === "alta";
+      const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+      if(radarOppFilters.visitou && !isLead) return false;
+      if(radarOppFilters.visitou_quente && !isHotLead) return false;
+      if(radarOppFilters.visitou_frio && (isLead && isHotLead)) return false;
+      if(radarOppFilters.visitou_frio && !isLead) return false;
+      if(radarOppFilters.vip && (isLead || segLower !== "vip")) return false;
+      if(radarOppFilters.churn && (isLead || segLower !== "churn")) return false;
+      if(radarOppFilters.recompra && (isLead || !(i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60))) return false;
+      if(radarOppFilters.alto_valor && (isLead || i.ltv < highValueThreshold)) return false;
+      if(radarOppFilters.dias30 && (isLead || i.diasSemComprar < 30)) return false;
+      if(radarOppFilters.carrinho && i.cartCount <= 0) return false;
+      return true;
+    });
+
+    const visitou = filtered.filter(i=>i.kind === "visitou");
+    const visitouHot = visitou.filter(i=>String(i.prioridade_id||"") === "alta");
+    const visitouCold = visitou.filter(i=>String(i.prioridade_id||"") !== "alta");
+    const customersOnly = filtered.filter(i=>i.kind !== "visitou");
+
+    const priorityHigh = [];
+    const highValue = [];
+    const rebuy = [];
+    const risk = [];
+    const inactive = [];
+
+    customersOnly.forEach(i=>{
+      const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+      const isVipRisk = segLower==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70);
+      const isCartHot = i.cartCount>0 && i.diasSemComprar>=7;
+      const isProbable = i.prob>=80 && i.diasSemComprar>=30 && i.ltv>0;
+      const isRebuy = i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60 && !isVipRisk;
+      const isInactive = i.diasSemComprar>=120;
+      const isRisk = !isInactive && (segLower==="churn" || segLower==="em risco" || segLower==="risco" || i.churnRisk>=70 || i.diasSemComprar>=60);
+      if(isVipRisk || isCartHot || isProbable) priorityHigh.push(i);
+      else if(i.ltv>=highValueThreshold) highValue.push(i);
+      else if(isRebuy) rebuy.push(i);
+      else if(isRisk) risk.push(i);
+      else if(isInactive) inactive.push(i);
+    });
+
+    const sortByScore = (a,b)=>(b.prob-a.prob) || (b.potencial-a.potencial) || (b.ltv-a.ltv) || (b.diasSemComprar-a.diasSemComprar);
+    priorityHigh.sort(sortByScore);
+    highValue.sort((a,b)=>(b.ltv-a.ltv) || sortByScore(a,b));
+    rebuy.sort(sortByScore);
+    risk.sort((a,b)=>(b.churnRisk-a.churnRisk) || (b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+    inactive.sort((a,b)=>(b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+
+    const renderCard = (i)=>{
+      if(i.kind === "visitou"){
+        const cid = String(i.checkoutId||"").trim();
+        const safeCid = escapeJsSingleQuote(cid);
+        const seg = segMeta(i.segment || i.statusSaude);
+        const prioId = String(i.prioridade_id||"").trim();
+        const prioLabel = String(i.prioridade_label||"").trim() || "—";
+        const prioIcon = prioId === "alta" ? "🔥" : (prioId === "media" ? "⚡" : "🧊");
+        const contato = [i.email||"", i.phone?fmtPhone(i.phone):""].filter(Boolean).join(" · ") || "—";
+        const kv = `
+          <div class="radar-card-vals">
+            <div class="radar-kv">
+              <div class="radar-kv-label">POTENCIAL</div>
+              <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">ÚLTIMA VISITA</div>
+              <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CARRINHO</div>
+              <div class="radar-kv-val">${escapeHTML(String(cid).slice(0,8))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CONTATO</div>
+              <div class="radar-kv-val" style="font-family:var(--font)">${escapeHTML(contato)}</div>
+            </div>
           </div>
-          <div class="kanban-drop">
-            ${list.map(r=>{
-              const key = String(r.doc || r.id || "");
-              const safeKey = escapeJsSingleQuote(key);
-              const uuid = String(r.id || "").trim();
-              const nm = String(r.nome || "Cliente");
-              const loc = [r.cidade, r.uf].filter(Boolean).join(" — ");
-              const lastAt = r.last_interaction_at ? new Date(r.last_interaction_at) : null;
-              const lastLabel = typeLabel[r.last_interaction_type] || r.last_interaction_type || "—";
-              const lastTime = lastAt && !isNaN(lastAt) ? lastAt.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
-              const dsContact = typeof r.__dsContact === "number" ? r.__dsContact : daysSince(r.last_contact_at || r.last_interaction_at);
-              const dsText = dsContact>=9999 ? "—" : `${dsContact}d sem contato`;
-              const resp = r.responsible_user ? String(r.responsible_user) : "—";
-              const desc = r.last_interaction_desc ? String(r.last_interaction_desc) : "";
-              const descMini = desc.length > 90 ? desc.slice(0,90)+"…" : desc;
-              const localCust = allCustomers.find(c=>String(c.id||"")===key);
-              const phone = rawPhone(localCust?.telefone||"");
-              const slaHit = !!r.__slaHit;
-              const health = healthMap[uuid] || {};
-              const intel = intelMap[uuid] || {};
-              const segment = String(health?.segmento || health?.segment || intel?.segmento || localCust?.status || "").trim();
-              const statusSaude = String(health?.status_saude || health?.statusSaude || segment || "").trim();
-              const seg = segMeta(segment || statusSaude);
-              const nextAction = String(health?.next_best_action || health?.nextBestAction || intel.next_best_action || fallbackNextAction(segment || statusSaude) || "").trim();
-              const diasSemComprar = Number(health?.dias_sem_comprar ?? health?.diasSemComprar ?? health?.dias_desde_ultima_compra ?? health?.recencia_dias ?? dsContact) || 0;
-              const ltv = Number(health?.ltv ?? health?.valor_total ?? health?.total_gasto ?? 0) || 0;
-              const hs = hoursSinceIso(r.last_interaction_at || r.last_contact_at);
-              const slaNovoLead = (s.id === "novo_lead") && hs != null && hs > 24;
-              const healthCls = String(statusSaude||"").toLowerCase()==="churn" ? "opp-health-churn" : (String(segment||"").toLowerCase()==="vip" ? "opp-health-vip" : "");
-              return `
-                <div class="opp-card ${slaHit?"opp-sla":""} ${healthCls}" data-client-uuid="${escapeHTML(uuid)}" data-customer-key="${escapeHTML(key)}" onclick="openOppClienteResumo('${safeKey}')">
-                  <div class="opp-head">
-                    <div class="opp-title">${escapeHTML(nm)}</div>
-                    <div class="opp-badges">
-                      ${String(segment||"").toLowerCase()==="vip" ? `<span class="vip-crown">👑</span>` : ``}
-                      ${segment?`<span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>`:""}
-                      ${slaNovoLead?`<span class="sla-badge">⏱ ${escapeHTML(fmtHours(hs))}</span>`:""}
-                      ${slaHit?`<span class="opp-sla-tag">SLA</span>`:""}
-                    </div>
-                  </div>
-                  <div class="opp-meta">${escapeHTML(loc||"—")}</div>
-                  <div class="opp-meta">Faturamento: <span class="chiva-table-mono">${escapeHTML(fmtBRL(ltv||0))}</span> · ${escapeHTML(Math.max(0, Math.round(diasSemComprar||0)))}d sem comprar</div>
-                  <div class="opp-meta">Última: ${escapeHTML(lastLabel)} · ${escapeHTML(lastTime)}${descMini?` · ${escapeHTML(descMini)}`:""}</div>
-                  <div class="opp-meta">Contato: ${escapeHTML(dsText)} · Resp: ${escapeHTML(resp)}</div>
-                  <div class="opp-next">Próxima ação: <b>${escapeHTML(nextAction)}</b></div>
-                  <div class="opp-actions" onclick="event.stopPropagation()">
-                    ${phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WA</button>`:""}
-                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','nota')">Nota</button>
-                    <button class="opp-mini-btn" onclick="openInteractionModal('${safeKey}','negociacao_registrada')">Neg</button>
-                    <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
-                  </div>
-                </div>
-              `;
-            }).join("")}
+        `;
+        const prob = `
+          <div class="radar-prob">
+            <div class="radar-prob-row">
+              <div class="radar-prob-label">Probabilidade de recuperação</div>
+              <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+            </div>
+            <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+          </div>
+        `;
+        const action = `<div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Recuperar carrinho")}</b></div>`;
+        const buttons = `
+          <div class="radar-actions" onclick="event.stopPropagation()">
+            ${rawPhone(i.phone||"")?`<button class="opp-mini-btn" onclick="openWhatsAppCarrinho('${safeCid}')">WhatsApp</button>`:""}
+            ${i.link_finalizacao?`<button class="opp-mini-btn" onclick="openCarrinhoLinkFromRadar('${safeCid}')">Link</button>`:""}
+            <button class="opp-mini-btn" onclick="openCarrinhoInComercialFromRadar('${safeCid}')">Abrir</button>
+          </div>
+        `;
+        return `
+          <div class="radar-card" onclick="openRadarVisitouDrawer('${safeCid}')">
+            <div class="radar-card-top">
+              <div style="min-width:0">
+                <div class="radar-card-name">${escapeHTML(i.nm||"Visitante")}</div>
+                <div class="radar-card-meta">${escapeHTML("Carrinho aberto (sem compra)")}</div>
+              </div>
+              <div class="opp-badges">
+                <span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>
+                <span class="seg-badge" style="border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text-2)">${escapeHTML(prioIcon+" "+prioLabel)}</span>
+              </div>
+            </div>
+            ${kv}${prob}${action}${buttons}
+          </div>
+        `;
+      }
+      const safeKey = escapeJsSingleQuote(i.key);
+      const seg = segMeta(i.segment || i.statusSaude);
+      const nameLine = `
+        <div class="radar-card-top">
+          <div style="min-width:0">
+            <div class="radar-card-name">${escapeHTML(i.nm)}</div>
+            <div class="radar-card-meta">${escapeHTML(i.loc || "—")}${i.resp?` · ${escapeHTML(i.resp)}`:""}</div>
+          </div>
+          <div class="opp-badges">
+            ${String(i.segment||"").toLowerCase()==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+            ${(i.segment||i.statusSaude)?`<span class="seg-badge ${seg.cls}">${escapeHTML(seg.label)}</span>`:""}
+            ${i.cartCount>0?`<span class="seg-badge" style="border-color:rgba(251,191,36,.22);background:rgba(251,191,36,.08);color:var(--amber)">🛒 ${escapeHTML(String(i.cartCount))}</span>`:""}
           </div>
         </div>
       `;
-    }).join("");
+      const kv = `
+        <div class="radar-card-vals">
+          <div class="radar-kv">
+            <div class="radar-kv-label">POTENCIAL</div>
+            <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">ÚLTIMA COMPRA</div>
+            <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">FATURAMENTO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ltv||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">TICKET MÉDIO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ticket||0))}</div>
+          </div>
+        </div>
+      `;
+      const prob = `
+        <div class="radar-prob">
+          <div class="radar-prob-row">
+            <div class="radar-prob-label">Probabilidade de recompra</div>
+            <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+          </div>
+          <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+        </div>
+      `;
+      const action = `
+        <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Registrar próxima ação")}</b></div>
+      `;
+      const buttons = `
+        <div class="radar-actions" onclick="event.stopPropagation()">
+          ${i.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+          ${i.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+          <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
+        </div>
+      `;
+      return `<div class="radar-card" onclick="openOppClienteResumo('${safeKey}')">${nameLine}${kv}${prob}${action}${buttons}</div>`;
+    };
 
-    try{ enableOppDragAndSpring(host); }catch(_e){}
+    const renderGroup = (title, subtitle, list)=>{
+      if(!list.length) return "";
+      return `
+        <div class="radar-group">
+          <div class="radar-group-hdr">
+            <div>
+              <div class="radar-group-title">${escapeHTML(title)}</div>
+              <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
+            </div>
+            <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+          </div>
+          <div class="radar-grid">${list.map(renderCard).join("")}</div>
+        </div>
+      `;
+    };
+
+    const sortVisitouHot = (a,b)=>{
+      const as = Number(a.prob||0)||0;
+      const bs = Number(b.prob||0)||0;
+      if(bs !== as) return bs - as;
+      const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+      const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+      if(am !== bm) return am - bm;
+      return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+    };
+    const sortVisitouCold = (a,b)=>{
+      const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+      const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+      if(am !== bm) return am - bm;
+      const as = Number(a.prob||0)||0;
+      const bs = Number(b.prob||0)||0;
+      if(bs !== as) return bs - as;
+      return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+    };
+    visitouHot.sort(sortVisitouHot);
+    visitouCold.sort(sortVisitouCold);
+
+    const groupsHtml =
+      renderGroup("🛒 CARRINHO QUENTE", "Alta chance de recuperar agora", visitouHot) +
+      renderGroup("👀 VISITOU (FRIO)", "Nutrir e acompanhar", visitouCold) +
+      renderGroup("🔥 PRIORIDADE ALTA", "Execute hoje", priorityHigh) +
+      renderGroup("💰 ALTO VALOR", `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`, highValue) +
+      renderGroup("🔄 RECOMPRA", "Clientes no timing de reposição", rebuy) +
+      renderGroup("⚠️ EM RISCO", "Recuperação e retenção", risk) +
+      renderGroup("🧊 INATIVOS", "120+ dias sem comprar", inactive);
+
+    groupsEl.innerHTML = groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
+    radarOppLastModel = { items: allItems, filtered, groups: { visitouHot, visitouCold, priorityHigh, highValue, rebuy, risk, inactive }, thresholds: { highValueThreshold } };
+    return radarOppLastModel;
   }catch(_e){
-    host.innerHTML = `<div class="empty">Pipeline indisponível no momento.</div>`;
+    groupsEl.innerHTML = `<div class="empty">Radar indisponível no momento.</div>`;
+    return null;
   }
 }
 
@@ -5312,6 +6555,272 @@ function oppLoadMore(){
   renderOportunidades();
 }
 
+function oppSendCoupon(customerKey, pct){
+  const id = String(customerKey||"").trim();
+  const p = Number(pct||0) || 10;
+  if(!id) return;
+  const c = allCustomers.find(x=>String(x.id||"")===id);
+  if(!c){ toast("⚠ Cliente não encontrado"); return; }
+  const phone = rawPhone(c.telefone||"");
+  if(!phone){ toast("⚠ Cliente sem telefone"); return; }
+  openWaModal(id);
+  const first = String(c.nome||"Cliente").trim().split(" ")[0] || "Cliente";
+  const msg = `Oi ${first}! Tenho um cupom de ${p}% para você voltar hoje. Quer que eu te envie?`;
+  setTimeout(()=>{
+    const inp = document.getElementById("wa-custom");
+    if(inp) inp.value = msg;
+  }, 80);
+}
+
+async function oppSuggestTodayActions(){
+  return generateRadarTodayActions();
+}
+
+let radarTodayActionsState = { loading: false, last: null, ts: 0 };
+
+function radarGetPendingTaskCount(customerKey, customerName){
+  const key = String(customerKey||"").trim();
+  const nm = String(customerName||"").trim().toLowerCase();
+  if(!Array.isArray(allTasks) || !allTasks.length) return 0;
+  return allTasks.filter(t=>{
+    if(!t || t.status === "concluida") return false;
+    const tid = String(t.customer_id || t.cliente_id || t.clienteId || "").trim();
+    if(key && tid && tid === key) return true;
+    const tc = String(t.cliente || "").trim().toLowerCase();
+    if(!tc || !nm) return false;
+    if(tc === nm) return true;
+    return tc.includes(nm) || nm.includes(tc);
+  }).length;
+}
+
+function radarDaysSinceIso(isoStr){
+  const ts = isoStr ? new Date(String(isoStr)).getTime() : NaN;
+  if(!isFinite(ts)) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+}
+
+function radarBuildMotivo(flags){
+  if(flags.vip && flags.d90) return "Cliente VIP em risco de churn";
+  if(flags.risco && flags.altoValor && flags.semContato) return "Cliente valioso sem contato recente";
+  if(flags.altoPotencial && flags.semContato) return "Alto potencial de recompra";
+  if(flags.d90 && flags.recorrente) return "Recorrente com sinais de queda";
+  if(flags.d45 && flags.altoValor) return "Muito tempo sem comprar e bom histórico";
+  if(flags.risco) return "Cliente em risco com bom histórico";
+  if(flags.altoValor) return "Cliente valioso com oportunidade de retorno";
+  if(flags.d45) return "Muito tempo sem comprar";
+  if(flags.altoPotencial) return "Bom potencial de recompra";
+  return "Oportunidade de contato hoje";
+}
+
+function radarPickNextBestAction(item, flags){
+  const segLower = String(item?.segment||item?.statusSaude||"").toLowerCase();
+  if(flags.vip) return "Enviar WhatsApp com oferta VIP";
+  if(segLower === "churn" || flags.risco) return "Enviar cupom de reativação";
+  if(flags.altoPotencial) return "Enviar cupom de recompra";
+  if(flags.d45) return "Reativar com campanha";
+  return "Abrir atendimento manual";
+}
+
+function radarScoreCustomerOpportunity(item, ctx){
+  const ltv = Number(item?.ltv||0) || 0;
+  const ticket = Number(item?.ticket||0) || 0;
+  const dias = Number(item?.diasSemComprar ?? 0) || 0;
+  const n = Number(item?.totalPedidos ?? 0) || 0;
+  const prob = Number(item?.prob ?? 0) || 0;
+  const churnRisk = Number(item?.churnRisk ?? 0) || 0;
+  const segLower = String(item?.segment||item?.statusSaude||"").toLowerCase();
+  const vip = segLower === "vip";
+  const risco = segLower === "churn" || segLower === "em risco" || segLower === "risco" || churnRisk >= 70;
+  const altoValor = (ctx.avgLtv > 0) ? (ltv >= ctx.avgLtv) : (ltv >= 500);
+  const d45 = dias >= 45;
+  const d90 = dias >= 90;
+  const recorrente = n >= 2;
+  const altoPotencial = prob >= 75;
+
+  const lastContactDays =
+    radarDaysSinceIso(item?.last_contact_at) ??
+    radarDaysSinceIso(item?.last_interaction_at);
+  const semContato = lastContactDays == null ? true : lastContactDays > 7;
+
+  const pendingCount = radarGetPendingTaskCount(item?.key, item?.nm);
+  const temPendente = pendingCount > 0;
+
+  let score = 0;
+  score += vip ? 30 : 0;
+  score += altoValor ? 20 : 0;
+  score += d90 ? 35 : (d45 ? 25 : 0);
+  score += recorrente ? 15 : 0;
+  score += risco ? 20 : 0;
+  score += altoPotencial ? 15 : 0;
+  score += (ctx.avgTicket > 0 && ticket >= (ctx.avgTicket * 1.2)) ? 10 : 0;
+  score += (risco && recorrente && altoValor) ? 10 : 0;
+  score -= (lastContactDays != null && lastContactDays <= 7) ? 20 : 0;
+  score -= temPendente ? 15 : 0;
+
+  const flags = { vip, risco, altoValor, d45, d90, recorrente, altoPotencial, semContato, temPendente };
+  const motivo = radarBuildMotivo(flags);
+  const nextBest = String(item?.nextAction||"").trim() || radarPickNextBestAction(item, flags);
+  const prio = score >= 85 ? { id: "alta", label: "Prioridade alta", cls: "high" } : (score >= 60 ? { id: "media", label: "Prioridade média", cls: "med" } : { id: "baixa", label: "Prioridade baixa", cls: "" });
+
+  const badges = [];
+  if(vip) badges.push("VIP");
+  if(altoValor) badges.push("Alto valor");
+  if(risco) badges.push("Em Risco");
+
+  return {
+    score,
+    motivo,
+    nextBest,
+    prio,
+    badges,
+    pendingCount,
+    lastContactDays
+  };
+}
+
+function renderRadarTodayActionsBlock(state){
+  const host = document.getElementById("radar-today-actions");
+  if(!host) return;
+  if(state.loading){
+    host.innerHTML = `
+      <div class="radar-today">
+        <div class="radar-today-head">
+          <div>
+            <div class="radar-today-title">Ações recomendadas para hoje</div>
+            <div class="radar-today-sub">Gerando recomendações…</div>
+          </div>
+          <div class="radar-prio-pill med">Processando</div>
+        </div>
+        <div class="radar-today-grid">
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+          <div class="radar-card" style="cursor:default"><div class="radar-card-name">—</div><div class="radar-card-meta">Carregando…</div></div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  const list = Array.isArray(state.last) ? state.last : [];
+  if(!list.length){
+    host.innerHTML = `
+      <div class="radar-today">
+        <div class="radar-today-head">
+          <div>
+            <div class="radar-today-title">Ações recomendadas para hoje</div>
+            <div class="radar-today-sub">Sem dados suficientes para recomendar agora</div>
+          </div>
+          <div class="radar-prio-pill">Vazio</div>
+        </div>
+        <div class="empty">Importe/sincronize pedidos e clientes para gerar recomendações com base em histórico.</div>
+      </div>
+    `;
+    return;
+  }
+  const updatedAt = state.ts ? new Date(state.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
+  host.innerHTML = `
+    <div class="radar-today">
+      <div class="radar-today-head">
+        <div>
+          <div class="radar-today-title">Ações recomendadas para hoje</div>
+          <div class="radar-today-sub">Top 3 por valor, recência, risco e histórico</div>
+        </div>
+        <div class="radar-prio-pill">${updatedAt ? "Atualizado " + escapeHTML(updatedAt) : "Atualizado"}</div>
+      </div>
+      <div class="radar-today-grid">
+        ${list.map(r=>{
+          const safeKey = escapeJsSingleQuote(String(r.key||""));
+          const segLower = String(r.segment||r.statusSaude||"").toLowerCase();
+          const segCls = segLower==="vip" ? "seg-vip" : segLower==="churn" ? "seg-churn" : segLower==="em risco"||segLower==="risco" ? "seg-risco" : segLower==="novo" ? "seg-novo" : "seg-unk";
+          const segLabel = segLower==="vip" ? "VIP" : segLower==="churn" ? "Churn" : segLower==="em risco"||segLower==="risco" ? "Em Risco" : segLower==="novo" ? "Novo" : (r.segment||"—");
+          const pr = r.__score?.prio;
+          const prCls = pr?.cls ? ` ${pr.cls}` : "";
+          const motivo = r.__score?.motivo || "";
+          const nextBest = r.__score?.nextBest || r.nextAction || "";
+          const badgeExtra = (r.__score?.badges || []).filter(b=>b!=="VIP" && b!==segLabel);
+          return `
+            <div class="radar-card" onclick="openOppClienteResumo('${safeKey}')">
+              <div class="radar-card-top">
+                <div style="min-width:0">
+                  <div class="radar-card-name">${escapeHTML(r.nm||"Cliente")}</div>
+                  <div class="radar-card-meta">${escapeHTML(String(r.diasSemComprar||0))}d sem comprar · ${escapeHTML(fmtBRL(r.ltv||0))} faturados</div>
+                </div>
+                <div class="opp-badges">
+                  ${segLower==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+                  <span class="radar-prio-pill${prCls}">${escapeHTML(pr?.label||"Prioridade")}</span>
+                </div>
+              </div>
+              <div class="opp-badges" style="margin-top:8px">
+                <span class="seg-badge ${segCls}">${escapeHTML(segLabel)}</span>
+                ${badgeExtra.includes("Alto valor") ? `<span class="seg-badge" style="border-color:rgba(15,167,101,.24);background:rgba(15,167,101,.10);color:var(--green)">Alto valor</span>` : ``}
+                ${badgeExtra.includes("Em Risco") ? `<span class="seg-badge" style="border-color:rgba(248,113,113,.24);background:rgba(248,113,113,.10);color:var(--red)">Em Risco</span>` : ``}
+              </div>
+              <div class="radar-card-vals">
+                <div class="radar-kv">
+                  <div class="radar-kv-label">PEDIDOS</div>
+                  <div class="radar-kv-val">${escapeHTML(String(r.totalPedidos||0))}</div>
+                </div>
+                <div class="radar-kv">
+                  <div class="radar-kv-label">TICKET MÉDIO</div>
+                  <div class="radar-kv-val">${escapeHTML(fmtBRL(r.ticket||0))}</div>
+                </div>
+              </div>
+              <div class="radar-reason">Motivo: <b>${escapeHTML(motivo)}</b></div>
+              <div class="radar-action">Próxima melhor ação<br><b>${escapeHTML(nextBest)}</b></div>
+              <div class="radar-actions" onclick="event.stopPropagation()">
+                ${r.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+                ${r.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+                <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function generateRadarTodayActions(){
+  if(radarTodayActionsState.loading) return;
+  radarTodayActionsState = { loading: true, last: radarTodayActionsState.last, ts: radarTodayActionsState.ts };
+  renderRadarTodayActionsBlock(radarTodayActionsState);
+
+  let model = radarOppLastModel;
+  if(!model || !Array.isArray(model.items)){
+    try{
+      if(supaConnected && supaClient) model = await renderOportunidadesFromSupabase().catch(()=>null);
+      else { renderOportunidades(); model = radarOppLastModel; }
+    }catch(_e){ model = null; }
+  }
+  const items = Array.isArray(model?.items) ? model.items : [];
+  const customers = items.filter(i=>i && i.kind !== "visitou" && i.key && i.nm);
+  const avgLtv = customers.length ? customers.reduce((s,i)=>s+(Number(i.ltv||0)||0),0) / customers.length : 0;
+  const avgTicket = customers.length ? customers.reduce((s,i)=>s+(Number(i.ticket||0)||0),0) / customers.length : 0;
+  const ctx = { avgLtv, avgTicket };
+
+  const scored = customers.map(c=>{
+    const s = radarScoreCustomerOpportunity(c, ctx);
+    return { ...c, __score: s };
+  }).filter(x=>Number(x.__score?.score||0) > 0);
+
+  scored.sort((a,b)=>{
+    const as = Number(a.__score?.score||0)||0;
+    const bs = Number(b.__score?.score||0)||0;
+    if(bs !== as) return bs - as;
+    const bl = Number(b.ltv||0)||0;
+    const al = Number(a.ltv||0)||0;
+    if(bl !== al) return bl - al;
+    const bd = Number(b.diasSemComprar||0)||0;
+    const ad = Number(a.diasSemComprar||0)||0;
+    if(bd !== ad) return bd - ad;
+    return String(a.nm||"").localeCompare(String(b.nm||""), "pt-BR");
+  });
+
+  const top = scored.slice(0,3);
+  radarTodayActionsState = { loading: false, last: top, ts: Date.now() };
+  renderRadarTodayActionsBlock(radarTodayActionsState);
+  try{ document.getElementById("radar-today-actions")?.scrollIntoView({ behavior: "smooth", block: "start" }); }catch(_e){}
+}
+
 async function openOppClienteResumo(customerKey){
   const key = String(customerKey||"").trim();
   if(!key){ toast("⚠ Cliente inválido"); return; }
@@ -5398,50 +6907,351 @@ function renderOportunidades(){
     renderOportunidadesFromSupabase();
     return;
   }
-  seedOppPipeline();
-  const host = document.getElementById("opp-kanban");
-  if(!host) return;
-  const byStage = {};
-  OPP_STAGES.forEach(s=>{ byStage[s.id] = []; });
-  (oppPipeline||[]).forEach(o=>{
-    const st = byStage[o.stage] ? o.stage : "novo_lead";
-    byStage[st].push(o);
-  });
-  OPP_STAGES.forEach(s=>{
-    byStage[s.id].sort((a,b)=>(Number(b.value)||0)-(Number(a.value)||0));
+  const kpisEl = document.getElementById("radar-kpis");
+  const chipsEl = document.getElementById("radar-chips");
+  const groupsEl = document.getElementById("radar-groups");
+  if(!kpisEl || !chipsEl || !groupsEl) return;
+
+  const q = String(document.getElementById("radar-q")?.value || "").trim().toLowerCase();
+  if(!radarOppFilters || typeof radarOppFilters !== "object") radarOppFilters = { visitou:false, visitou_quente:false, visitou_frio:false, vip:false, churn:false, recompra:false, alto_valor:false, dias30:false, carrinho:false };
+
+  const chips = [
+    { id: "visitou", label: "Visitou" },
+    { id: "visitou_quente", label: "Carrinho quente" },
+    { id: "visitou_frio", label: "Visitou frio" },
+    { id: "vip", label: "VIP" },
+    { id: "churn", label: "Churn" },
+    { id: "recompra", label: "Recompra" },
+    { id: "alto_valor", label: "Alto valor" },
+    { id: "dias30", label: "30+ dias" },
+    { id: "carrinho", label: "Carrinho abandonado" },
+    { id: "todos", label: "Todos" },
+  ];
+  chipsEl.innerHTML = chips.map(c=>{
+    const active = c.id==="todos" ? !Object.values(radarOppFilters).some(Boolean) : !!radarOppFilters[c.id];
+    return `<button class="radar-chip ${active?"active":""}" onclick="radarToggleOppFilter('${escapeJsSingleQuote(c.id)}')">${escapeHTML(c.label)}</button>`;
+  }).join("");
+
+  const todayIso = new Date().toISOString().slice(0,10);
+  const cartsOpen = []
+    .concat(carrinhosAbandonados||[])
+    .map(normalizeCarrinhoAbandonado)
+    .filter(c=>c && c.checkout_id && !c.recuperado);
+
+  const cartByEmail = {};
+  cartsOpen.forEach(c=>{
+    const em = String(c.email || c.customer_email || "").trim().toLowerCase();
+    if(!em) return;
+    cartByEmail[em] = (cartByEmail[em]||0) + 1;
   });
 
-  host.innerHTML = OPP_STAGES.map(s=>{
-    const list = byStage[s.id] || [];
-    return `
-      <div class="kanban-col" data-stage="${escapeHTML(s.id)}">
-        <div class="kanban-col-title">
-          <span>${escapeHTML(s.label)}</span>
-          <span class="kanban-col-count">${list.length}</span>
+  const clis = Object.values(buildCli(allOrders)).map(c=>({ c, s: calcCliScores(c) })).filter(x=>x.c && x.c.id);
+  const items = clis.map(x=>{
+    const c = x.c;
+    const s = x.s || {};
+    const id = String(c.id||"").trim();
+    const nm = String(c.nome||"Cliente").trim();
+    const loc = [c.cidade,c.uf].filter(Boolean).join(" — ");
+    const email = String(c.email||"").trim().toLowerCase();
+    const cartCount = email ? (cartByEmail[email]||0) : 0;
+    const segment = String(s.status||"").trim();
+    const diasSemComprar = Number(s.ds||0) || 0;
+    const ltv = Number(s.ltv||0) || 0;
+    const ticket = Number(s.avgTicket||0) || (s.ordersCount? (ltv/s.ordersCount) : 0);
+    const prob = Math.max(0, Math.min(100, Math.round(Number(s.recompraScore||0) || 0)));
+    const potencial = Math.max(0, ticket) * (prob/100);
+    const nextAction = s.nextBestAction || (segment==="vip" ? "Oferta VIP: lançamento/kit exclusivo" : segment==="churn" ? "Reativar com oferta forte + mensagem pessoal" : "Enviar cupom de desconto");
+    const primeiro = String(s.firstOrderAt||"").slice(0,10);
+    const churnRisk = Number(s.churnRisk||0) || 0;
+    const phone = rawPhone(c.telefone||"");
+    return { key:id, uuid:id, nm, loc, resp:"", phone, email, segment, statusSaude:segment, churnRisk, prob, diasSemComprar, totalPedidos:s.ordersCount||0, ltv, ticket, potencial, nextAction, primeiro, cartCount };
+  });
+
+  const ltvVals = items.map(i=>i.ltv).filter(v=>Number.isFinite(v) && v>0).sort((a,b)=>a-b);
+  const p90 = ltvVals.length ? ltvVals[Math.max(0, Math.floor(ltvVals.length*0.9)-1)] : 0;
+  const highValueThreshold = Math.max(400, Number(p90)||0);
+
+  const purchasedByEmail = {};
+  items.forEach(i=>{
+    const em = String(i.email||"").trim().toLowerCase();
+    if(!em) return;
+    purchasedByEmail[em] = (Number(i.totalPedidos||0) > 0) || (Number(i.ltv||0) > 0);
+  });
+
+  const lookupCarr = buildClienteLookupParaCarrinhos();
+  const visitouLeads = cartsOpen
+    .filter(c=>{
+      const em = String(c.email||"").trim().toLowerCase();
+      if(!em) return true;
+      return purchasedByEmail[em] !== true;
+    })
+    .map(c=>{
+      const cid = String(c.checkout_id||"").trim();
+      const calc = calcularScoreRecuperacaoCarrinho(c, lookupCarr);
+      const score = c.score_recuperacao == null ? (Number(calc.score||0)||0) : (Number(c.score_recuperacao||0)||0);
+      const prio = prioridadePorScore(score);
+      const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+      const valor = Number(c.valor||0)||0;
+      const nm = String(c.cliente_nome || c.email || "Visitante").trim() || "Visitante";
+      const em = String(c.email||"").trim().toLowerCase();
+      const phone = rawPhone(c.telefone||"");
+      const ds = daysSince(c.criado_em);
+      const dias = ds>=9999 ? 0 : ds;
+      const acao = etapa?.label ? `Carrinho: ${String(etapa.label)}` : "Recuperar carrinho";
+      return {
+        kind: "visitou",
+        uuid: "visitou:"+cid,
+        key: "visitou:"+cid,
+        checkoutId: cid,
+        nm,
+        loc: "",
+        resp: "",
+        phone,
+        email: em,
+        segment: "Visitou",
+        statusSaude: "Visitou",
+        churnRisk: 0,
+        prob: Math.max(0, Math.min(100, Math.round(score))),
+        diasSemComprar: dias,
+        tempoMin: calc.mins,
+        prioridade_id: prio.id,
+        prioridade_label: prio.label,
+        totalPedidos: 0,
+        ltv: 0,
+        ticket: valor,
+        potencial: valor,
+        nextAction: acao,
+        primeiro: "",
+        cartCount: 1,
+        cartValue: valor,
+        link_finalizacao: c.link_finalizacao || null,
+        criado_em: c.criado_em || null,
+      };
+    })
+    .filter(x=>x.checkoutId);
+
+  const allItems = [...visitouLeads, ...items];
+
+  const vipRiskCount = items.filter(i=>String(i.segment||i.statusSaude).toLowerCase()==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70)).length;
+  const cartsCount = cartsOpen.length;
+  const d30Count = items.filter(i=>i.diasSemComprar>=30).length;
+  const leadsTodayCount = visitouLeads.filter(x=>String(x.criado_em||"").slice(0,10)===todayIso).length;
+
+  kpisEl.innerHTML = `
+    <div class="radar-kpi"><div class="radar-kpi-label">VIPs em risco</div><div class="radar-kpi-val">${escapeHTML(String(vipRiskCount))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Carrinhos abandonados</div><div class="radar-kpi-val">${escapeHTML(String(cartsCount))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Clientes 30+ dias</div><div class="radar-kpi-val">${escapeHTML(String(d30Count))}</div></div>
+    <div class="radar-kpi"><div class="radar-kpi-label">Leads novos hoje</div><div class="radar-kpi-val">${escapeHTML(String(leadsTodayCount))}</div></div>
+  `;
+
+  const filtered = allItems.filter(i=>{
+    if(q){
+      const hay = [i.nm, i.loc, i.resp, i.email].filter(Boolean).join(" ").toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    const isLead = i.kind === "visitou";
+    const isHotLead = isLead && String(i.prioridade_id||"") === "alta";
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    if(radarOppFilters.visitou && !isLead) return false;
+    if(radarOppFilters.visitou_quente && !isHotLead) return false;
+    if(radarOppFilters.visitou_frio && (isLead && isHotLead)) return false;
+    if(radarOppFilters.visitou_frio && !isLead) return false;
+    if(radarOppFilters.vip && (isLead || segLower !== "vip")) return false;
+    if(radarOppFilters.churn && (isLead || segLower !== "churn")) return false;
+    if(radarOppFilters.recompra && (isLead || !(i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60))) return false;
+    if(radarOppFilters.alto_valor && (isLead || i.ltv < highValueThreshold)) return false;
+    if(radarOppFilters.dias30 && (isLead || i.diasSemComprar < 30)) return false;
+    if(radarOppFilters.carrinho && i.cartCount <= 0) return false;
+    return true;
+  });
+
+  const visitou = filtered.filter(i=>i.kind === "visitou");
+  const visitouHot = visitou.filter(i=>String(i.prioridade_id||"") === "alta");
+  const visitouCold = visitou.filter(i=>String(i.prioridade_id||"") !== "alta");
+  const customersOnly = filtered.filter(i=>i.kind !== "visitou");
+
+  const priorityHigh = [];
+  const highValue = [];
+  const rebuy = [];
+  const risk = [];
+  const inactive = [];
+
+  customersOnly.forEach(i=>{
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    const isVipRisk = segLower==="vip" && (i.diasSemComprar>=45 || i.churnRisk>=70);
+    const isCartHot = i.cartCount>0 && i.diasSemComprar>=7;
+    const isProbable = i.prob>=80 && i.diasSemComprar>=30 && i.ltv>0;
+    const isRebuy = i.prob>=65 && i.diasSemComprar>=20 && i.diasSemComprar<60 && !isVipRisk;
+    const isInactive = i.diasSemComprar>=120;
+    const isRisk = !isInactive && (segLower==="churn" || segLower==="em risco" || segLower==="risco" || i.churnRisk>=70 || i.diasSemComprar>=60);
+    if(isVipRisk || isCartHot || isProbable) priorityHigh.push(i);
+    else if(i.ltv>=highValueThreshold) highValue.push(i);
+    else if(isRebuy) rebuy.push(i);
+    else if(isRisk) risk.push(i);
+    else if(isInactive) inactive.push(i);
+  });
+
+  const sortByScore = (a,b)=>(b.prob-a.prob) || (b.potencial-a.potencial) || (b.ltv-a.ltv) || (b.diasSemComprar-a.diasSemComprar);
+  priorityHigh.sort(sortByScore);
+  highValue.sort((a,b)=>(b.ltv-a.ltv) || sortByScore(a,b));
+  rebuy.sort(sortByScore);
+  risk.sort((a,b)=>(b.churnRisk-a.churnRisk) || (b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+  inactive.sort((a,b)=>(b.diasSemComprar-a.diasSemComprar) || sortByScore(a,b));
+
+  const renderCard = (i)=>{
+    if(i.kind === "visitou"){
+      const cid = String(i.checkoutId||"").trim();
+      const safeCid = escapeJsSingleQuote(cid);
+      const prioId = String(i.prioridade_id||"").trim();
+      const prioLabel = String(i.prioridade_label||"").trim() || "—";
+      const prioIcon = prioId === "alta" ? "🔥" : (prioId === "media" ? "⚡" : "🧊");
+      const contato = [i.email||"", i.phone?fmtPhone(i.phone):""].filter(Boolean).join(" · ") || "—";
+      return `
+        <div class="radar-card" onclick="openRadarVisitouDrawer('${safeCid}')">
+          <div class="radar-card-top">
+            <div style="min-width:0">
+              <div class="radar-card-name">${escapeHTML(i.nm||"Visitante")}</div>
+              <div class="radar-card-meta">${escapeHTML("Carrinho aberto (sem compra)")}</div>
+            </div>
+            <div class="opp-badges">
+              <span class="seg-badge seg-visitou">Visitou</span>
+              <span class="seg-badge" style="border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text-2)">${escapeHTML(prioIcon+" "+prioLabel)}</span>
+            </div>
+          </div>
+          <div class="radar-card-vals">
+            <div class="radar-kv">
+              <div class="radar-kv-label">POTENCIAL</div>
+              <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">ÚLTIMA VISITA</div>
+              <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CARRINHO</div>
+              <div class="radar-kv-val">${escapeHTML(String(cid).slice(0,8))}</div>
+            </div>
+            <div class="radar-kv">
+              <div class="radar-kv-label">CONTATO</div>
+              <div class="radar-kv-val" style="font-family:var(--font)">${escapeHTML(contato)}</div>
+            </div>
+          </div>
+          <div class="radar-prob">
+            <div class="radar-prob-row">
+              <div class="radar-prob-label">Probabilidade de recuperação</div>
+              <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+            </div>
+            <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+          </div>
+          <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Recuperar carrinho")}</b></div>
+          <div class="radar-actions" onclick="event.stopPropagation()">
+            ${rawPhone(i.phone||"")?`<button class="opp-mini-btn" onclick="openWhatsAppCarrinho('${safeCid}')">WhatsApp</button>`:""}
+            ${i.link_finalizacao?`<button class="opp-mini-btn" onclick="openCarrinhoLinkFromRadar('${safeCid}')">Link</button>`:""}
+            <button class="opp-mini-btn" onclick="openCarrinhoInComercialFromRadar('${safeCid}')">Abrir</button>
+          </div>
         </div>
-        <div class="kanban-drop" data-stage="${escapeHTML(s.id)}">
-          ${list.map(o=>{
-            const c = allCustomers.find(x=>x.id===o.cliente_id);
-            const nm = c?.nome || "Cliente";
-            const loc = [c?.cidade,c?.uf].filter(Boolean).join(" — ");
-            const hint = [o.hint, loc].filter(Boolean).join(" · ");
-            return `
-              <div class="opp-card" data-opp-id="${escapeHTML(String(o.id))}">
-                <div class="opp-title">${escapeHTML(nm)}</div>
-                <div class="opp-meta">${escapeHTML(o.title)}${hint?` · ${escapeHTML(hint)}`:""}</div>
-                <div class="opp-val">${escapeHTML(fmtBRL(o.value||0))}</div>
-                <div class="opp-actions">
-                  <button class="opp-mini-btn" onclick="openClientePage('${escapeJsSingleQuote(String(o.cliente_id||""))}')">Cliente</button>
-                  <button class="opp-mini-btn" onclick="openWaModal('${escapeJsSingleQuote(String(o.cliente_id||""))}')">WA</button>
-                  ${s.id!=="fechado" ? `<button class="opp-mini-btn" onclick="moveOppStage('${escapeJsSingleQuote(String(o.id))}','fechado')">✓</button>` : ``}
-                </div>
-              </div>
-            `;
-          }).join("")}
+      `;
+    }
+    const safeKey = escapeJsSingleQuote(i.key);
+    const segLower = String(i.segment||i.statusSaude||"").toLowerCase();
+    const segCls = segLower==="vip" ? "seg-vip" : segLower==="churn" ? "seg-churn" : segLower==="em risco"||segLower==="risco" ? "seg-risco" : segLower==="novo" ? "seg-novo" : segLower==="visitou" ? "seg-visitou" : "seg-unk";
+    const segLabel = segLower==="vip" ? "VIP" : segLower==="churn" ? "Churn" : segLower==="em risco"||segLower==="risco" ? "Em Risco" : segLower==="novo" ? "Novo" : segLower==="visitou" ? "Visitou" : (i.segment||"—");
+    return `
+      <div class="radar-card" onclick="openClientePage('${safeKey}')">
+        <div class="radar-card-top">
+          <div style="min-width:0">
+            <div class="radar-card-name">${escapeHTML(i.nm)}</div>
+            <div class="radar-card-meta">${escapeHTML(i.loc||"—")}</div>
+          </div>
+          <div class="opp-badges">
+            ${segLower==="vip" ? `<span class="vip-crown">👑</span>` : ``}
+            <span class="seg-badge ${segCls}">${escapeHTML(segLabel)}</span>
+            ${i.cartCount>0?`<span class="seg-badge" style="border-color:rgba(251,191,36,.22);background:rgba(251,191,36,.08);color:var(--amber)">🛒 ${escapeHTML(String(i.cartCount))}</span>`:""}
+          </div>
+        </div>
+        <div class="radar-card-vals">
+          <div class="radar-kv">
+            <div class="radar-kv-label">POTENCIAL</div>
+            <div class="radar-kv-val" style="color:var(--green)">${escapeHTML(fmtBRL(i.potencial||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">ÚLTIMA COMPRA</div>
+            <div class="radar-kv-val">${escapeHTML(String(Math.max(0, Math.round(i.diasSemComprar||0))))}d</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">FATURAMENTO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ltv||0))}</div>
+          </div>
+          <div class="radar-kv">
+            <div class="radar-kv-label">TICKET MÉDIO</div>
+            <div class="radar-kv-val">${escapeHTML(fmtBRL(i.ticket||0))}</div>
+          </div>
+        </div>
+        <div class="radar-prob">
+          <div class="radar-prob-row">
+            <div class="radar-prob-label">Probabilidade de recompra</div>
+            <div class="radar-prob-num">${escapeHTML(String(i.prob||0))}%</div>
+          </div>
+          <div class="radar-prob-track"><div class="radar-prob-fill" style="width:${Math.max(0,Math.min(100,i.prob||0))}%"></div></div>
+        </div>
+        <div class="radar-action">AÇÃO SUGERIDA<br><b>${escapeHTML(i.nextAction || "Registrar próxima ação")}</b></div>
+        <div class="radar-actions" onclick="event.stopPropagation()">
+          ${i.phone?`<button class="opp-mini-btn" onclick="openWaModal('${safeKey}')">WhatsApp</button>`:""}
+          ${i.phone?`<button class="opp-mini-btn" onclick="oppSendCoupon('${safeKey}',10)">Cupom</button>`:""}
+          <button class="opp-mini-btn" onclick="openClientePage('${safeKey}')">Abrir</button>
         </div>
       </div>
     `;
-  }).join("");
+  };
+
+  const renderGroup = (title, subtitle, list)=>{
+    if(!list.length) return "";
+    return `
+      <div class="radar-group">
+        <div class="radar-group-hdr">
+          <div>
+            <div class="radar-group-title">${escapeHTML(title)}</div>
+            <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
+          </div>
+          <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+        </div>
+        <div class="radar-grid">${list.map(renderCard).join("")}</div>
+      </div>
+    `;
+  };
+
+  const sortVisitouHot = (a,b)=>{
+    const as = Number(a.prob||0)||0;
+    const bs = Number(b.prob||0)||0;
+    if(bs !== as) return bs - as;
+    const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+    const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+    if(am !== bm) return am - bm;
+    return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+  };
+  const sortVisitouCold = (a,b)=>{
+    const am = a.tempoMin == null ? 999999 : Number(a.tempoMin||0)||0;
+    const bm = b.tempoMin == null ? 999999 : Number(b.tempoMin||0)||0;
+    if(am !== bm) return am - bm;
+    const as = Number(a.prob||0)||0;
+    const bs = Number(b.prob||0)||0;
+    if(bs !== as) return bs - as;
+    return (Number(b.potencial||0)||0) - (Number(a.potencial||0)||0);
+  };
+  visitouHot.sort(sortVisitouHot);
+  visitouCold.sort(sortVisitouCold);
+
+  const groupsHtml =
+    renderGroup("🛒 CARRINHO QUENTE", "Alta chance de recuperar agora", visitouHot) +
+    renderGroup("👀 VISITOU (FRIO)", "Nutrir e acompanhar", visitouCold) +
+    renderGroup("🔥 PRIORIDADE ALTA", "Execute hoje", priorityHigh) +
+    renderGroup("💰 ALTO VALOR", `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`, highValue) +
+    renderGroup("🔄 RECOMPRA", "Clientes no timing de reposição", rebuy) +
+    renderGroup("⚠️ EM RISCO", "Recuperação e retenção", risk) +
+    renderGroup("🧊 INATIVOS", "120+ dias sem comprar", inactive);
+
+  groupsEl.innerHTML = groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
+  radarOppLastModel = { items: allItems, filtered, groups: { visitouHot, visitouCold, priorityHigh, highValue, rebuy, risk, inactive }, thresholds: { highValueThreshold } };
 }
 
 function moveOppStage(oppId, stage){
@@ -5564,7 +7374,48 @@ function openProdutoDrawer(prodKey){
   openDrawer(title, subtitle, body, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
 }
 
-function renderProdutos(){
+function setProdutosChartState(canvasId, hasData){
+  const msgId = canvasId + "-empty";
+  let canvas = document.getElementById(canvasId);
+  let msg = document.getElementById(msgId);
+  let wrap = null;
+  if(canvas) wrap = canvas.parentElement;
+  if(!wrap && msg) wrap = msg.parentElement;
+  if(!wrap) return { canvas: null, shouldRender: false };
+
+  if(!msg){
+    msg = document.createElement("div");
+    msg.id = msgId;
+    msg.className = "empty";
+    msg.textContent = "Sem dados";
+    msg.style.padding = "22px 0";
+    wrap.appendChild(msg);
+  }
+  if(!canvas){
+    canvas = document.createElement("canvas");
+    canvas.id = canvasId;
+    wrap.insertBefore(canvas, msg);
+  }
+  if(hasData){
+    canvas.style.display = "";
+    msg.style.display = "none";
+    return { canvas, shouldRender: true };
+  }
+  canvas.style.display = "none";
+  msg.style.display = "";
+  return { canvas, shouldRender: false };
+}
+
+function renderProdutos(_deferred){
+  const detailedEl = document.getElementById("prod-list-detailed");
+  if(!_deferred){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Carregando produtos...</div>`;
+    if(renderProdutos._pending) return;
+    renderProdutos._pending = true;
+    setTimeout(()=>{ renderProdutos._pending = false; renderProdutos(true); }, 0);
+    return;
+  }
+
   const q=(document.getElementById("search-prod")?.value||"").toLowerCase();
   const selCh=document.getElementById("fil-canal-prod");
   if(selCh){
@@ -5572,27 +7423,82 @@ function renderProdutos(){
       if(op.value && CH[op.value]) op.textContent=CH[op.value];
     });
   }
-  const ch=selCh?.value||"";
+  const ch=normCanalKey(selCh?.value||"");
   const per=parseInt(document.getElementById("fil-periodo-prod")?.value||"0");
   const evolucaoDias = parseInt(document.getElementById("fil-evolucao-prod")?.value || "30");
   const now=new Date();
   const m={};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
+  if(allOrders[0]){
+    try{
+      console.log("[Pedido exemplo]", allOrders[0], "itens encontrados:", getPedidoItens(allOrders[0]).length);
+    }catch(_e){}
+  }
+
+  if(!allOrders.length){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
+  if(!catalog.length){
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">Catálogo do Bling não carregado. Vá em Configurações e sincronize os produtos.</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
+
+  const normProd = (v)=>String(v||"")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9 ]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  const catalogByCode = {};
+  const catalogByName = {};
+  catalog.forEach(p=>{
+    const code = String(p?.codigo||"").trim();
+    const name = String(p?.nome||"").trim();
+    if(code) catalogByCode[code] = p;
+    const nk = normProd(name);
+    if(nk && !catalogByName[nk]) catalogByName[nk] = p;
+  });
   
   // Processamento de dados base
   allOrders
-    .filter(o=>!ch||detectCh(o)===ch)
+    .filter(o=>!ch||(normCanalKey(detectCh(o))===ch))
     .filter(o=>{ if(!per)return true; const d=new Date(o.data||o.dataPedido); return (now-d)/(86400000)<=per; })
     .forEach(o=>{
-      const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-      itens.filter(Boolean).forEach(it=>{
-      const k = String(it?.codigo || it?.descricao || "?").trim() || "?";
-      const canal = detectCh(o);
+      const itens = getPedidoItens(o);
+      itens.forEach(it=>{
+      const code = String(it?.codigo || "").trim();
+      const descRaw = String(it?.descricao || it?.produto_nome || "").trim();
+      const descKey = normProd(descRaw);
+      const catByCode = (code && catalogByCode[code]) ? catalogByCode[code] : null;
+      const catByName = (!catByCode && descKey && catalogByName[descKey]) ? catalogByName[descKey] : null;
+      const cat = catByCode || catByName;
+      const k = String((cat?.codigo ? cat.codigo : "") || code || descKey || descRaw || "?").trim() || "?";
+      const canal = normCanalKey(detectCh(o)) || "outros";
       const dataStr = o.data || o.dataPedido || "";
       
       if(!m[k]) m[k] = {
-        nome: String(it?.descricao || k),
-        code: String(it?.codigo || ""),
+        nome: String((cat?.nome || "") || descRaw || k),
+        code: String((cat?.codigo || "") || code || ""),
         total: 0,
         qty: 0,
         peds: new Set(),
@@ -5602,8 +7508,12 @@ function renderProdutos(){
         historico: {} // { "YYYY-MM-DD": total }
       };
       
-      const valorTotal = (parseFloat(it?.valor)||0)*(parseFloat(it?.quantidade)||1);
-      const qtd = parseFloat(it?.quantidade)||1;
+      const qtd = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
+      const valorUnit = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
+      const valorTotal =
+        it?.valor_total != null
+          ? (Number(it.valor_total) || 0)
+          : (valorUnit * qtd);
       
       m[k].total += valorTotal;
       m[k].qty += qtd;
@@ -5626,7 +7536,7 @@ function renderProdutos(){
     catalog.forEach(p=>{
       const code = String(p?.codigo||"").trim();
       const name = String(p?.nome||"").trim();
-      const key = code || name || String(p?.id||"").trim();
+      const key = code || normProd(name) || name || String(p?.id||"").trim();
       if(!key) return;
       if(!m[key]) m[key] = {
         nome: name || key,
@@ -5654,6 +7564,21 @@ function renderProdutos(){
 
   // 1. Cards de KPI no Topo
   const prodsComVenda = prods.filter(p=>p.qty>0 || p.total>0);
+  console.log("[Produtos] Cruzamento resultou em:", prodsComVenda.length, "produtos com vendas");
+  if(!prodsComVenda.length){
+    const msg = `Nenhum dos ${catalog.length} produtos do catálogo foi vendido no período. Verifique se os códigos dos itens dos pedidos batem com o catálogo do Bling.`;
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">${escapeHTML(msg)}</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
   const topVendido = prodsComVenda.length ? prodsComVenda.reduce((a, b) => (a.qty > b.qty ? a : b), {nome:"—", qty:0}) : {nome:"—", qty:0};
   const topReceita = prodsComVenda.length ? (prodsComVenda.slice().sort((a,b)=>b.total-a.total)[0] || {nome:"—", total:0}) : {nome:"—", total:0};
   
@@ -5702,9 +7627,10 @@ function renderProdutos(){
 
   // 2. Gráfico de Receita por Produto (TOP 10)
   const top10 = prods.slice(0,10);
-  if(charts.produtos) charts.produtos.destroy();
-  const ctxP=document.getElementById("chart-produtos");
-  if(ctxP && top10.length){
+  if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+  const barState = setProdutosChartState("chart-produtos", top10.length > 0);
+  const ctxP = barState.canvas;
+  if(barState.shouldRender && ctxP && ctxP.getContext){
     charts.produtos=new Chart(ctxP,{type:"bar",data:{
       labels:top10.map(p=>p.nome.length>18?p.nome.slice(0,16)+"…":p.nome),
       datasets:[{
@@ -5733,9 +7659,10 @@ function renderProdutos(){
 
   // 3. Gráfico de Participação (Donut)
   const totalReceita = prods.reduce((s,p)=>s+p.total, 0);
-  if(charts.prodParticipacao) charts.prodParticipacao.destroy();
-  const ctxPart = document.getElementById("chart-participacao-produtos");
-  if(ctxPart && top10.length){
+  if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+  const donutState = setProdutosChartState("chart-participacao-produtos", top10.length > 0);
+  const ctxPart = donutState.canvas;
+  if(donutState.shouldRender && ctxPart && ctxPart.getContext){
     const otherTotal = totalReceita - top10.reduce((s,p)=>s+p.total,0);
     const partData = top10.map(p=>p.total);
     const partLabels = top10.map(p=>p.nome);
@@ -5771,9 +7698,10 @@ function renderProdutos(){
   }
 
   // 4. Gráfico de Evolução (Linha)
-  if(charts.prodEvolucao) charts.prodEvolucao.destroy();
-  const ctxEv = document.getElementById("chart-evolucao-produtos");
-  if(ctxEv && top10.length){
+  if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+  const lineState = setProdutosChartState("chart-evolucao-produtos", top10.length > 0);
+  const ctxEv = lineState.canvas;
+  if(lineState.shouldRender && ctxEv && ctxEv.getContext){
     const labels = [];
     for(let i=evolucaoDias-1; i>=0; i--){
       const d = new Date(now.getTime() - i*86400000);
@@ -6510,7 +8438,7 @@ async function upsertV2PedidosItemsFromOrders(orders){
     const n = String(o?.numero || o?.id || "").trim();
     const pid = numToId[n];
     if(!pid) return;
-    const itens = Array.isArray(o?.itens) ? o.itens : [];
+    const itens = getPedidoItens(o);
     itens.forEach(it=>{
       const produtoNome = getName(it);
       const quantidade = getQty(it);
@@ -6657,6 +8585,30 @@ function sanitizeForSupabaseLog(obj){
     if("customer_phone" in next) next.customer_phone = maskDigitsForLog(next.customer_phone) || String(next.customer_phone||"");
   }
   return next;
+}
+function sanitizePayload(obj){
+  if(typeof obj === "undefined") return undefined;
+  if(obj == null) return obj;
+  if(Array.isArray(obj)){
+    const out = [];
+    obj.forEach(v=>{
+      const next = sanitizePayload(v);
+      if(typeof next !== "undefined") out.push(next);
+    });
+    return out;
+  }
+  if(typeof obj === "object"){
+    const out = {};
+    Object.keys(obj).forEach(k=>{
+      const v = obj[k];
+      if(typeof v === "undefined") return;
+      const next = sanitizePayload(v);
+      if(typeof next === "undefined") return;
+      out[k] = next;
+    });
+    return out;
+  }
+  return obj;
 }
 function logSupabaseUpsertError(label, error, payload){
   try{
@@ -7027,6 +8979,9 @@ async function initSupabase(){
 
 async function loadSupabaseData(){
   if(!supaConnected || !supaClient) return;
+  if(isLoadingData) return;
+  isLoadingData = true;
+  dataReady = false;
   try{
     // configuracoes — campo valor_texto (antigo: config.valor)
     const {data:metaRow} = await supaClient.from('configuracoes').select('valor_texto').eq('chave','meta_mensal').maybeSingle();
@@ -7057,7 +9012,7 @@ async function loadSupabaseData(){
       allTasks = allTasks.map(local => {
         if(local._supaId && sbById[local._supaId]){
           const srv = sbById[local._supaId];
-          return {...local, titulo:srv.titulo, desc:srv.descricao||'', prioridade:srv.prioridade||local.prioridade, status: srv.status==='aberta'?'pendente':srv.status, data:srv.vencimento||''};
+          return {...local, titulo:srv.titulo, desc:srv.descricao||'', prioridade:srv.prioridade||local.prioridade, status: srv.status==='aberta'?'pendente':srv.status, data:srv.vencimento||'', customer_id: String(srv.cliente_id||local.customer_id||"")};
         }
         return local;
       });
@@ -7071,6 +9026,7 @@ async function loadSupabaseData(){
             titulo: srv.titulo,
             desc: srv.descricao||'',
             cliente: '',
+            customer_id: String(srv.cliente_id||""),
             prioridade: srv.prioridade||'media',
             status: srv.status==='aberta'?'pendente':srv.status,
             data: srv.vencimento||''
@@ -7092,36 +9048,77 @@ async function loadSupabaseData(){
     await loadBlingProductsFromSupabase();
 
     updateBadge();
-    renderDash();
-  }catch(e){ console.warn('loadSupabaseData:', e.message); }
+    mergeOrders();
+    populateUFs();
+    dataReady = true;
+    console.log("[Load] Bling:", Array.isArray(blingOrders)?blingOrders.length:0, "Yampi:", Array.isArray(yampiOrders)?yampiOrders.length:0, "Total:", Array.isArray(allOrders)?allOrders.length:0, "Clientes:", Array.isArray(allCustomers)?allCustomers.length:0);
+    renderAll();
+  }catch(e){
+    console.warn('loadSupabaseData:', e.message);
+  }finally{
+    isLoadingData = false;
+    if(!dataReady) dataReady = true;
+  }
 }
 
-async function loadClientesInteligenciaCache(){
+function updateClientesIntelFiltersOptions(){
+  try{
+    const ufSel = document.getElementById("fil-estado");
+    if(ufSel){
+      const selected = String(ufSel.value || "");
+      const ufs = Array.from(clientesIntelUfSet).sort();
+      ufSel.innerHTML = `<option value="">UF</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
+      if(selected) ufSel.value = selected;
+    }
+    const segSel = document.getElementById("fil-cli-seg");
+    if(segSel){
+      const selected = String(segSel.value || "");
+      const segs = Array.from(clientesIntelSegSet).sort((a,b)=>a.localeCompare(b));
+      segSel.innerHTML = `<option value="">Segmento CRM</option>` + segs.map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
+      if(selected) segSel.value = selected;
+    }
+  }catch(_e){}
+}
+
+async function loadClientesInteligenciaCache(forceReset=false){
   if(!supaConnected || !supaClient) return;
   if(clientesIntelInFlight) return;
-  if(clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
+  if(!forceReset && !clientesIntelCursor && clientesIntelLoadedAt && (Date.now() - clientesIntelLoadedAt) < 3*60*1000 && clientesIntelCache.length) return;
   clientesIntelInFlight = true;
   try{
-    const raw = await getClientesInteligenciaView(supaClient, 12000);
-    const rows = (Array.isArray(raw) ? raw : []).map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
-    clientesIntelCache = rows;
+    if(forceReset){
+      clientesIntelCache = [];
+      clientesIntelCursor = null;
+      clientesIntelHasMore = true;
+      clientesIntelUfSet = new Set();
+      clientesIntelSegSet = new Set();
+      clientesIntelDomMode = "";
+      clientesIntelDomCount = 0;
+    }
+    if(!clientesIntelHasMore && clientesIntelCache.length) return;
+    const pageSize = 500;
+    const res = await getClientesInteligenciaView(supaClient, { pageSize, cursor: clientesIntelCursor });
+    const rawRows = Array.isArray(res?.rows) ? res.rows : [];
+    const nextCursor = res?.nextCursor || null;
+    const hasMore = !!res?.hasMore;
+    const normalized = rawRows.map(normalizeClienteIntel).filter(r=>r && r.cliente_id);
+    const seen = new Set(clientesIntelCache.map(r=>String(r?.cliente_id || "")));
+    const fresh = [];
+    normalized.forEach(r=>{
+      const id = String(r.cliente_id || "");
+      if(!id || seen.has(id)) return;
+      seen.add(id);
+      fresh.push(r);
+      const uf = String(r.uf||"").toUpperCase().trim();
+      if(uf) clientesIntelUfSet.add(uf);
+      const seg = String(r.segmento_crm||"").trim();
+      if(seg) clientesIntelSegSet.add(seg);
+    });
+    if(fresh.length) clientesIntelCache.push(...fresh);
+    clientesIntelCursor = nextCursor;
+    clientesIntelHasMore = hasMore;
     clientesIntelLoadedAt = Date.now();
-    try{
-      const ufSel = document.getElementById("fil-estado");
-      if(ufSel){
-        const selected = String(ufSel.value || "");
-        const ufs = Array.from(new Set(rows.map(r=>String(r.uf||"").toUpperCase().trim()).filter(Boolean))).sort();
-        ufSel.innerHTML = `<option value="">UF</option>` + ufs.map(uf=>`<option value="${escapeHTML(uf)}">${escapeHTML(uf)}</option>`).join("");
-        if(selected) ufSel.value = selected;
-      }
-      const segSel = document.getElementById("fil-cli-seg");
-      if(segSel){
-        const selected = String(segSel.value || "");
-        const segs = Array.from(new Set(rows.map(r=>String(r.segmento_crm||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-        segSel.innerHTML = `<option value="">Segmento CRM</option>` + segs.map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
-        if(selected) segSel.value = selected;
-      }
-    }catch(_e){}
+    updateClientesIntelFiltersOptions();
   }catch(_e){}finally{
     clientesIntelInFlight = false;
   }
@@ -7243,7 +9240,12 @@ function normalizeOrderForCRM(o, sourceHint){
     next.created_at ||
     next.updated_at ||
     next.dataCriacao;
-  if(dataRaw) next.data = String(dataRaw).slice(0,10);
+  if(dataRaw){
+    const raw = String(dataRaw).trim();
+    const head = raw.slice(0,10);
+    const isoDate = parseDateToIso(head) || head;
+    next.data = isoDate;
+  }
 
   const totalRaw =
     next.totalProdutos ??
@@ -7327,11 +9329,39 @@ async function loadOrdersFromSupabaseForCRM(){
     const cliById = {};
     (cliRows||[]).forEach(c=>{ if(c?.id) cliById[c.id] = c; });
 
-    const {data:pedRows, error:pedErr} = await supaClient
-      .from("v2_pedidos")
-      .select("*")
-      .order("data_pedido",{ascending:false})
-      .limit(5000);
+    let pedRows = null;
+    let pedErr = null;
+    try{
+      ({data:pedRows, error:pedErr} = await supaClient
+        .from("v2_pedidos")
+        .select("*")
+        .order("data_pedido",{ascending:false})
+        .limit(5000));
+    }catch(e){
+      pedErr = e;
+    }
+    if(pedErr){
+      try{
+        ({data:pedRows, error:pedErr} = await supaClient
+          .from("v2_pedidos")
+          .select("*")
+          .order("data",{ascending:false})
+          .limit(5000));
+      }catch(e){
+        pedErr = e;
+      }
+    }
+    if(pedErr){
+      try{
+        ({data:pedRows, error:pedErr} = await supaClient
+          .from("v2_pedidos")
+          .select("*")
+          .order("created_at",{ascending:false})
+          .limit(5000));
+      }catch(e){
+        pedErr = e;
+      }
+    }
     if(pedErr) throw pedErr;
 
     const {data:yampiRows, error:yampiErr} = await supaClient
@@ -7345,12 +9375,13 @@ async function loadOrdersFromSupabaseForCRM(){
     try{
       const okItems = await ensureV2PedidosItemsAvailable();
       if(okItems && Array.isArray(pedRows) && pedRows.length){
+        const totalCol = v2PedidosItemsTotalColumn || "valor_total";
         const pedidoIds = Array.from(new Set(pedRows.map(p=>p?.id).filter(Boolean))).slice(0,1000);
         for(let i=0;i<pedidoIds.length;i+=200){
           const batchIds = pedidoIds.slice(i,i+200);
           const {data, error} = await supaClient
             .from("v2_pedidos_items")
-            .select("pedido_id,produto_nome,quantidade,valor_unitario,valor_total")
+            .select(`pedido_id,produto_nome,quantidade,valor_unitario,${totalCol}`)
             .in("pedido_id", batchIds)
             .limit(20000);
           if(error) throw error;
@@ -7358,12 +9389,18 @@ async function loadOrdersFromSupabaseForCRM(){
             const pid = String(r.pedido_id||"");
             if(!pid) return;
             if(!itemsByPedidoId[pid]) itemsByPedidoId[pid] = [];
+            const qty = Number(r.quantidade||0) || 0;
+            const total = Number(r[totalCol]||0) || 0;
+            const unit =
+              r.valor_unitario != null
+                ? (Number(r.valor_unitario||0) || 0)
+                : (qty > 0 ? (total / qty) : 0);
             itemsByPedidoId[pid].push({
               descricao: r.produto_nome || "",
               codigo: "",
-              quantidade: Number(r.quantidade||0) || 0,
-              valor: Number(r.valor_unitario||0) || 0,
-              valor_total: Number(r.valor_total||0) || 0
+              quantidade: qty,
+              valor: unit,
+              valor_total: total
             });
           });
         }
@@ -7372,6 +9409,13 @@ async function loadOrdersFromSupabaseForCRM(){
 
     const nextBling = [];
     const nextYampi = [];
+    const canaisById = {};
+    try{
+      Object.entries(canaisLookup||{}).forEach(([slug,id])=>{
+        if(!slug || !id) return;
+        canaisById[String(id)] = String(slug).trim().toLowerCase();
+      });
+    }catch(_e){}
 
     const extractYampiCustomer = (raw)=>{
       const obj = raw && typeof raw === "object" ? raw : {};
@@ -7427,21 +9471,24 @@ async function loadOrdersFromSupabaseForCRM(){
     (pedRows||[]).forEach(p=>{
       const cli = cliById[p.cliente_id] || null;
       const pid = String(p.id || "");
+      const canalId = p.canal_id ?? p.canalId ?? null;
+      const canalSlugRaw = String(p.canal_slug || p.canalSlug || p.canal || p.channel || "").trim().toLowerCase();
+      const canalSlug = canalSlugRaw || (canalId != null ? (canaisById[String(canalId)] || "") : "");
       const o = {
         id: String(p.id || p.bling_id || p.numero_pedido || ""),
         numero: String(p.numero_pedido || p.id || ""),
         cliente_id: p.cliente_id || null,
         pedido_uuid: pid || null,
-        data: String(p.data_pedido || p.created_at || "").slice(0,10),
+        data: String(p.data_pedido || p.data || p.created_at || "").slice(0,10),
         total: p.total,
         situacao: { nome: p.status || "" },
         _source: String(p.source || "").toLowerCase() || "bling",
         cidade_entrega: p.cidade_entrega || null,
         uf_entrega: p.uf_entrega || null,
-        _canal: (()=>{
-          const inv = Object.entries(canaisLookup||{}).find(([,id])=>String(id)===String(p.canal_id));
-          return inv ? inv[0] : "";
-        })(),
+        _canal: canalSlug,
+        origem_canal: p.origem_canal || null,
+        origem_canal_nome: p.origem_canal_nome || null,
+        tipo_venda: p.tipo_venda || null,
         contato: {
           id: p.cliente_id || undefined,
           nome: cli?.nome || "Desconhecido",
@@ -7502,10 +9549,6 @@ async function loadOrdersFromSupabaseForCRM(){
     yampiOrders.push(...nextYampi);
     localStorage.setItem("crm_yampi_orders", JSON.stringify(yampiOrders));
 
-    mergeOrders();
-    populateUFs();
-    renderAll();
-
     // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
     if(persistBack && (nextYampi.length || nextBling.length)){
       const shouldBackfill =
@@ -7515,6 +9558,7 @@ async function loadOrdersFromSupabaseForCRM(){
         upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch(()=>{});
       }
     }
+    return { bling: nextBling.length, yampi: nextYampi.length };
   }catch(_e){}
 }
 
@@ -7531,6 +9575,44 @@ async function upsertOrdersToSupabase(orders){
   upsertOrdersInFlight = true;
   setSyncDot(true);
   try{
+    let hadUpsertError = false;
+    const isNil = (v)=>v === null || typeof v === "undefined";
+    const isUuid = (v)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v||"").trim());
+    const toDateOrNull = (v)=>{
+      const s = String(v||"").trim();
+      if(!s) return null;
+      if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+      const d = new Date(s);
+      if(isNaN(d.getTime())) return null;
+      return d.toISOString().slice(0,10);
+    };
+    const toIsoOrNull = (v)=>{
+      const s = String(v||"").trim();
+      if(!s) return null;
+      const d = new Date(s);
+      if(isNaN(d.getTime())) return null;
+      return d.toISOString();
+    };
+    const splitValidRows = (rows, requiredKeys, label)=>{
+      const ok = [];
+      const invalid = [];
+      (Array.isArray(rows) ? rows : []).forEach(r=>{
+        const bad = requiredKeys.some(k=>{
+          const val = r?.[k];
+          if(isNil(val)) return true;
+          if(typeof val === "string" && !val.trim()) return true;
+          return false;
+        });
+        if(bad){
+          invalid.push(r);
+          try{ console.warn(label, "registro ignorado (campo obrigatório ausente)", sanitizeForSupabaseLog(r)); }catch(_e){}
+          return;
+        }
+        ok.push(r);
+      });
+      return { ok, invalid };
+    };
+
     const cliMap = buildCli(orders);
     const cliRows = Object.values(cliMap).map(c => {
       const sc = calcCliScores(c);
@@ -7545,7 +9627,7 @@ async function upsertOrdersToSupabase(orders){
       const nomeFinal = nome || email || telefone || String(c.doc || "").trim() || "Cliente";
       
       const row = {
-        doc: c.doc,
+        doc: String(c.doc || "").trim(),
         nome: nomeFinal,
         primeiro_pedido: c.first, 
         ultimo_pedido: c.last,
@@ -7579,13 +9661,28 @@ async function upsertOrdersToSupabase(orders){
       }
     });
     const filteredCliRows = cliRows.filter(r=>String(r.doc||"").trim());
+    const { ok: validCliRows } = splitValidRows(filteredCliRows, ["doc", "nome"], "[Upsert v2_clientes]");
     // upsert por doc (chave natural) — preserva UUID existente
-    for(let i=0; i<filteredCliRows.length; i+=50){
-      const batch = filteredCliRows.slice(i,i+50);
-      const {error} = await supaClient.from("v2_clientes").upsert(batch, { onConflict: "doc" });
+    for(let i=0; i<validCliRows.length; i+=50){
+      const batch = validCliRows.slice(i,i+50);
+      const payload = batch.map(sanitizePayload).filter(Boolean);
+      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc" });
       if(error){
+        hadUpsertError = true;
+        try{ console.error("[Upsert v2_clientes]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_clientes error", error, batch.slice(0,5));
-        throw error;
+        for(const row of payload){
+          try{
+            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc" });
+            if(rowErr){
+              hadUpsertError = true;
+              try{
+                console.warn("[Upsert v2_clientes] registro ignorado (erro no upsert)", sanitizeForSupabaseLog(row));
+                console.error("[Upsert v2_clientes]", rowErr, sanitizeForSupabaseLog(row));
+              }catch(_e){}
+            }
+          }catch(_e){}
+        }
       }
     }
 
@@ -7639,26 +9736,52 @@ async function upsertOrdersToSupabase(orders){
       if(source === "yampi" && id && !id.includes(":")){
         id = existingLegacyYampiIds.has(id) ? id : ("yampi:" + id);
       }
+      const createdAt = toIsoOrNull(o.dataCriacao || o.data) || new Date().toISOString();
       const row = {
         id,
-        bling_id: source === "bling" ? String(o.id||o.numero) : null,
-        numero_pedido: String(o.numero||o.id),
+        bling_id: source === "bling" ? (String(o.id||o.numero||"").trim() || null) : null,
+        numero_pedido: (String(o.numero||o.id||"").trim() || null),
         cliente_id: docToUuid[doc] || null,
         canal_id: canalId,
-        data_pedido: o.data,
+        data_pedido: toDateOrNull(o.data),
         total: val(o),
         status: normSt(o.situacao),
         source,
-        created_at: o.dataCriacao||o.data||new Date().toISOString()
+        created_at: createdAt
       };
       return row;
     }).filter(p => p.id); // id é obrigatório (PK)
-    for(let i=0; i<pedRows.length; i+=100){
-      const batch = pedRows.slice(i,i+100);
-      const {error} = await supaClient.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+    const { ok: validPedRows } = splitValidRows(pedRows, ["id"], "[Upsert v2_pedidos]");
+    const { ok: validPedRowsWithCli } = splitValidRows(validPedRows, ["cliente_id"], "[Upsert v2_pedidos]");
+    validPedRows.forEach(r=>{
+      if(!isNil(r.cliente_id) && !isUuid(r.cliente_id)){
+        try{
+          console.warn("[Upsert v2_pedidos] registro ignorado (cliente_id inválido)", sanitizeForSupabaseLog(r));
+        }catch(_e){}
+        r.__invalid_cliente_id = true;
+      }
+    });
+    const finalPedRows = validPedRowsWithCli.filter(r=>!r.__invalid_cliente_id);
+    for(let i=0; i<finalPedRows.length; i+=100){
+      const batch = finalPedRows.slice(i,i+100);
+      const payload = batch.map(sanitizePayload).filter(Boolean);
+      const {error} = await supaClient.from("v2_pedidos").upsert(payload, { onConflict: "id" });
       if(error){
+        hadUpsertError = true;
+        try{ console.error("[Upsert v2_pedidos]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_pedidos error", error, batch.slice(0,5));
-        throw error;
+        for(const row of payload){
+          try{
+            const {error: rowErr} = await supaClient.from("v2_pedidos").upsert([sanitizePayload(row)], { onConflict: "id" });
+            if(rowErr){
+              hadUpsertError = true;
+              try{
+                console.warn("[Upsert v2_pedidos] registro ignorado (erro no upsert)", sanitizeForSupabaseLog(row));
+                console.error("[Upsert v2_pedidos]", rowErr, sanitizeForSupabaseLog(row));
+              }catch(_e){}
+            }
+          }catch(_e){}
+        }
       }
     }
 
@@ -7666,8 +9789,8 @@ async function upsertOrdersToSupabase(orders){
       const productsById = {};
       const list = Array.isArray(orders) ? orders : [];
       list.forEach(o=>{
-        const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : [];
-        itens.filter(Boolean).forEach(it=>{
+        const itens = getPedidoItens(o);
+        itens.forEach(it=>{
           const codigo = String(it?.codigo || it?.sku || "").trim();
           const nome = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || "").trim();
           const id = String(codigo || nome).trim();
@@ -7704,10 +9827,15 @@ async function upsertOrdersToSupabase(orders){
       throw e;
     }
     upsertV2PedidosItemsFromOrders(orders).catch(()=>{});
-    if(!silent) toast('✓ Dados salvos no Supabase!');
+    if(hadUpsertError){
+      toast("⚠️ Erro ao salvar dados. Ver console F12.");
+    }else{
+      if(!silent) toast('✓ Dados salvos no Supabase!');
+    }
   }catch(e){
     logSupabaseUpsertError("upsert orders error", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null });
-    if(!silent) toast("⚠ Erro ao salvar no Supabase");
+    try{ console.error("[Upsert orders]", e, { orders: Array.isArray(orders) ? orders.slice(0,2) : null }); }catch(_e){}
+    toast("⚠️ Erro ao salvar dados. Ver console F12.");
   }finally{
     upsertOrdersInFlight = false;
     setSyncDot(false);
@@ -7964,9 +10092,9 @@ function mapComStatusFromOrder(o){
 }
 
 function summarizeOrderItems(o){
-  const itens = Array.isArray(o?.itens) ? o.itens : Array.isArray(o?.items) ? o.items : Array.isArray(o?.produtos) ? o.produtos : null;
-  if(!itens || !itens.length) return "—";
-  const getName = (it)=>String(it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "").trim();
+  const itens = getPedidoItens(o);
+  if(!itens.length) return "—";
+  const getName = (it)=>String(it?.descricao || it?.codigo || "").trim();
   const getQty = (it)=>Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
   const parts = itens
     .map(it=>{
@@ -7981,20 +10109,60 @@ function summarizeOrderItems(o){
   return parts.length > 2 ? `${head} +${parts.length-2}` : head;
 }
 
+function normalizeCanal(origem){
+  const norm = (v)=>String(v||"")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .trim();
+  const s = norm(origem);
+  if(!s) return { slug: "outros", nome: "Outros", emoji: "🔹", color: "var(--text-2)" };
+  if(s === "ml" || s === "mercado_livre" || /\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(s)) return { slug: "mercado_livre", nome: "Mercado Livre", emoji: "🟡", color: "var(--ml)" };
+  if(s === "shopee" || /\bshopee\b/.test(s)) return { slug: "shopee", nome: "Shopee", emoji: "🟠", color: "var(--shopee)" };
+  if(s === "amazon" || /\bamazon\b/.test(s)) return { slug: "amazon", nome: "Amazon", emoji: "🟦", color: "var(--amazon)" };
+  if(s === "shopify" || /\bshopify\b|\bloja\s*online\b|\becommerce\b|\bsite\b/.test(s)) return { slug: "shopify", nome: "Shopify / Site próprio", emoji: "🟢", color: "var(--shopify)" };
+  if(s === "yampi" || /\byampi\b/.test(s)) return { slug: "yampi", nome: "Yampi / Checkout", emoji: "🟣", color: "var(--yampi)" };
+  if(s === "b2b" || s === "cnpj" || /\bb2b\b|\bcnpj\b|\batacado\b/.test(s)) return { slug: "b2b", nome: "B2B / Atacado", emoji: "🟤", color: "var(--amber)" };
+  return { slug: "outros", nome: "Outros", emoji: "🔹", color: "var(--text-2)" };
+}
+
+function canalFromOrder(o){
+  const origem = String(o?.origem_canal ?? o?.origemCanal ?? "").trim();
+  if(origem) return normalizeCanal(origem);
+  const sourceHint = String(o?._source || o?.source || "").toLowerCase().trim();
+  if(sourceHint === "yampi") return normalizeCanal("yampi");
+  if(sourceHint === "shopify") return normalizeCanal("shopify");
+  const raw =
+    o?._canal ??
+    o?.canal ??
+    o?.channel ??
+    o?.loja?.nome ??
+    o?.origem?.nome ??
+    o?.ecommerce?.nome ??
+    "";
+  const detected = normalizeCanal(raw || detectCh(o) || "");
+  if(detected.slug !== "outros") return detected;
+  const byDetect = normalizeCanal(detectCh(o) || "");
+  return byDetect;
+}
+
 function getComPedidosBase(){
-  const baseOrders = Array.isArray(yampiOrders) && yampiOrders.length ? yampiOrders : [];
+  const baseOrders =
+    (Array.isArray(allOrders) && allOrders.length ? allOrders : null) ||
+    (Array.isArray(blingOrders) && blingOrders.length ? blingOrders : null) ||
+    (Array.isArray(yampiOrders) && yampiOrders.length ? yampiOrders : []);
   const orders = baseOrders.slice().sort((a,b)=>new Date(b.data || b.data_pedido || b.created_at || 0)-new Date(a.data || a.data_pedido || a.created_at || 0));
   return orders.map(o=>{
     const numRaw = o?.numero_pedido || o?.numero || o?.name || o?.order_number || o?.id || "";
     const num = numRaw ? (String(numRaw).startsWith("#") ? String(numRaw) : "#"+String(numRaw)) : "#—";
     const cliente = String(o?.contato?.nome || o?.customer?.name || o?.cliente?.nome || "—");
-    const canal = String(o?._canal || o?.canal || o?.channel || detectCh(o) || "yampi").toLowerCase();
+    const canalInfo = canalFromOrder(o);
     const produto = summarizeOrderItems(o);
     const valor = Number(val(o) || o?.total || o?.total_price || 0) || 0;
     const dataIso = String(o?.data_pedido || o?.data || o?.created_at || "").slice(0,10) || "";
     const data = dataIso ? fmtDate(dataIso) : "—";
     const status = mapComStatusFromOrder(o);
-    return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal, produto, valor, status, data };
+    return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal: canalInfo.slug, canal_nome: canalInfo.nome, canal_color: canalInfo.color, canal_emoji: canalInfo.emoji, produto, valor, status, data };
   });
 }
 
@@ -8034,13 +10202,13 @@ function renderComPedidos(){
   var stL={novo:'🆕 Novo',separando:'📦 Separando',enviado:'🚚 Enviado',entregue:'✅ Entregue',cancelado:'❌ Cancelado'};
   var stC={novo:'var(--blue)',separando:'var(--amber)',enviado:'var(--indigo-hi)',entregue:'var(--green)',cancelado:'var(--red)'};
   var stB={novo:'var(--blue-bg)',separando:'var(--amber-bg)',enviado:'var(--indigo-bg)',entregue:'var(--green-bg)',cancelado:'var(--red-bg)'};
-  var cC={shopee:'var(--shopee)',site:'var(--indigo-hi)',ml:'var(--ml)',whatsapp:'#25d366',instagram:'#e040fb'};
+  var cC={shopee:'var(--shopee)',shopify:'var(--shopify)',yampi:'var(--yampi)',amazon:'var(--amazon)',mercado_livre:'var(--ml)',b2b:'var(--amber)',outros:'var(--text-2)',whatsapp:'#25d366',instagram:'#e040fb'};
   var header='<div class="table-head table-head-com"><span>Pedido</span><span>Cliente / Produto</span><span>Canal</span><span class="ta-r">Valor</span><span class="ta-r">Status</span></div>';
   el.innerHTML=header+list.map(function(p){
     return '<div class="table-row table-row-com">'+
       '<div><div class="mono-link">'+escapeHTML(p.num)+'</div><div class="muted-xs">'+escapeHTML(p.data)+'</div></div>'+
       '<div><div class="row-title">'+escapeHTML(p.cliente)+'</div><div class="muted-sm">'+escapeHTML(p.produto)+'</div></div>'+
-      '<div><span class="pill pill-soft" style="color:'+(cC[p.canal]||'var(--text-2)')+'">'+escapeHTML(String(p.canal||"").toUpperCase())+'</span></div>'+
+      '<div><span class="pill pill-soft" style="color:'+(cC[p.canal]||p.canal_color||'var(--text-2)')+'">'+escapeHTML(p.canal_nome||String(p.canal||"").toUpperCase())+'</span></div>'+
       '<div class="ta-r mono-strong">R$'+p.valor.toFixed(2)+'</div>'+
       '<div class="ta-r"><span class="pill" style="background:'+stB[p.status]+';color:'+stC[p.status]+'">'+escapeHTML(stL[p.status]||p.status)+'</span></div>'+
     '</div>';
@@ -8049,13 +10217,18 @@ function renderComPedidos(){
 
 function renderCanaisGrid(){
   var el=document.getElementById('canais-grid'); if(!el) return;
-  var cI={shopee:{nome:'Shopee',emoji:'🟠',color:'var(--shopee)'},site:{nome:'Site Próprio',emoji:'🌐',color:'var(--indigo-hi)'},ml:{nome:'Mercado Livre',emoji:'🟡',color:'var(--ml)'},whatsapp:{nome:'WhatsApp',emoji:'💬',color:'#25d366'}};
   var por={};
-  getComPedidosBase().forEach(function(p){ if(!por[p.canal]) por[p.canal]={qtd:0,receita:0}; por[p.canal].qtd++; por[p.canal].receita+=p.valor; });
-  el.innerHTML=Object.entries(por).map(function(e){
-    var canal=e[0],dados=e[1],info=cI[canal]||{nome:canal,emoji:'🔹',color:'var(--text-2)'};
-    var ticket=dados.receita/dados.qtd;
-    return '<div class="canal-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div style="font-size:24px">'+info.emoji+'</div><div><div style="font-size:13px;font-weight:800">'+info.nome+'</div><div style="font-size:10px;color:var(--text-3)">'+dados.qtd+' pedidos</div></div></div><div style="font-size:22px;font-weight:800;font-family:var(--mono);color:'+info.color+';margin-bottom:8px">R$'+dados.receita.toLocaleString('pt-BR',{minimumFractionDigits:0})+'</div><div style="font-size:10px;color:var(--text-3)">Ticket médio: <b style="color:var(--text)">R$'+ticket.toFixed(2)+'</b></div></div>';
+  getComPedidosBase().forEach(function(p){
+    var key=p.canal||"outros";
+    if(!por[key]) por[key]={qtd:0,receita:0,info:{nome:p.canal_nome||key,emoji:p.canal_emoji||"🔹",color:p.canal_color||"var(--text-2)"}};
+    por[key].qtd++;
+    por[key].receita+=p.valor;
+  });
+  var sorted=Object.entries(por).sort(function(a,b){return (b[1].receita||0)-(a[1].receita||0);});
+  el.innerHTML=sorted.map(function(e){
+    var dados=e[1],info=dados.info||{nome:e[0],emoji:'🔹',color:'var(--text-2)'};
+    var ticket=dados.qtd?dados.receita/dados.qtd:0;
+    return '<div class="canal-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div style="font-size:24px">'+info.emoji+'</div><div><div style="font-size:13px;font-weight:800">'+escapeHTML(info.nome)+'</div><div style="font-size:10px;color:var(--text-3)">'+dados.qtd+' pedidos</div></div></div><div style="font-size:22px;font-weight:800;font-family:var(--mono);color:'+info.color+';margin-bottom:8px">R$'+dados.receita.toLocaleString('pt-BR',{minimumFractionDigits:0})+'</div><div style="font-size:10px;color:var(--text-3)">Ticket médio: <b style="color:var(--text)">R$'+ticket.toFixed(2)+'</b></div></div>';
   }).join('');
 }
 
@@ -8413,10 +10586,10 @@ function renderChartsCom(){
     var cData={};
     getComPedidosBase().forEach(function(p){ cData[p.canal]=(cData[p.canal]||0)+p.valor; });
     var sorted=Object.entries(cData).sort(function(a,b){return b[1]-a[1];});
-    var cColors={shopee:"#f97316",site:"#6bbf3a",ml:"#f59e0b",whatsapp:"#25d366",instagram:"#e040fb"};
+    var cColors={shopee:"var(--shopee)",shopify:"var(--shopify)",yampi:"var(--yampi)",amazon:"var(--amazon)",mercado_livre:"var(--ml)",b2b:"var(--amber)",outros:"#94a3b8",whatsapp:"#25d366",instagram:"#e040fb"};
     window._chartComCanal=new Chart(cCtx,{
       type:"doughnut",
-      data:{labels:sorted.map(function(e){return e[0].toUpperCase();}),
+      data:{labels:sorted.map(function(e){return normalizeCanal(e[0]).nome;}),
         datasets:[{data:sorted.map(function(e){return e[1];}),
           backgroundColor:sorted.map(function(e){return cColors[e[0]]||"#94a3b8";}),
           borderWidth:3,borderColor:"#0e1018",hoverOffset:4}]},
@@ -8507,6 +10680,10 @@ Object.assign(window,{
   renderPedidosPage,
   recarregar,
   oppLoadMore,
+  radarToggleOppFilter,
+  oppSendCoupon,
+  generateRadarTodayActions,
+  oppSuggestTodayActions,
   openOppClienteResumo,
   saveAlertDays,
   renderAlertas,
@@ -8518,12 +10695,16 @@ Object.assign(window,{
   logMovimentoEstoque,
   syncBling,
   syncBlingProdutos,
+  refreshBlingAutoCard,
   backfillBlingEnderecos,
   syncYampi,
   syncCarrinhosAbandonadosYampi,
   fetchYampiAbandoned,
   renderCarrinhosAbandonados,
   openWhatsAppCarrinho,
+  openCarrinhoLinkFromRadar,
+  openCarrinhoInComercialFromRadar,
+  openRadarVisitouDrawer,
   saveAIKey,
   saveTemplates,
   closeDrawer,

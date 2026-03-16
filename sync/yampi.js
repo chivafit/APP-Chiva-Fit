@@ -42,3 +42,35 @@ export async function syncCarrinhosAbandonadosYampi(ctx){
     if(st){ st.textContent="⚠ "+(e?.message||String(e)); st.className="setup-status s-err"; }
   }
 }
+
+let carrinhosAutoSyncTimer = null;
+
+async function maybeRunAutoCarrinhosSync(ctx){
+  const isConnected =
+    (ctx?.isSupaReady && typeof ctx.isSupaReady === "function" ? ctx.isSupaReady() : null) ??
+    (globalThis?.supaConnected === true);
+  if(!isConnected) return;
+
+  const now = new Date();
+  const hhmm = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  try{
+    if(ctx){
+      await syncCarrinhosAbandonadosYampi(ctx);
+    }else{
+      const fn = globalThis?.syncCarrinhosAbandonadosYampi;
+      if(typeof fn !== "function") return;
+      await fn();
+    }
+    localStorage.setItem("crm_last_carrinhos_sync", now.toISOString());
+    console.log(`[CarrinhosSync] OK às ${hhmm}`);
+  }catch(e){
+    console.log(`[CarrinhosSync] ERRO: ${e?.message || String(e)}`);
+  }
+}
+
+export function scheduleAutoCarrinhosSync(ctx){
+  if(carrinhosAutoSyncTimer) clearInterval(carrinhosAutoSyncTimer);
+  carrinhosAutoSyncTimer = setInterval(()=>{
+    maybeRunAutoCarrinhosSync(ctx).catch(()=>{});
+  }, 900000);
+}

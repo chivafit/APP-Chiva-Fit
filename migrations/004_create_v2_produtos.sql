@@ -13,4 +13,5 @@ CREATE TABLE IF NOT EXISTS public.v2_produtos (
 ALTER TABLE public.v2_produtos ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Anon Full Access" ON public.v2_produtos;
-CREATE POLICY "Anon Full Access" ON public.v2_produtos FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated Full Access" ON public.v2_produtos;
+CREATE POLICY "Authenticated Full Access" ON public.v2_produtos FOR ALL TO authenticated USING (true) WITH CHECK (true);

@@ -61,10 +61,12 @@ ALTER TABLE public.estados ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cidades ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Anon Full Access" ON public.estados;
-CREATE POLICY "Anon Full Access" ON public.estados FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated Full Access" ON public.estados;
+CREATE POLICY "Authenticated Full Access" ON public.estados FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Anon Full Access" ON public.cidades;
-CREATE POLICY "Anon Full Access" ON public.cidades FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Authenticated Full Access" ON public.cidades;
+CREATE POLICY "Authenticated Full Access" ON public.cidades FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- NOTA: Para popular as 5570 cidades, recomenda-se importar via CSV 
 -- ou usar a API do IBGE via script de automação.

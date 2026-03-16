@@ -29,6 +29,10 @@ on:
   schedule:
     - cron: "*/30 * * * *"
 
+concurrency:
+  group: bling-cron-sync
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -47,6 +51,20 @@ jobs:
             echo "Missing CRON_SECRET secret"
             exit 1
           fi
+          if echo "$SUPABASE_PROJECT_ID" | grep -qiE 'https?://|supabase\.co'; then
+            echo "SUPABASE_PROJECT_ID must be the project ref only (ex: nvbicjjtnobnnscmypeq), not a URL"
+            exit 1
+          fi
+          if ! echo "$SUPABASE_PROJECT_ID" | grep -qE '^[a-z0-9]{20}$'; then
+            echo "SUPABASE_PROJECT_ID looks invalid. Expected 20 lowercase alnum chars."
+            echo "Got length: ${#SUPABASE_PROJECT_ID}"
+            exit 1
+          fi
+          if [ "${#CRON_SECRET}" -lt 20 ]; then
+            echo "CRON_SECRET looks too short. Use a long random value."
+            echo "Got length: ${#CRON_SECRET}"
+            exit 1
+          fi
 
       - name: Trigger bling-sync (persist)
         env:
@@ -58,6 +76,8 @@ jobs:
           MAX_BATCHES: ${{ inputs.max_batches }}
         run: |
           set -euo pipefail
+          echo "Using SUPABASE_PROJECT_ID length: ${#SUPABASE_PROJECT_ID}"
+          echo "Using CRON_SECRET length: ${#CRON_SECRET}"
           BASE="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
           mode="${MODE:-persist}"
           limit="${LIMIT:-50}"
@@ -79,10 +99,21 @@ jobs:
             local url="$1"
             local data="$2"
             local resp
+            local curl_exit
+            echo "Calling: ${url}"
+            set +e
             resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
               -H "Content-Type: application/json" \
               -H "x-cron-secret: ${CRON_SECRET}" \
               --data "${data}")"
+            curl_exit="$?"
+            set -e
+            if [ "${curl_exit}" -ne 0 ]; then
+              echo "curl failed (exit ${curl_exit})"
+              echo "${resp}" | head -c 2000
+              echo
+              exit 1
+            fi
             local status
             status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
             local body
@@ -119,4 +150,3 @@ jobs:
             echo "bling-sync still hasMore after ${max_batches} batches (possible backlog or bug)."
             exit 1
           fi
-

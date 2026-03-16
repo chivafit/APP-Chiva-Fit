@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
 <script src="./config.js?v=20260313-3"></script>
 <script type="module" src="./main.js?v=20260313-3"></script>
 <link rel="stylesheet" href="./main.css?v=20260313-3">
@@ -85,7 +85,7 @@
 
     <div class="sidebar-section-label">Operacional</div>
     <div class="nav-item" data-page="tarefas" id="nav-tarefas"><span class="nav-icon">✅</span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
-    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">💡</span><span class="nav-label">Oportunidades</span></div>
+    <div class="nav-item" data-page="oportunidades" id="nav-oportunidades"><span class="nav-icon">📡</span><span class="nav-label">Radar</span></div>
     <div class="nav-item" data-page="alertas" id="nav-alertas"><span class="nav-icon">🚨</span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
     <div class="nav-item ai-item" data-page="ia" id="nav-ia"><span class="nav-icon">🤖</span><span class="nav-label">IA</span></div>
     <div class="nav-item active" data-page="segmentos" id="nav-segmentos"><span class="nav-icon">🎯</span><span class="nav-label">Segmentos</span></div>
@@ -163,15 +163,31 @@
   </div>
 </div>
 
-<!-- DASHBOARD -->
-<div class="page" id="page-dashboard">
-<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">📊 Dashboard</h1>
-      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Visão geral de clientes e receita</p>
+<div class="mod-overlay" id="modal-dash-actions">
+  <div class="mod-box" style="max-width:760px">
+    <div class="mod-title">⚡ Ações do Dia</div>
+    <div id="dash-actions-modal-body"></div>
+    <div class="mod-actions">
+      <button class="btn-mod-cancel" onclick="fecharModal('modal-dash-actions')">Fechar</button>
+      <button class="btn-mod-save" onclick="showPage('oportunidades');fecharModal('modal-dash-actions')">Abrir Radar</button>
     </div>
   </div>
-  <div class="saas-filterbar" style="margin-bottom:12px">
+</div>
+
+<!-- DASHBOARD -->
+<div class="page" id="page-dashboard">
+  <div class="page-header">
+    <div class="page-header-main">
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-subtitle">Visão geral de clientes e receita</p>
+      <div class="dash-meta" id="dash-period"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn" onclick="openDashActionsModal()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
+      <button class="btn" onclick="renderDash()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
+    </div>
+  </div>
+  <div class="saas-filterbar dash-filterbar">
     <div class="saas-chips">
       <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
         <option value="">Ano</option>
@@ -186,47 +202,63 @@
         <option value="cnpj">B2B/CNPJ</option>
         <option value="outros">Outros</option>
       </select>
+      <select id="dash-tipo-filter" class="saas-chip saas-chip-select" onchange="renderDash()">
+        <option value="">Tipo de venda</option>
+        <option value="b2c">B2C</option>
+        <option value="b2b">B2B</option>
+      </select>
       <input id="dash-from" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="de (dd/mm/aaaa)" onchange="renderDash()"/>
       <input id="dash-to" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="até (dd/mm/aaaa)" onchange="renderDash()"/>
       <button class="saas-chip" onclick="setDashRange(30)">30d</button>
       <button class="saas-chip" onclick="setDashRange(90)">90d</button>
+      <button class="saas-chip" onclick="toggleDashCompare()">Comparar</button>
+      <button class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
     </div>
   </div>
     <div id="alert-banner"></div>
-  <div id="source-row" style="display:flex;gap:var(--sp-1);flex-wrap:wrap;margin-bottom:var(--sp-4);font-size:10px;color:var(--text-3);font-weight:600"></div>
+  <div id="source-row" class="dash-source-row"></div>
+  <div id="dash-insights-day"></div>
   <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
-  <div class="meta-card" id="dashv2-card">
-    <div class="card-hdr"><span class="card-title">🚀 Executivo v2</span></div>
-    <div class="stat-grid" id="dashv2-kpis"></div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">📆 Vendas por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-dia"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">🧩 Vendas por Canal (Período)</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-canal"></canvas></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">🆕 Novos Clientes por Dia</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-novos"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">🧪 Funil de Recompra</div><div class="chart-wrap" style="height:180px"><canvas id="chart-v2-funil"></canvas></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">🧯 Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
-      <div class="chart-card"><div class="chart-title">🏆 VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">📦 Top Produtos (Período)</div><div class="top-list" id="dashv2-top-produtos"></div></div>
-      <div class="chart-card"><div class="chart-title">� Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
-    </div>
-    <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-      <div class="chart-card"><div class="chart-title">⚡ Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
-      <div class="chart-card"><div class="chart-title">🧭 Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
+  <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
+  <div class="section-label" style="margin-top:8px">Diagnóstico</div>
+  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
+    <div class="chart-card">
+      <div class="chart-title">Vendas por Dia</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chart-v2-dia"></canvas></div>
     </div>
   </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card">
+      <div class="chart-title">Vendas por Mês</div>
+      <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
+      <div id="dash-channel-breakdown" style="margin-top:10px"></div>
+    </div>
+    <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:210px"><canvas id="chart-v2-funil"></canvas></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
+    <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
+  </div>
+  <div class="section-label" style="margin-top:12px">Ações prioritárias</div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
+    <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="top-produtos-dash"></div></div>
+    <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
+  </div>
+  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
+    <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
+  </div>
   <div class="meta-card">
-    <div class="card-hdr"><span class="card-title">🎯 Meta Mensal</span><button class="btn-link" onclick="editMeta()">✏️ Editar</button></div>
+    <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
     <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
   </div>
   <div class="compare-card">
     <div class="card-hdr">
-      <span class="card-title">📅 Comparar Períodos</span>
+      <span class="card-title">Comparar Períodos</span>
       <div class="cmp-inputs">
         <input type="month" id="cmp-a" onchange="renderCompare()"/>
         <span style="font-size:10px;color:var(--text-3)">vs</span>
@@ -235,36 +267,39 @@
     </div>
     <div id="cmp-body"></div>
   </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr)">
-    <div class="chart-card"><div class="chart-title">📅 Vendas por Mês</div><div class="chart-wrap" style="height:180px"><canvas id="chart-mes"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">🛒 Pedidos por Canal</div><div class="chart-wrap" style="height:160px"><canvas id="chart-canal"></canvas></div><div id="canal-table" style="margin-top:8px"></div></div>
-    <div class="chart-card"><div class="chart-title">📈 Crescimento de Receita</div><div class="chart-wrap" style="height:160px"><canvas id="chart-crescimento"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">📍 Clientes por Cidade</div><div class="chart-wrap" style="height:160px"><canvas id="chart-cidades"></canvas></div></div>
-    <div class="chart-card"><div class="chart-title">🏆 Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
-    <div class="chart-card"><div class="chart-title">📦 Top Produtos</div><div class="top-list" id="top-produtos-dash"></div></div>
-  </div>
 </div>
 
 <!-- OPORTUNIDADES -->
 <div class="page" id="page-oportunidades">
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--sp-6);padding-bottom:var(--sp-5);border-bottom:1px solid var(--border-sub)">
     <div>
-      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">💡 Oportunidades</h1>
-      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Clientes que precisam de ação agora</p>
+      <h1 style="font-size:16px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:var(--sp-3)">🛰️ Radar de Oportunidades</h1>
+      <p style="font-size:11px;color:var(--text-3);margin-top:3px;font-weight:500">Priorize hoje, execute rápido e acompanhe recompra</p>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="btn" onclick="oppLoadMore()" style="padding:8px 12px;font-size:11px">＋ Mais</button>
+      <button class="btn" onclick="generateRadarTodayActions()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
       <button class="btn" onclick="renderOportunidades()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
     </div>
   </div>
-  <div class="opp-commandbar">
-    <div class="cmdbar">
-      <div class="cmdbar-ico">⌘</div>
-      <input id="opp-cmd" class="cmdbar-input" placeholder="Filtrar VIPs · Churn · Responsável Ana · SLA 3 · Só SLA · Limpar" oninput="renderOportunidades()"/>
-      <button class="cmdbar-btn" onclick="document.getElementById('opp-cmd').value='';renderOportunidades()">Limpar</button>
+  <div class="radar-top">
+    <div class="radar-title-row">
+      <div class="radar-title">OPORTUNIDADES DO DIA</div>
+      <div class="radar-sub">Resumo rápido para execução</div>
     </div>
+    <div class="radar-kpis" id="radar-kpis"></div>
   </div>
-  <div class="kanban" id="opp-kanban"></div>
+
+  <div id="radar-today-actions"></div>
+
+  <div class="radar-filterbar">
+    <div class="radar-search">
+      <span class="radar-search-ico">⌕</span>
+      <input id="radar-q" class="radar-search-input" placeholder="Buscar cliente, cidade, responsável..." oninput="renderOportunidades()"/>
+    </div>
+    <div class="radar-chips" id="radar-chips"></div>
+  </div>
+
+  <div id="radar-groups"></div>
 </div>
 
 <!-- TAREFAS -->
@@ -360,6 +395,10 @@
   </div>
   <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
   <div class="profile-grid">
+    <div class="profile-card profile-span-2">
+      <div class="profile-h2">Crescimento de Receita</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-crescimento"></canvas></div>
+    </div>
     <div class="profile-card" id="intel-top"></div>
     <div class="profile-card" id="intel-risk"></div>
     <div class="profile-card" id="intel-new"></div>
@@ -638,14 +677,38 @@
         <p>Importa pedidos de todos os canais integrados ao Bling.<br>
         As credenciais estão configuradas com segurança no servidor (Supabase).</p>
 
-        <label>Período de importação</label>
-        <div class="date-row"><input type="text" class="inp" id="date-from" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/><span>até</span><input type="text" class="inp" id="date-to" data-date-mask="1" inputmode="numeric" placeholder="dd/mm/aaaa"/></div>
-        <button class="btn-primary" onclick="syncBling()">Importar Pedidos do Bling</button>
-        <div id="bling-status" class="setup-status"></div>
+        <div id="bling-auto-card" style="border:1px solid var(--border-sub);background:rgba(255,255,255,.02);border-radius:12px;padding:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div style="font-weight:800">Sincronização automática ativa</div>
+            <span id="bling-auto-state" class="chiva-badge">—</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Última sincronização</div>
+              <div id="bling-auto-last" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Próxima execução</div>
+              <div id="bling-auto-next" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Pedidos importados</div>
+              <div id="bling-auto-orders" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+            <div style="padding:10px;border:1px solid var(--border-sub);border-radius:10px;background:rgba(255,255,255,.015)">
+              <div style="font-size:11px;color:var(--text-3);font-weight:700">Produtos sincronizados</div>
+              <div id="bling-auto-products" style="margin-top:4px;font-size:12px;font-weight:800">—</div>
+            </div>
+          </div>
+          <div id="bling-auto-message" style="display:none;margin-top:10px;font-size:11px;color:var(--text-3)"></div>
+        </div>
 
-        <div style="height:10px"></div>
-        <label>Catálogo de produtos</label>
-        <button class="btn" onclick="syncBlingProdutos()">Importar Produtos do Bling</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn-primary" onclick="syncBling({ omitDates:true })">Sincronizar pedidos agora</button>
+          <button class="btn" onclick="syncBlingProdutos()">Sincronizar produtos agora</button>
+          <button class="btn" onclick="refreshBlingAutoCard()">Atualizar status</button>
+        </div>
+        <div id="bling-status" class="setup-status"></div>
         <div id="bling-prod-status" class="setup-status"></div>
       </div>
 
@@ -943,10 +1006,13 @@
       <div class="saas-chips">
         <select id="fil-com-canal" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
           <option value="">Canal</option>
+          <option value="shopify">Shopify / Site próprio</option>
+          <option value="yampi">Yampi / Checkout</option>
           <option value="shopee">Shopee</option>
-          <option value="site">Site</option>
-          <option value="ml">Mercado Livre</option>
-          <option value="whatsapp">WhatsApp</option>
+          <option value="amazon">Amazon</option>
+          <option value="mercado_livre">Mercado Livre</option>
+          <option value="b2b">B2B / Atacado</option>
+          <option value="outros">Outros</option>
         </select>
         <select id="fil-com-status" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
           <option value="">Status</option>

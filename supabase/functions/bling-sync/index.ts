@@ -26,6 +26,44 @@ function readBearerToken(req: Request): string {
   return auth.slice(7).trim();
 }
 
+function normalizeEmail(v: unknown): string {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+let allowlistCache: { loadedAtMs: number; emails: Set<string> } | null = null;
+
+async function getAllowlistEmails(supabaseUrl: string, serviceRoleKey: string): Promise<Set<string>> {
+  const ttlMs = 60_000;
+  const now = Date.now();
+  if (allowlistCache && now - allowlistCache.loadedAtMs < ttlMs) return allowlistCache.emails;
+
+  const emails = new Set<string>();
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase
+      .from("configuracoes")
+      .select("valor_texto")
+      .eq("chave", "crm_access_users")
+      .maybeSingle();
+    if (!error) {
+      const raw = String(data?.valor_texto || "").trim();
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((u) => {
+            const em = normalizeEmail((u as any)?.email);
+            if (em) emails.add(em);
+          });
+        }
+      }
+    }
+  } catch (_e) {
+  }
+
+  allowlistCache = { loadedAtMs: now, emails };
+  return emails;
+}
+
 async function requireUserAuth(req: Request, supabaseUrl: string, serviceRoleKey: string) {
   const jwt = readBearerToken(req);
   if (!jwt) return { ok: false, reason: "Missing bearer token" };
@@ -33,6 +71,12 @@ async function requireUserAuth(req: Request, supabaseUrl: string, serviceRoleKey
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.auth.getUser(jwt);
     if (error || !data?.user) return { ok: false, reason: "Invalid JWT" };
+    const email = normalizeEmail((data.user as any)?.email);
+    if (!email) return { ok: false, reason: "Missing user email" };
+    const allowlist = await getAllowlistEmails(supabaseUrl, serviceRoleKey);
+    if (allowlist.size && !allowlist.has(email) && email !== "admin@chivafit.com") {
+      return { ok: false, reason: "Email not allowed" };
+    }
     return { ok: true, user: data.user };
   } catch (_e) {
     return { ok: false, reason: "Auth check failed" };
@@ -144,25 +188,56 @@ function inferCanalSlugFromBling(detailData: any, lojaIdMap: Record<string, stri
   const lojaId = String(lojaObj?.id ?? data?.idLoja ?? data?.lojaId ?? data?.loja_id ?? "").trim();
   const lojaNome = String(lojaObj?.nome ?? lojaObj?.descricao ?? data?.lojaNome ?? data?.nomeLoja ?? "").trim();
 
-  const canalObj = data?.canal ?? data?.canalVenda ?? data?.origem ?? data?.ecommerce ?? {};
-  const canalNome = String(canalObj?.nome ?? canalObj?.descricao ?? "").trim();
+  const canalVendaObj = data?.canalVenda ?? data?.canal_venda ?? {};
+  const origemObj = data?.origem ?? data?.origemVenda ?? data?.marketplace ?? data?.market_place ?? {};
+  const ecommerceObj = data?.ecommerce ?? data?.lojaEcommerce ?? data?.loja_ecommerce ?? {};
+  const canalObj = data?.canal ?? {};
+
+  const canalNome = String((canalObj?.nome ?? canalObj?.descricao) ?? "").trim();
+  const canalVendaNome = String((canalVendaObj?.nome ?? canalVendaObj?.descricao) ?? "").trim();
+  const origemNome = String((origemObj?.nome ?? origemObj?.descricao) ?? "").trim();
+  const ecommerceNome = String((ecommerceObj?.nome ?? ecommerceObj?.descricao) ?? "").trim();
 
   const numeroPedidoEcommerce = String(
     data?.numeroPedidoEcommerce ?? data?.numeroPedidoLoja ?? data?.numeroPedidoEcommerceLoja ?? data?.numeroPedidoLojaEcommerce ?? "",
   ).trim();
 
-  let slug = "";
-  if (lojaId && lojaIdMap[lojaId]) slug = String(lojaIdMap[lojaId] || "").trim().toLowerCase();
-  if (!slug) {
-    const hay = [lojaNome, canalNome, numeroPedidoEcommerce].map(normText).join(" ");
-    if (/\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(hay) || /^mlb/.test(normText(numeroPedidoEcommerce))) slug = "ml";
-    else if (/\bshopee\b/.test(hay) || /^shopee/.test(normText(numeroPedidoEcommerce))) slug = "shopee";
-    else if (/\bamazon\b/.test(hay)) slug = "amazon";
-    else if (/\bshopify\b/.test(hay)) slug = "shopify";
-    else if (/\byampi\b/.test(hay)) slug = "yampi";
+  const guess = (text: string) => {
+    const hay = normText(text);
+    if (!hay) return "";
+    if (/\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(hay) || /^mlb/.test(hay)) return "ml";
+    if (/\bshopee\b/.test(hay) || /^shopee\b/.test(hay)) return "shopee";
+    if (/\bamazon\b/.test(hay)) return "amazon";
+    if (/\bshopify\b|\bsite\b|\bloja\s*online\b|\becommerce\b/.test(hay)) return "shopify";
+    if (/\byampi\b/.test(hay)) return "yampi";
+    if (/\batacado\b|\bb2b\b|\bcnpj\b/.test(hay)) return "cnpj";
+    return "";
+  };
+
+  const hay = [
+    lojaNome,
+    canalNome,
+    canalVendaNome,
+    origemNome,
+    ecommerceNome,
+    numeroPedidoEcommerce,
+    String(data?.observacoes ?? data?.obs ?? ""),
+    String(data?.numero ?? data?.numeroPedido ?? data?.id ?? ""),
+  ]
+    .map(normText)
+    .filter(Boolean)
+    .join(" ");
+
+  let slug = guess(hay);
+  const mapped = lojaId && lojaIdMap[lojaId] ? String(lojaIdMap[lojaId] || "").trim().toLowerCase() : "";
+  if (!slug && mapped) slug = mapped;
+  if (slug && mapped && slug !== mapped) {
+    if (slug !== "yampi") {
+      return { slug, lojaId, lojaNome, canalNome: origemNome || canalNome || canalVendaNome || ecommerceNome, numeroPedidoEcommerce };
+    }
   }
 
-  return { slug, lojaId, lojaNome, canalNome, numeroPedidoEcommerce };
+  return { slug, lojaId, lojaNome, canalNome: origemNome || canalVendaNome || ecommerceNome || canalNome, numeroPedidoEcommerce };
 }
 
 function onlyDigitsStr(v: unknown): string {
@@ -204,6 +279,26 @@ const CANAL_NAME_BY_SLUG: Record<string, string> = {
   cnpj: "B2B (Atacado)",
   outros: "Outros",
 };
+
+function toStandardCanalSlug(slug: string): { origem: string; nome: string } {
+  const s = String(slug || "").trim().toLowerCase();
+  const origem = s === "ml" ? "mercado_livre" : s === "cnpj" ? "b2b" : (s || "outros");
+  const nome =
+    origem === "mercado_livre"
+      ? "Mercado Livre"
+      : origem === "b2b"
+        ? "B2B / Atacado"
+        : origem === "shopify"
+          ? "Shopify / Site próprio"
+          : origem === "shopee"
+            ? "Shopee"
+            : origem === "amazon"
+              ? "Amazon"
+              : origem === "yampi"
+                ? "Yampi"
+                : "Outros";
+  return { origem, nome };
+}
 
 async function ensureCanaisAndGetMap(supabaseUrl: string, serviceRoleKey: string): Promise<Record<string, string>> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -381,7 +476,10 @@ async function persistSyncResultToDb(
   for (let i = 0; i < customerRows.length; i += 100) {
     const batch = customerRows.slice(i, i + 100);
     const { error } = await supabase.from("v2_clientes").upsert(batch, { onConflict: "doc" });
-    if (error) throw error;
+    if (error) {
+      console.error("[Upsert v2_clientes]", error, batch);
+      throw error;
+    }
   }
 
   const docToId: Record<string, string> = {};
@@ -411,6 +509,8 @@ async function persistSyncResultToDb(
       if (isCnpj) canalSlug = "cnpj";
       if (!canalSlug) canalSlug = "outros";
       const canalId = canaisMap[canalSlug] || canaisMap["outros"] || null;
+      const std = toStandardCanalSlug(canalSlug);
+      const tipoVenda = std.origem === "b2b" || isCnpj ? "b2b" : "b2c";
 
       const numero = String(o?.numero ?? blingId).trim();
       const dataPedido = String(o?.data ?? "").slice(0, 10);
@@ -427,6 +527,9 @@ async function persistSyncResultToDb(
         total,
         status: status || null,
         source: "bling",
+        origem_canal: std.origem,
+        origem_canal_nome: std.nome,
+        tipo_venda: tipoVenda,
         itens,
         created_at: now,
       };
@@ -439,24 +542,30 @@ async function persistSyncResultToDb(
     .filter(Boolean);
 
   const blingIds = pedidosRows.map((p: any) => String(p?.bling_id ?? "").trim()).filter(Boolean);
+  const pedidoIdByBlingId: Record<string, string> = {};
   if (pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId) {
     for (let i = 0; i < pedidosRows.length; i += 100) {
       const batch = pedidosRows.slice(i, i + 100).map((p: any) => {
-        const { id, ...rest } = p;
+        const { id: _id, ...rest } = p;
         return rest;
       });
       const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "bling_id" });
-      if (error) throw error;
+      if (error) {
+        console.error("[Upsert v2_pedidos]", error);
+        throw error;
+      }
     }
   } else {
     for (let i = 0; i < pedidosRows.length; i += 100) {
       const batch = pedidosRows.slice(i, i + 100);
       const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
-      if (error) throw error;
+      if (error) {
+        console.error("[Upsert v2_pedidos]", error);
+        throw error;
+      }
     }
   }
 
-  const pedidoIdByBlingId: Record<string, string> = {};
   if (pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId && blingIds.length) {
     for (let i = 0; i < blingIds.length; i += 200) {
       const slice = blingIds.slice(i, i + 200);
@@ -847,9 +956,6 @@ function mapBlingOrder(detail: any) {
   const dataPedido = toIsoDate(data?.data ?? data?.dataEmissao ?? data?.dataPedido ?? data?.dataCriacao ?? "");
   const status = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? "").trim();
 
-  const loja = data?.loja ?? {};
-  const numeroPedidoEcommerce = String(data?.numeroPedidoEcommerce ?? "").trim();
-
   const email = String(contato?.email ?? "").trim().toLowerCase();
   const tel = onlyDigits(contato?.telefone ?? contato?.fone ?? "");
   const cel = onlyDigits(contato?.celular ?? contato?.cel ?? "");
@@ -869,8 +975,6 @@ function mapBlingOrder(detail: any) {
       : undefined,
     cidade_entrega: endereco.municipio || null,
     uf_entrega: endereco.uf || null,
-    loja,
-    numeroPedidoEcommerce,
     contato: {
       nome: String(contato?.nome ?? "Desconhecido").trim(),
       cpfCnpj: doc,
@@ -994,6 +1098,7 @@ serve(async (req: Request) => {
     if (parsed === null) return jsonResponse({ error: "Invalid JSON" }, 400);
     const body = (parsed && typeof parsed === "object" ? parsed : {}) as any;
     const persist = body?.persist === true;
+    const backfillOrigins = body?.backfillOrigins === true;
     const syncProducts = body?.syncProducts === true;
     const prodLimit = Math.min(100, Math.max(1, Number(body?.productsLimit ?? 100) || 100));
     const prodMaxPages = Math.min(500, Math.max(1, Number(body?.productsMaxPages ?? 200) || 200));
@@ -1009,6 +1114,73 @@ serve(async (req: Request) => {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
     }
+    const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 50) || 50));
+    const hasExplicitOffset = body?.offset != null;
+    let offset = Math.max(0, Number(body?.offset ?? 0) || 0);
+    const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
+    const concurrency = Math.min(10, Math.max(1, Number(body?.concurrency ?? 6) || 6));
+
+    if (backfillOrigins) {
+      const supabase = createClient(supabaseUrl, serviceRoleKey);
+      const { data: rows, error } = await supabase
+        .from("v2_pedidos")
+        .select("id,bling_id,source")
+        .eq("source", "bling")
+        .or("origem_canal.is.null,origem_canal.eq.,origem_canal_nome.is.null,tipo_venda.is.null,canal_id.is.null")
+        .order("data_pedido", { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      const baseRows = Array.isArray(rows) ? rows : [];
+      if (!baseRows.length) {
+        return jsonResponse({ ok: true, mode: "backfillOrigins", updated: 0, limit, offset, nextOffset: offset, hasMore: false });
+      }
+
+      const lojaIdMap = await getBlingLojaIdMap(supabaseUrl, serviceRoleKey).catch(() => ({}));
+      const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
+      const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
+
+      const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
+      const details = await mapWithConcurrency(
+        baseRows,
+        concurrency,
+        async (r: any) => {
+          const id = String(r?.bling_id ?? r?.id ?? "").trim();
+          if (!id) return null;
+          const url = `${base}/${encodeURIComponent(id)}`;
+          const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+          const mapped = mapBlingOrder(json);
+          const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
+          const contato = mapped?.contato ?? {};
+          const docDigits = onlyDigitsStr((contato as any)?.cpfCnpj ?? "");
+          const isCnpj = docDigits.length === 14;
+          let canalSlug = String(infer.slug || "").trim().toLowerCase();
+          if (isCnpj) canalSlug = "cnpj";
+          if (!canalSlug) canalSlug = "outros";
+          const canalId = canaisMap[canalSlug] || canaisMap["outros"] || null;
+          const std = toStandardCanalSlug(canalSlug);
+          const tipoVenda = std.origem === "b2b" || isCnpj ? "b2b" : "b2c";
+          return {
+            id: String(r?.id ?? "").trim() || id,
+            canal_id: canalId,
+            origem_canal: std.origem,
+            origem_canal_nome: std.nome,
+            tipo_venda: tipoVenda,
+          };
+        },
+      );
+
+      const payload = (details || []).filter((x: any) => x && String(x.id || "").trim());
+      for (let i = 0; i < payload.length; i += 200) {
+        const batch = payload.slice(i, i + 200);
+        const { error: upErr } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+        if (upErr) throw upErr;
+      }
+
+      const nextOffset = offset + baseRows.length;
+      const hasMore = baseRows.length === limit;
+      return jsonResponse({ ok: true, mode: "backfillOrigins", updated: payload.length, limit, offset, nextOffset, hasMore });
+    }
+
     const reqFrom = String(body?.from ?? "").slice(0, 10);
     const reqTo = String(body?.to ?? "").slice(0, 10);
 
@@ -1030,12 +1202,6 @@ serve(async (req: Request) => {
 
     if (!from || !to) return jsonResponse({ error: "Missing from/to (YYYY-MM-DD)" }, 400);
     ({ from, to } = clampDateRange(from, to, 365));
-
-    const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 50) || 50));
-    const hasExplicitOffset = body?.offset != null;
-    let offset = Math.max(0, Number(body?.offset ?? 0) || 0);
-    const maxPages = Math.min(200, Math.max(1, Number(body?.maxPages ?? 50) || 50));
-    const concurrency = Math.min(10, Math.max(1, Number(body?.concurrency ?? 6) || 6));
 
     if (persist && !hasExplicitOffset) {
       let cursorText = "";
