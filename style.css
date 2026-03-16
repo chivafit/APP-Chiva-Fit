@@ -4753,3 +4753,277 @@ html.light .compare-card{
 @media (max-width: 768px) {
   .sidebar-collapse-btn { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM v4 — CONSOLIDAÇÃO DE COMPONENTES
+   Cards, tabelas, botões, modais unificados.
+   Este bloco é a fonte da verdade — sobrescreve v1 e v3.
+═══════════════════════════════════════════════════════════════ */
+
+/* ────────────────────────────────────────────────
+   CARDS — padrão unificado
+   Padding 20px · radius 16px · shadow consistente
+──────────────────────────────────────────────── */
+.stat {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t-base), box-shadow var(--t-base), transform var(--t-base);
+}
+.stat:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+html.light .stat {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05), 0 1px 2px rgba(0,0,0,.04);
+}
+html.light .stat:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,.09);
+}
+
+/* Restaura identidade premium do chart-card (v3 havia simplificado demais) */
+.chart-card {
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15,167,101,.035) 0%, transparent 60%), var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t-base), box-shadow var(--t-base), transform var(--t-base);
+  position: relative;
+  overflow: hidden;
+}
+.chart-card::before { display: none !important; }
+.chart-card::after  { display: none !important; }
+.chart-card:hover {
+  border-color: var(--chiva-primary-border);
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--chiva-primary-border);
+  transform: translateY(-1px);
+}
+html.light .chart-card {
+  background: linear-gradient(180deg, rgba(15,167,101,.04) 0%, transparent 60%), #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,.06);
+  backdrop-filter: none;
+}
+html.light .chart-card:hover {
+  box-shadow: 0 8px 28px rgba(0,0,0,.09), 0 0 0 1px rgba(15,167,101,.18);
+}
+
+.meta-card, .compare-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+html.light .meta-card, html.light .compare-card {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+
+/* seg-card e client-card: radius consistente */
+.seg-card, .client-card, .prod-item {
+  border-radius: 14px;
+}
+
+/* ────────────────────────────────────────────────
+   TABELAS — padrão unificado
+   Cabeçalho distinto · rows com hover elevado
+──────────────────────────────────────────────── */
+.table-head, .pedido-table-header {
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 8px;
+}
+html.light .table-head, html.light .pedido-table-header {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.pedido-row, .table-row {
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+.pedido-row:hover, .table-row:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+html.light .pedido-row, html.light .table-row {
+  background: #fff;
+}
+
+/* ────────────────────────────────────────────────
+   BOTÕES — consolidação
+   Todos usam tokens de marca, sem cores hardcoded
+──────────────────────────────────────────────── */
+.btn {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+}
+.btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border2);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.btn:active { transform: translateY(0); }
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--chiva-primary);
+  box-shadow: 0 0 0 3px var(--chiva-primary-dim);
+}
+html.light .btn {
+  background: #fff;
+  border-color: var(--border);
+}
+html.light .btn:hover {
+  background: var(--card-hover);
+  border-color: var(--chiva-primary-border);
+  color: var(--text);
+}
+
+/* btn-mod-save: usa cor da marca em vez de #5a9e30 hardcoded */
+.btn-mod-save {
+  flex: 1;
+  background: var(--chiva-primary);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: background var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+}
+.btn-mod-save:hover {
+  background: var(--chiva-primary-light);
+  color: var(--chiva-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand);
+  opacity: 1;
+}
+.btn-mod-save:active {
+  transform: translateY(0);
+  background: var(--chiva-primary-deep);
+  color: #fff;
+}
+
+.btn-mod-cancel {
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-mod-del {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+/* active-tab: usa cor da marca */
+.active-tab {
+  background: var(--chiva-primary) !important;
+  color: #fff !important;
+}
+
+/* ────────────────────────────────────────────────
+   MODAIS — consolidação
+   Labels legíveis · inputs consistentes · box polido
+──────────────────────────────────────────────── */
+.mod-box {
+  border-radius: 18px;
+  border-color: var(--border);
+  padding: 24px;
+}
+html.light .mod-box {
+  background: #fff;
+  border-color: var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,.12), 0 4px 16px rgba(0,0,0,.06);
+}
+
+.mod-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.35px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Labels de campo: 9px → 10px */
+.mod-field label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* Inputs dos modais: fundo mais claro, radius consistente */
+.mod-field input,
+.mod-field select,
+.mod-field textarea {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color var(--t-base), box-shadow var(--t-base);
+}
+.mod-field input:focus,
+.mod-field select:focus,
+.mod-field textarea:focus {
+  border-color: var(--chiva-primary);
+  box-shadow: 0 0 0 3px var(--chiva-primary-dim);
+}
+html.light .mod-field input,
+html.light .mod-field select,
+html.light .mod-field textarea {
+  background: #fff;
+  border-color: var(--border);
+}
+
+.mod-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
