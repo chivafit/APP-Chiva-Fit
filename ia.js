@@ -791,7 +791,7 @@ export function renderIADashboard(ctx){
 }
 
 function bindCommandCenterHandlers(ctx){
-  const pageEl=document.getElementById("page-ia");
+  const pageEl=document.getElementById("page-inteligencia");
   const actEl=document.getElementById("ia-actions");
   if(pageEl && !pageEl.dataset.iaCmdBound){
     pageEl.dataset.iaCmdBound="1";
@@ -1232,7 +1232,8 @@ export async function runAI(ctx, type){
     canal:`Analise qual canal traz os melhores clientes para a Chiva Fit considerando: LTV médio por canal, taxa de recompra por canal, CAC implícito, e recomende onde concentrar esforços de marketing.`,
     sabores:`Analise os produtos/sabores mais vendidos e identifique: 1) Qual produto/sabor gera mais recompra (clientes que voltam), 2) Qual é o "produto de entrada" ideal, 3) Sequência de compra mais comum, 4) Oportunidades de lançamento baseadas no comportamento.`,
     oportunidades:`Identifique oportunidades específicas de cross-sell e upsell para a Chiva Fit: 1) Combinações de produtos que clientes compram juntos, 2) Clientes prontos para upsell agora, 3) Momentos ideais de abordagem baseados no ciclo de compra, 4) Mensagens de WhatsApp sugeridas.`,
-    completa:`Faça uma análise completa e estratégica da Chiva Fit com foco em MAXIMIZAR RECOMPRA E LTV. Inclua: 1) Diagnóstico atual, 2) Principais alavancas de crescimento, 3) Segmentos prioritários, 4) Plano de ação das próximas 4 semanas, 5) Metas realistas de recompra, 6) Scripts de WhatsApp para os 3 principais segmentos.`
+    completa:`Faça uma análise completa e estratégica da Chiva Fit com foco em MAXIMIZAR RECOMPRA E LTV. Inclua: 1) Diagnóstico atual, 2) Principais alavancas de crescimento, 3) Segmentos prioritários, 4) Plano de ação das próximas 4 semanas, 5) Metas realistas de recompra, 6) Scripts de WhatsApp para os 3 principais segmentos.`,
+    whatsapp:`Com base nos dados reais da Chiva Fit, crie SCRIPTS DE WHATSAPP personalizados para cada segmento de clientes. Para cada segmento (VIP, Em Risco, Churn, Novos, Recorrentes) gere: 1) Uma mensagem de abertura natural e personalizada, 2) Uma oferta ou CTA específico, 3) Tom ideal para esse perfil. Os scripts devem ser curtos (máx 3 parágrafos), em linguagem informal e brasileira, e devem mencionar os produtos mais relevantes para cada segmento com base nos dados de compra.`
   };
 
   try{

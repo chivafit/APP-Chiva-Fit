@@ -5233,3 +5233,68 @@ html.light .chart-card-header .chart-title { color: var(--text) !important; }
 .top-list {
   gap: 6px !important;
 }
+
+/* ════════════════════════════════════════════════
+   Inteligência — Página Unificada
+   ════════════════════════════════════════════════ */
+
+/* Segment grid: responsive, min 280px */
+.intel-segment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* Customer list cards (intel-top, intel-risk, etc.) */
+.intel-list-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  min-height: 80px;
+}
+.intel-list-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.intel-actions-full {
+  width: 100%;
+}
+
+/* Section action button (inline in heading) */
+.intel-section-btn {
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  white-space: nowrap;
+}
+
+/* Radar section dot */
+.intel-dot-green {
+  background: var(--chiva-primary) !important;
+  box-shadow: 0 0 8px rgba(15,167,101,.5);
+}
+
+/* AI section dot */
+.intel-dot-ai {
+  background: linear-gradient(135deg, var(--chiva-primary), var(--chiva-primary-light)) !important;
+  box-shadow: 0 0 8px rgba(164,233,107,.4);
+}
+
+/* "Powered by Claude" badge */
+.intel-ai-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--chiva-primary);
+  background: rgba(15,167,101,.08);
+  border: 1px solid rgba(15,167,101,.2);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Responsive: collapse intel-list grids on mobile */
+@media (max-width: 720px) {
+  .intel-segment-grid { grid-template-columns: 1fr; }
+}

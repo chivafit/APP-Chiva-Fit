@@ -2155,14 +2155,17 @@ function showPage(id){
 
   // Update sidebar nav active state
   document.querySelectorAll(".nav-item").forEach(t=>t.classList.remove("active"));
-  const navId = id === "cliente" ? "clientes" : id;
+  const navId = id === "cliente" ? "clientes"
+              : (id === "segmento-detalhe" || id === "ia" || id === "segmentos") ? "inteligencia"
+              : id;
   const navEl = document.getElementById("nav-"+navId);
   if(navEl) navEl.classList.add("active");
 
   // Update topbar title
-  const titles = {dashboard:"Dashboard",clientes:"Clientes",inteligencia:"Inteligência",pedidos:"Pedidos",
+  const titles = {dashboard:"Dashboard",clientes:"Clientes",inteligencia:"Inteligência de Clientes",pedidos:"Pedidos",
     "pedidos-page":"Pedidos",cidades:"Cidades",produtos:"Produtos",tarefas:"Tarefas",
-    oportunidades:"Oportunidades",alertas:"Alertas",ia:"IA & Insights",segmentos:"Segmentos",
+    oportunidades:"Oportunidades",alertas:"Alertas",
+    "segmento-detalhe":"Segmento",
     comercial:"Comercial",producao:"Produção",marca:"Marca",config:"Configurações",cliente:"Cliente"};
   const titleEl = document.getElementById("topbar-title");
   if(titleEl) titleEl.textContent = titles[id] || id;
@@ -2172,14 +2175,17 @@ function showPage(id){
 
   if(id==='oportunidades') setTimeout(()=>safeInvokeName("renderOportunidades"),50);
   if(id==='tarefas') setTimeout(()=>safeInvokeName("renderTarefas"),50);
-  if(id==="segmentos") safeInvokeName("renderSegmentos");
   if(id==="producao"){ safeInvokeName("renderProdKpis"); safeInvokeName("renderInsumos"); }
   if(id==="comercial"){ safeInvokeName("renderComKpis"); safeInvokeName("renderComPedidos"); setTimeout(()=>safeInvokeName("renderChartsCom"),100); }
   if(id==="marca"){ safeInvokeName("renderMarcaKpis"); safeInvokeName("renderCalendario"); }
   if(id==="pedidos-page") setTimeout(()=>safeInvokeName("renderPedidosPage"),50);
   if(id==="clientes") setTimeout(()=>safeInvokeName("renderClientes"),50);
   if(id==="cliente") setTimeout(()=>safeInvokeName("renderClientePage"),0);
-  if(id==="inteligencia") setTimeout(()=>safeInvokeName("renderInteligencia"),0);
+  if(id==="inteligencia") setTimeout(()=>{
+    safeInvokeName("renderInteligencia");
+    safeInvokeName("renderSegmentos");
+    safeInvokeName("renderIADashboard");
+  },0);
   if(id==="cidades") setTimeout(()=>safeInvokeName("renderCidades"),50);
   if(id==="produtos") setTimeout(async ()=>{
     try{
@@ -2187,7 +2193,6 @@ function showPage(id){
     }catch(_e){}
     safeInvokeName("renderProdutos");
   },50);
-  if(id==="ia") setTimeout(()=>safeInvokeName("renderIADashboard"),50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
 
   // Close mobile sidebar
@@ -2823,8 +2828,8 @@ function exportSegmentData(id){
 }
 
 function selectSegment(id){
-  showPage('segmentos');
-  setTimeout(() => openSegmentDetail(id), 100);
+  showPage('inteligencia');
+  setTimeout(() => openSegmentDetail(id), 200);
 }
 
 function renderAll(){
@@ -3562,7 +3567,7 @@ function renderDashNow(){
         title:`⚠ ${vips45.length} VIP sem comprar há 45+ dias`,
         desc:`Priorize reativação com oferta VIP e WhatsApp.`,
         cta:`Ver VIPs`,
-        action:`showPage('segmentos');selectSegment('vip')`
+        action:`showPage('inteligencia');selectSegment('vip')`
       });
     }
     if(ticket2 > 0 && Math.abs(ticketDelta) >= 8){
@@ -4054,8 +4059,8 @@ function openDashActionsModal(){
       <div class="profile-card" style="padding:14px">
         <div class="profile-h2" style="margin-bottom:8px">Atalhos rápidos</div>
         <div style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn" onclick="showPage('segmentos');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
-            <span>🎯 Abrir Segmentos</span><span style="color:var(--text-3)">→</span>
+          <button class="btn" onclick="showPage('inteligencia');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>🧠 Inteligência</span><span style="color:var(--text-3)">→</span>
           </button>
           <button class="btn" onclick="showPage('clientes');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
             <span>👥 Abrir Clientes</span><span style="color:var(--text-3)">→</span>

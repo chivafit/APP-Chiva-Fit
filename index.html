@@ -92,8 +92,6 @@
     <div class="nav-item" data-page="tarefas" id="nav-tarefas" data-tooltip="Tarefas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="nav-label">Tarefas</span><span class="nav-badge" id="badge-tarefas" style="display:none">0</span></div>
     <div class="nav-item" data-page="oportunidades" id="nav-oportunidades" data-tooltip="Radar"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg></span><span class="nav-label">Radar</span></div>
     <div class="nav-item" data-page="alertas" id="nav-alertas" data-tooltip="Alertas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
-    <div class="nav-item ai-item" data-page="ia" id="nav-ia" data-tooltip="IA"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span><span class="nav-label">IA</span></div>
-    <div class="nav-item active" data-page="segmentos" id="nav-segmentos" data-tooltip="Segmentos"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span><span class="nav-label">Segmentos</span></div>
 
     <div class="sidebar-section-label">Módulos</div>
     <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span></div>
@@ -408,25 +406,88 @@
   <div id="tasks-list"></div>
 </div>
 
-<!-- IA PAGE -->
-<div class="page" id="page-ia">
-  <div class="ai-header">
-    <div class="ai-icon">🤖</div>
-    <div><h2>Inteligência Comercial</h2><p>Resumo de risco, recompra e ações recomendadas</p></div>
+<!-- INTELIGÊNCIA DE CLIENTES — Página Unificada -->
+<div class="page" id="page-inteligencia">
+
+  <!-- ── Header ── -->
+  <div class="page-header dash-page-header">
+    <div class="page-header-main">
+      <h1 class="page-title">Inteligência de Clientes</h1>
+      <p class="page-subtitle">Segmentos · Diagnóstico · Radar · Análise IA · WhatsApp</p>
+    </div>
+    <div class="dash-header-actions">
+      <button class="btn btn-dash-primary" onclick="computeCustomerIntelligence();renderInteligencia();recalculateSegments();renderIADashboard()">↻ Atualizar tudo</button>
+      <button class="btn" onclick="exportSegmentData()">↓ Exportar CSV</button>
+    </div>
   </div>
-  <div id="ia-summary" class="card" style="margin-bottom:12px"></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px">
+
+  <!-- ── KPIs ── -->
+  <div id="intel-summary" style="margin-bottom:24px"></div>
+
+  <!-- ══ SECTION: Segmentos ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot"></div>
+    <div class="dash-section-title">Segmentos de Clientes</div>
+    <div class="dash-section-line"></div>
+    <button class="btn intel-section-btn" onclick="recalculateSegments()">Recalcular</button>
+  </div>
+  <div id="segment-stats" class="stat-grid" style="margin-bottom:16px"></div>
+  <div id="segment-list" class="intel-segment-grid" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Diagnóstico de Clientes ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot dash-section-dot--amber"></div>
+    <div class="dash-section-title">Diagnóstico de Clientes</div>
+    <div class="dash-section-line"></div>
+  </div>
+
+  <!-- Crescimento de Receita — full width -->
+  <div class="chart-card dash-hero-chart" style="margin-bottom:16px">
+    <div class="chart-card-header">
+      <div class="chart-title">Crescimento de Receita</div>
+      <span class="chart-card-badge">Mensal</span>
+    </div>
+    <div class="chart-wrap" style="height:240px"><canvas id="chart-crescimento"></canvas></div>
+  </div>
+
+  <!-- Top / Risco — row 1 -->
+  <div class="dash-grid-2" style="margin-bottom:16px">
+    <div class="intel-list-card" id="intel-top"></div>
+    <div class="intel-list-card" id="intel-risk"></div>
+  </div>
+  <!-- Novos / Recorrentes — row 2 -->
+  <div class="dash-grid-2" style="margin-bottom:16px">
+    <div class="intel-list-card" id="intel-new"></div>
+    <div class="intel-list-card" id="intel-rec"></div>
+  </div>
+  <!-- Ações recomendadas — full width -->
+  <div class="intel-list-card intel-actions-full" id="intel-actions" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Radar de Clientes ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot intel-dot-green"></div>
+    <div class="dash-section-title">Radar de Clientes</div>
+    <div class="dash-section-line"></div>
+  </div>
+  <div id="ia-summary" style="margin-bottom:14px"></div>
+  <div class="dash-grid-3" style="margin-bottom:14px">
     <div class="card" id="ia-risk-list"></div>
     <div class="card" id="ia-rebuy-list"></div>
     <div class="card" id="ia-vip-list"></div>
+  </div>
+  <div class="dash-grid-2" style="margin-bottom:14px">
     <div class="card" id="ia-subscription-list"></div>
     <div class="card" id="ia-potential-list"></div>
   </div>
-  <div class="card" id="ia-today-actions" style="margin-bottom:16px"></div>
-  <div class="card" style="margin-bottom:16px" id="ia-actions"></div>
-  <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border-sub)">
-    <h3 style="font-size:14px;font-weight:700">Análise Inteligente</h3>
-    <p style="font-size:11px;color:var(--text-3)">IA analisa seus dados reais para maximizar recompra</p>
+  <div class="card" id="ia-today-actions" style="margin-bottom:14px"></div>
+  <div class="card" id="ia-actions" style="margin-bottom:32px"></div>
+
+  <!-- ══ SECTION: Análise IA ══ -->
+  <div class="dash-section-heading">
+    <div class="dash-section-dot intel-dot-ai"></div>
+    <div class="dash-section-title">Análise com IA</div>
+    <div class="dash-section-line"></div>
+    <span class="intel-ai-badge">Powered by Claude</span>
   </div>
   <div class="ai-grid">
     <div class="ai-card">
@@ -454,38 +515,18 @@
       <div class="ai-card-body" id="ai-oportunidades">Cross-sell e upsell baseados no comportamento real.</div>
       <button class="btn-ai" onclick="runAI('oportunidades')" id="btn-oportunidades">✨ Analisar</button>
     </div>
+    <div class="ai-card">
+      <div class="ai-card-title">💬 WhatsApp por Segmento</div>
+      <div class="ai-card-body" id="ai-whatsapp">Gera mensagens personalizadas por segmento para disparo via WhatsApp.</div>
+      <button class="btn-ai" onclick="runAI('whatsapp')" id="btn-whatsapp">✨ Gerar Mensagens</button>
+    </div>
     <div class="ai-card" style="grid-column:1/-1">
       <div class="ai-card-title">🧠 Análise Completa + Plano de Ação</div>
       <div class="ai-card-body" id="ai-completa">Análise profunda de todos os dados com plano de ação para maximizar recompra e LTV.</div>
       <button class="btn-ai" onclick="runAI('completa')" id="btn-completa">✨ Análise Completa</button>
     </div>
   </div>
-</div>
 
-<!-- INTELIGÊNCIA DE CLIENTES -->
-<div class="page" id="page-inteligencia">
-  <div class="page-header" style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 class="page-title">🧠 Inteligência de Clientes</h1>
-      <p class="page-sub">Top clientes, risco, recompra e ações rápidas</p>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn" onclick="computeCustomerIntelligence();renderInteligencia()" style="padding:8px 10px;font-size:11px">↻ Atualizar</button>
-      <button class="btn" data-page="segmentos" style="padding:8px 10px;font-size:11px">Ver Segmentos</button>
-    </div>
-  </div>
-  <div id="intel-summary" class="profile-card" style="margin-bottom:14px"></div>
-  <div class="profile-grid">
-    <div class="profile-card profile-span-2">
-      <div class="profile-h2">Crescimento de Receita</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-crescimento"></canvas></div>
-    </div>
-    <div class="profile-card" id="intel-top"></div>
-    <div class="profile-card" id="intel-risk"></div>
-    <div class="profile-card" id="intel-new"></div>
-    <div class="profile-card" id="intel-rec"></div>
-    <div class="profile-card profile-span-2" id="intel-actions"></div>
-  </div>
 </div>
 
 <!-- CLIENTES -->
@@ -993,31 +1034,10 @@
   </div>
 </div>
 
-<!-- SEGMENTOS -->
-<div class="page" id="page-segmentos">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border-sub)">
-    <div>
-      <h1 style="font-size:20px;font-weight:800;letter-spacing:-.5px;display:flex;align-items:center;gap:10px">🎯 Segmentos</h1>
-      <p style="font-size:12px;color:var(--text-3);margin-top:4px;font-weight:500">Inteligência de clientes para marketing e recompra</p>
-    </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn" onclick="toast('Em breve: Criar segmento personalizado')">Novo segmento</button>
-      <button class="btn" onclick="recalculateSegments()">Recalcular segmentos</button>
-      <button class="btn-primary" onclick="exportSegmentData()">Exportar clientes</button>
-    </div>
-  </div>
-
-  <!-- Cards de Indicadores -->
-  <div id="segment-stats" class="stat-grid" style="margin-bottom:24px"></div>
-
-  <!-- Lista de Segmentos -->
-  <div id="segment-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px"></div>
-</div>
-
-<!-- SEGMENTO DETALHE (Interna) -->
+<!-- SEGMENTO DETALHE (Interna — drill-down dos segmentos) -->
 <div class="page" id="page-segmento-detalhe">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border-sub)">
-    <button class="btn" data-page="segmentos">← Voltar</button>
+    <button class="btn" data-page="inteligencia">← Voltar</button>
     <div>
       <h1 id="seg-detalhe-title" style="font-size:20px;font-weight:800;letter-spacing:-.5px">Nome do Segmento</h1>
       <p id="seg-detalhe-desc" style="font-size:12px;color:var(--text-3);margin-top:4px"></p>
