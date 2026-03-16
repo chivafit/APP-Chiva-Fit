@@ -222,17 +222,25 @@
   <div class="stat-grid" id="dash-stats"></div>
   <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
   <div class="section-label" style="margin-top:8px">Diagnóstico</div>
-  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
+  <div class="dash-hero-grid" style="margin-top:12px">
     <div class="chart-card">
       <div class="chart-title">Vendas por Dia</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chart-v2-dia"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Total por Canal</div>
+      <div class="chart-wrap" style="height:190px"><canvas id="chart-canal"></canvas></div>
+      <div id="canal-table" style="margin-top:10px"></div>
     </div>
   </div>
   <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
     <div class="chart-card">
       <div class="chart-title">Vendas por Mês</div>
       <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
-      <div id="dash-channel-breakdown" style="margin-top:10px"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Vendas por Canal</div>
+      <div id="dash-channel-breakdown" style="margin-top:2px"></div>
     </div>
   </div>
   <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">

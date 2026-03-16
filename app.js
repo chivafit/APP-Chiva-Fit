@@ -2142,6 +2142,10 @@ function showPage(id){
   const pageEl = document.getElementById("page-"+id);
   if(pageEl) pageEl.classList.add("active");
 
+  try{
+    document.documentElement.classList.toggle("skin-dashboard", id === "dashboard");
+  }catch(_e){}
+
   if(id==='oportunidades') setTimeout(()=>safeInvokeName("renderOportunidades"),50);
   if(id==='tarefas') setTimeout(()=>safeInvokeName("renderTarefas"),50);
   if(id==="segmentos") safeInvokeName("renderSegmentos");
@@ -3676,6 +3680,7 @@ function renderDashNow(){
   renderDashSalesByDay(ordersSales);
   renderChartMes(ordersSales);
   renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
+  renderChartCanal(ordersSales);
   renderTopCli(ordersSales);
   renderTopProd(ordersSales);
   const secEl = document.getElementById("dash-stats-secondary");
@@ -4694,10 +4699,12 @@ function renderChartCanal(ordersOverride){
   if(charts.canal) charts.canal.destroy();
   const canvas=document.getElementById("chart-canal");
   if(!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if(!ctx) return;
-  const total=Object.values(t).reduce((a,b)=>a+b,0)||1;
   const sorted=Object.entries(t).sort((a,b)=>b[1]-a[1]);
+  const state = setDashCanvasState("chart-canal", sorted.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
+  if(!ctx) return;
+  const total=sorted.reduce((s,[_c,v])=>s+(Number(v)||0),0)||1;
   const brandColors={
     ml:"#fbbf24",
     shopee:"#f97316",
@@ -4708,6 +4715,7 @@ function renderChartCanal(ordersOverride){
     outros:"#94a3b8",
     default:"#0FA765"
   };
+  const isLight = document.documentElement.classList.contains("light");
   charts.canal=new Chart(ctx,{
     type:"doughnut",
     data:{
@@ -4717,7 +4725,7 @@ function renderChartCanal(ordersOverride){
         backgroundColor:sorted.map(([c])=>brandColors[c]||brandColors.default),
         borderWidth:0,
         borderColor:"transparent",
-        spacing:5,
+        spacing:4,
         hoverOffset:8
       }]
     },
@@ -4725,18 +4733,13 @@ function renderChartCanal(ordersOverride){
       responsive:true,maintainAspectRatio:false,
       cutout:'68%',
       plugins:{
-        legend:{
-          position:"bottom",
-          labels:{color:"rgba(160, 168, 190, 0.8)",font:{size:10,family:"Plus Jakarta Sans"},
-            boxWidth:8,boxHeight:8,padding:10,
-            usePointStyle:true,pointStyle:'circle'}
-        },
+        legend:{ display:false },
         tooltip:{
-          backgroundColor:'#0e1018',
-          borderColor:'#1d2235',
+          backgroundColor: isLight ? '#ffffff' : '#0e1018',
+          borderColor: isLight ? 'rgba(0,0,0,.12)' : '#1d2235',
           borderWidth:1,
-          titleColor:'#edeef4',
-          bodyColor:'#a0a8be',
+          titleColor: isLight ? '#111827' : '#edeef4',
+          bodyColor: isLight ? '#334155' : '#a0a8be',
           padding:10,
           callbacks:{
             label:function(ctx){
@@ -4756,7 +4759,7 @@ function renderChartCanal(ordersOverride){
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-sub)">
       <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
       <div style="flex:1;font-size:11px;font-weight:600">${CH[c]||c}</div>
-      <div style="font-size:11px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtBRL(v)}</div>
+      <div style="font-size:11px;font-weight:800;font-family:var(--mono);color:var(--text)">${fmtBRL(v)}</div>
       <div style="font-size:10px;color:var(--text-3);width:36px;text-align:right;font-weight:600">${pct}%</div>
       <div style="width:50px;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
         <div style="height:4px;border-radius:99px;background:${color};width:${pct}%"></div>
