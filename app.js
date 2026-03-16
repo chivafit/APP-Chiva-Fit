@@ -3747,25 +3747,70 @@ function renderDashNow(){
     const novosPrev = novosPrevSet.size;
     const showCompare = isDashCompareEnabled();
     const deltaLine = (cur, prev)=>{
-      if(!showCompare) return `<div class="exec-kpi-delta"> </div>`;
+      if(!showCompare) return `<div class="dash-kpi-delta"> </div>`;
       const d = pctDelta(cur, prev);
-      if(d == null || !isFinite(d)) return `<div class="exec-kpi-delta">— vs período anterior</div>`;
+      if(d == null || !isFinite(d)) return `<div class="dash-kpi-delta">— vs período anterior</div>`;
       const up = d >= 0;
-      const cls = up ? "exec-kpi-delta-pos" : "exec-kpi-delta-neg";
-      return `<div class="exec-kpi-delta ${cls}">${up ? "↑" : "↓"} ${Math.abs(d).toFixed(0)}% vs período anterior</div>`;
+      const cls = up ? "dash-kpi-delta-pos" : "dash-kpi-delta-neg";
+      return `<div class="dash-kpi-delta ${cls}">${up ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}% <span class="dash-kpi-delta-sub">vs período anterior</span></div>`;
     };
-    dashStatsEl.innerHTML=[
-      {l:"Faturamento",v:fmtBRL(total),d:deltaLine(total, totalPrev)},
-      {l:"Pedidos",v:String(ordersSales.length),d:deltaLine(ordersSales.length, pedidosPrev)},
-      {l:"Ticket médio",v:fmtBRL(ticket),d:deltaLine(ticket, ticketPrev)},
-      {l:"Novos clientes",v:String(novos),d:deltaLine(novos, novosPrev)}
-    ].map(s=>`<div class="exec-kpi"><div class="exec-kpi-label">${s.l}</div><div class="exec-kpi-value">${s.v}</div>${s.d}</div>`).join("")
-    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">LTV médio</div><div class="exec-kpi-value"><span id="kpi-ltv-medio">—</span></div><div class="exec-kpi-delta"> </div></div>`
-    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">Clientes base</div><div class="exec-kpi-value"><span id="kpi-clientes-base">—</span></div><div class="exec-kpi-delta"> </div></div>`;
+    const items = [
+      { key: "revenue", label: "Receita (período)", value: fmtBRL(total), delta: deltaLine(total, totalPrev), icon: "💹", iconCls: "dash-kpi-icon--green", spark: "kpi-spark-revenue" },
+      { key: "orders", label: "Pedidos", value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev), icon: "📦", iconCls: "dash-kpi-icon--amber", spark: "kpi-spark-orders" },
+      { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" },
+      { key: "new", label: "Clientes Novos", value: String(novos), delta: deltaLine(novos, novosPrev), icon: "👤", iconCls: "dash-kpi-icon--purple", spark: "kpi-spark-new" }
+    ];
+    dashStatsEl.innerHTML = items.map(s=>`
+      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">${escapeHTML(s.label)}</div>
+            <div class="dash-kpi-value">${escapeHTML(s.value)}</div>
+            ${s.delta}
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon ${escapeHTML(s.iconCls)}">${escapeHTML(s.icon)}</div>
+            <div class="dash-kpi-spark">
+              <canvas id="${escapeHTML(s.spark)}"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join("")
+    + `
+      <div class="dash-kpi dash-kpi--ghost" data-kpi="ltv">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">LTV Médio</div>
+            <div class="dash-kpi-value"><span id="kpi-ltv-medio">—</span></div>
+            <div class="dash-kpi-delta"> </div>
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon dash-kpi-icon--ghost">💎</div>
+          </div>
+        </div>
+      </div>
+      <div class="dash-kpi dash-kpi--ghost" data-kpi="base">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">Clientes Base</div>
+            <div class="dash-kpi-value"><span id="kpi-clientes-base">—</span></div>
+            <div class="dash-kpi-delta"> </div>
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon dash-kpi-icon--ghost">👥</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    try{
+      renderDashKpiSparklines({ ordersSales, ordersPrevSales, fromIso, toIso, firstByCustomer });
+    }catch(_e){}
   }
 
   renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
-  renderDashSalesByDay(ordersSales);
+  renderDashSalesByDay(ordersSales, ordersPrevSales);
   renderChartMes(ordersSales);
   renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
   renderChartCanal(ordersSales);
@@ -3800,6 +3845,99 @@ async function updateDashSecondaryFromSupabase(){
   }catch(_e){}
 }
 
+function renderDashKpiSparklines(ctx){
+  const ordersSales = Array.isArray(ctx?.ordersSales) ? ctx.ordersSales : [];
+  const ordersPrevSales = Array.isArray(ctx?.ordersPrevSales) ? ctx.ordersPrevSales : [];
+  const fromIso = String(ctx?.fromIso || "").trim();
+  const toIso = String(ctx?.toIso || "").trim();
+  const firstByCustomer = ctx?.firstByCustomer && typeof ctx.firstByCustomer === "object" ? ctx.firstByCustomer : {};
+
+  const byDayRevenue = {};
+  const byDayOrders = {};
+  ordersSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    byDayRevenue[d] = (byDayRevenue[d] || 0) + val(o);
+    byDayOrders[d] = (byDayOrders[d] || 0) + 1;
+  });
+  const keys = Object.keys(byDayRevenue).sort();
+  if(!keys.length) return;
+  const revenue = keys.map(k=>Number(byDayRevenue[k] || 0) || 0);
+  const orders = keys.map(k=>Number(byDayOrders[k] || 0) || 0);
+  const ticket = keys.map((k,i)=>{
+    const n = orders[i] || 0;
+    return n ? (revenue[i] / n) : 0;
+  });
+
+  const fromTs = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+  const toTs = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+  const newByDay = {};
+  Object.entries(firstByCustomer).forEach(([cid, ts])=>{
+    const n = Number(ts);
+    if(!isFinite(n)) return;
+    if(fromTs != null && n < fromTs) return;
+    if(toTs != null && n > toTs) return;
+    const day = iso(new Date(n));
+    newByDay[day] = (newByDay[day] || 0) + 1;
+  });
+  const novos = keys.map(k=>Number(newByDay[k] || 0) || 0);
+
+  const prevByDayRevenue = {};
+  ordersPrevSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    prevByDayRevenue[d] = (prevByDayRevenue[d] || 0) + val(o);
+  });
+  const prevKeys = Object.keys(prevByDayRevenue).sort();
+  const prevRevenue = prevKeys.map(k=>Number(prevByDayRevenue[k] || 0) || 0);
+
+  const renderSpark = (id, values, color)=>{
+    const canvas = document.getElementById(id);
+    if(!canvas || !canvas.getContext) return;
+    const c = canvas.getContext("2d");
+    if(!c) return;
+    const key = "kpi_" + id;
+    if(charts[key]){ try{ charts[key].destroy(); }catch(_e){} charts[key] = null; }
+    const g = c.createLinearGradient(0, 0, 0, canvas.height || 40);
+    g.addColorStop(0, color.replace("1)", ".20)"));
+    g.addColorStop(1, color.replace("1)", "0)"));
+    charts[key] = new Chart(c, {
+      type: "line",
+      data: {
+        labels: values.map((_,i)=>String(i)),
+        datasets: [{
+          data: values,
+          borderColor: color,
+          backgroundColor: g,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.35,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } }
+      }
+    });
+  };
+
+  renderSpark("kpi-spark-revenue", revenue, "rgba(15,167,101,1)");
+  renderSpark("kpi-spark-orders", orders, "rgba(251,191,36,1)");
+  renderSpark("kpi-spark-ticket", ticket, "rgba(249,115,22,1)");
+  renderSpark("kpi-spark-new", novos, "rgba(167,139,250,1)");
+
+  try{
+    const showCompare = isDashCompareEnabled();
+    if(showCompare && prevRevenue.length){
+      const el = document.querySelector('[data-kpi="revenue"] .dash-kpi-label');
+      if(el) el.textContent = "Receita (período)";
+    }
+  }catch(_e){}
+}
+
 function setDashCanvasState(canvasId, hasData, msg, showClear){
   const canvas = document.getElementById(canvasId);
   const wrap = canvas ? canvas.parentElement : null;
@@ -3825,23 +3963,39 @@ function setDashCanvasState(canvasId, hasData, msg, showClear){
   return { canvas, shouldRender: false };
 }
 
-function renderDashSalesByDay(orders){
+function renderDashSalesByDay(orders, prevOrders){
   const list = Array.isArray(orders) ? orders : [];
-  const byDay = {};
-  list.forEach(o=>{
-    const d = String(o?.data || "").slice(0,10);
-    if(!d) return;
-    const ts = new Date(d + "T12:00:00").getTime();
-    if(!isFinite(ts)) return;
-    byDay[d] = (byDay[d] || 0) + val(o);
-  });
-  const keys = Object.keys(byDay).sort();
-  const state = setDashCanvasState("chart-v2-dia", keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  const prevList = Array.isArray(prevOrders) ? prevOrders : [];
+  const buildByDay = (arr)=>{
+    const by = {};
+    arr.forEach(o=>{
+      const d = String(o?.data || "").slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return;
+      by[d] = (by[d] || 0) + val(o);
+    });
+    const keys = Object.keys(by).sort();
+    return { keys, values: keys.map(k=>Number(by[k]||0) || 0) };
+  };
+
+  const cur = buildByDay(list);
+  const prev = buildByDay(prevList);
+  const state = setDashCanvasState("chart-v2-dia", cur.keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
   if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
   const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   if(charts.v2dia) charts.v2dia.destroy();
-  const values = keys.map(k=>byDay[k]);
+
+  const values = cur.values;
+  const prevAligned = prev.values.length ? prev.values.slice(0, values.length).concat(Array(Math.max(0, values.length - prev.values.length)).fill(null)) : [];
+
+  const maxVal = values.length ? Math.max(...values) : 0;
+  const minVal = values.length ? Math.min(...values) : 0;
+  const maxIdx = values.indexOf(maxVal);
+  const minIdx = values.indexOf(minVal);
+  const highlights = values.map((v, i)=> (i === maxIdx || i === minIdx) ? v : null);
+
   const showMA = isDashMAEnabled();
   const maWindow = 7;
   const ma = showMA ? values.map((_, i)=>{
@@ -3850,39 +4004,120 @@ function renderDashSalesByDay(orders){
     const sum = slice.reduce((s,v)=>s + (Number(v)||0), 0);
     return slice.length ? (sum / slice.length) : null;
   }) : [];
+
+  const isLight = document.documentElement.classList.contains("light");
+  const area = (()=>{
+    const g = ctx.createLinearGradient(0, 0, 0, state.canvas.height || 300);
+    g.addColorStop(0, "rgba(15,167,101,.30)");
+    g.addColorStop(1, "rgba(15,167,101,0)");
+    return g;
+  })();
+
+  const showCompare = isDashCompareEnabled() && prevAligned.length;
+  const datasets = [];
+  if(showCompare){
+    datasets.push({
+      label: "Período anterior",
+      data: prevAligned,
+      tension: 0.35,
+      fill: false,
+      borderColor: "rgba(148,163,184,.85)",
+      borderWidth: 2,
+      borderDash: [6,6],
+      pointRadius: 0,
+      pointHitRadius: 10
+    });
+  }
+  datasets.push({
+    label: "Receita",
+    data: values,
+    tension: 0.35,
+    fill: true,
+    borderColor: "#0FA765",
+    backgroundColor: area,
+    borderWidth: 3,
+    pointRadius: 2,
+    pointHoverRadius: 5,
+    pointBackgroundColor: "#0FA765",
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 2,
+    pointHitRadius: 14
+  });
+  if(showMA){
+    datasets.push({
+      label: "Média móvel (7d)",
+      data: ma,
+      tension: 0.35,
+      fill: false,
+      borderColor: "rgba(15,167,101,.55)",
+      borderWidth: 2,
+      borderDash: [4,5],
+      pointRadius: 0,
+      pointHitRadius: 10
+    });
+  }
+  datasets.push({
+    label: "Destaques",
+    data: highlights,
+    showLine: false,
+    pointRadius: (c)=>{
+      const i = c?.dataIndex ?? -1;
+      if(i === maxIdx || i === minIdx) return 6;
+      return 0;
+    },
+    pointHoverRadius: 7,
+    pointBackgroundColor: (c)=>{
+      const i = c?.dataIndex ?? -1;
+      if(i === maxIdx) return "#16a34a";
+      if(i === minIdx) return "#ef4444";
+      return "transparent";
+    },
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 2,
+    pointHitRadius: 16
+  });
+
   charts.v2dia = new Chart(ctx, {
     type: "line",
     data: {
-      labels: keys.map(k=>fmtDate(k)),
-      datasets: [{
-        label: "Faturamento",
-        data: values,
-        tension: 0.35,
-        fill: true,
-        borderColor: "#0FA765",
-        backgroundColor: "rgba(15,167,101,.18)",
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHitRadius: 12
-      }].concat(showMA ? [{
-        label: "Média móvel (7d)",
-        data: ma,
-        tension: 0.35,
-        fill: false,
-        borderColor: "rgba(164,233,107,.9)",
-        borderWidth: 2,
-        borderDash: [6,6],
-        pointRadius: 0,
-        pointHitRadius: 10
-      }] : [])
+      labels: cur.keys.map(k=>fmtDate(k)),
+      datasets
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isLight ? "#ffffff" : "#0e1018",
+          borderColor: isLight ? "rgba(0,0,0,.12)" : "#1d2235",
+          borderWidth: 1,
+          titleColor: isLight ? "#111827" : "#edeef4",
+          bodyColor: isLight ? "#334155" : "#a0a8be",
+          padding: 10,
+          displayColors: false,
+          callbacks: {
+            label: (c)=>{
+              const v = Number(c.parsed.y || 0) || 0;
+              if(c.dataset?.label === "Destaques"){
+                const i = c.dataIndex;
+                if(i === maxIdx) return " Pico: " + fmtBRL(v);
+                if(i === minIdx) return " Baixa: " + fmtBRL(v);
+              }
+              return " " + fmtBRL(v);
+            }
+          }
+        }
+      },
       scales: {
-        x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 12 } },
-        y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+        x: {
+          grid: { display: false },
+          ticks: { color: isLight ? "#64748b" : "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 10 }
+        },
+        y: {
+          grid: { color: isLight ? "rgba(15,23,42,.06)" : "rgba(255,255,255,.06)" },
+          ticks: { color: isLight ? "#64748b" : "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) }
+        }
       }
     }
   });
@@ -4844,13 +5079,17 @@ function renderChartCanal(ordersOverride){
   if(tbl) tbl.innerHTML=sorted.map(([c,v])=>{
     const pct=Math.round(v/total*100);
     const color=brandColors[c]||brandColors.default;
-    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-sub)">
-      <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
-      <div style="flex:1;font-size:11px;font-weight:600">${CH[c]||c}</div>
-      <div style="font-size:11px;font-weight:800;font-family:var(--mono);color:var(--text)">${fmtBRL(v)}</div>
-      <div style="font-size:10px;color:var(--text-3);width:36px;text-align:right;font-weight:600">${pct}%</div>
-      <div style="width:50px;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
-        <div style="height:4px;border-radius:99px;background:${color};width:${pct}%"></div>
+    return `<div class="dash-donut-row">
+      <div class="dash-donut-left">
+        <span class="dash-donut-dot" style="--c:${color}"></span>
+        <span class="dash-donut-name">${escapeHTML(CH[c]||c)}</span>
+      </div>
+      <div class="dash-donut-right">
+        <span class="dash-donut-value">${escapeHTML(fmtBRL(v))}</span>
+        <span class="dash-donut-pct">${escapeHTML(String(pct))}%</span>
+      </div>
+      <div class="dash-donut-bar">
+        <div class="dash-donut-bar-fill" style="--c:${color};width:${pct}%"></div>
       </div>
     </div>`;
   }).join("");
