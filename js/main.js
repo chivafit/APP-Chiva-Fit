@@ -1,2 +1,2 @@
-import "../app.js?v=20260316-2";
-import "../controller.js?v=20260316-2";
+import "../app.js?v=20260316-3";
+import "../controller.js?v=20260316-3";

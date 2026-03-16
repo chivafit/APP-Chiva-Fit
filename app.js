@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-2";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-3";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-2";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-2";
-import { CRMStore } from "./store.js?v=20260316-2";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-2";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-2";
+} from "./ia.js?v=20260316-3";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-3";
+import { CRMStore } from "./store.js?v=20260316-3";
+import { STORAGE_KEYS } from "./constants.js?v=20260316-3";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260316-3";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -25,18 +25,18 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-2";
+} from "./viewsApi.js?v=20260316-3";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260316-2";
+} from "./sync/bling.js?v=20260316-3";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-2";
+} from "./sync/yampi.js?v=20260316-3";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -4070,7 +4070,7 @@ function renderDashProductsMini(ordersSales, ordersPrevSales){
   const agg = (orders)=>{
     const m = {};
     orders.forEach(o=>{
-      getItensPedido(o).forEach(it=>{
+      getPedidoItens(o).forEach(it=>{
         const name = String(it?.descricao || "").trim();
         if(!name) return;
         if(!m[name]) m[name] = { name, qty: 0, rev: 0 };
@@ -4146,7 +4146,7 @@ function renderDashAlertsMini(_ordersSales){
     const aggProd = (orders)=>{
       const m = {};
       orders.forEach(o=>{
-        getItensPedido(o).forEach(it=>{
+        getPedidoItens(o).forEach(it=>{
           const name = String(it?.descricao || "").trim();
           if(!name) return;
           m[name] = (m[name] || 0) + (Number(it?.valor_total || 0) || 0);
