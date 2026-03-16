@@ -2,6 +2,30 @@ name: Bling Sync (Cron)
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Modo de execução"
+        required: true
+        default: "persist"
+        type: choice
+        options:
+          - persist
+          - reprocess_items
+      limit:
+        description: "Tamanho do lote (limit) usado no reprocessamento"
+        required: false
+        default: "50"
+        type: string
+      concurrency:
+        description: "Concorrência do reprocessamento"
+        required: false
+        default: "6"
+        type: string
+      max_batches:
+        description: "Máximo de lotes por execução"
+        required: false
+        default: "200"
+        type: string
   schedule:
     - cron: "*/30 * * * *"
 
@@ -28,10 +52,28 @@ jobs:
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MODE: ${{ inputs.mode }}
+          LIMIT: ${{ inputs.limit }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          MAX_BATCHES: ${{ inputs.max_batches }}
         run: |
           set -euo pipefail
           BASE="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
-          payload='{"persist":true,"maxPages":200,"syncProducts":true}'
+          mode="${MODE:-persist}"
+          limit="${LIMIT:-50}"
+          concurrency="${CONCURRENCY:-6}"
+          max_batches="${MAX_BATCHES:-80}"
+
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
+            mode="persist"
+            max_batches="80"
+          fi
+
+          if [ "${mode}" = "reprocess_items" ]; then
+            payload="$(python3 -c 'import json,sys; limit=sys.argv[1]; conc=sys.argv[2]; print(json.dumps({"persist": True, "reprocessExisting": True, "limit": int(limit), "concurrency": int(conc)}))' "${limit}" "${concurrency}")"
+          else
+            payload='{"persist":true,"maxPages":200,"syncProducts":true}'
+          fi
 
           call_fn () {
             local url="$1"
@@ -55,16 +97,16 @@ jobs:
             printf '%s' "${body}"
           }
 
-          max_batches=80
           batch=1
           while [ "${batch}" -le "${max_batches}" ]; do
-            echo "=== bling-sync batch ${batch}/${max_batches} ==="
+            echo "=== bling-sync (${mode}) batch ${batch}/${max_batches} ==="
             body="$(call_fn "${BASE}/bling-sync" "${payload}")"
-            summary="$(printf '%s' "${body}" | python3 -c 'import sys,json; s=sys.stdin.read(); obj=json.loads(s) if s.strip() else {}; hm="true" if bool(obj.get("hasMore", False)) else "false"; cnt=obj.get("count", 0); no=obj.get("nextOffset", ""); print(hm+"\\t"+str(cnt)+"\\t"+("" if no is None else str(no)))' 2>/dev/null || printf "false\t0\t")"
+            summary="$(printf '%s' "${body}" | python3 -c 'import sys,json; s=sys.stdin.read(); obj=json.loads(s) if s.strip() else {}; hm="true" if bool(obj.get("hasMore", False)) else "false"; cnt=obj.get("count", 0); it=obj.get("items", 0); no=obj.get("nextOffset", ""); print(hm+"\\t"+str(cnt)+"\\t"+str(it)+"\\t"+("" if no is None else str(no)))' 2>/dev/null || printf "false\t0\t0\t")"
             has_more="$(printf '%s' "${summary}" | cut -f1)"
             count="$(printf '%s' "${summary}" | cut -f2)"
-            next_offset="$(printf '%s' "${summary}" | cut -f3-)"
-            echo "Summary: count=${count} nextOffset=${next_offset} hasMore=${has_more}"
+            items="$(printf '%s' "${summary}" | cut -f3)"
+            next_offset="$(printf '%s' "${summary}" | cut -f4-)"
+            echo "Summary: count=${count} items=${items} nextOffset=${next_offset} hasMore=${has_more}"
             if [ "${has_more}" != "true" ]; then
               echo "bling-sync completed"
               break

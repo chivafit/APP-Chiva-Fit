@@ -238,20 +238,44 @@ async function persistSyncResultToDb(
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = nowIso();
 
-  let pedidosItemsTotalCol: "valor_total" | "total" = "valor_total";
-  try {
-    const t1 = await supabase.from("v2_pedidos_items").select("valor_total").limit(1);
-    if (t1?.error) throw t1.error;
-    pedidosItemsTotalCol = "valor_total";
-  } catch (_e) {
+  const getPedidosItemsLayout = async () => {
+    let totalCol: "valor_total" | "total" = "valor_total";
     try {
-      const t2 = await supabase.from("v2_pedidos_items").select("total").limit(1);
-      if (t2?.error) throw t2.error;
-      pedidosItemsTotalCol = "total";
-    } catch (_e2) {
-      pedidosItemsTotalCol = "valor_total";
+      const t1 = await supabase.from("v2_pedidos_items").select("valor_total").limit(1);
+      if (t1?.error) throw t1.error;
+      totalCol = "valor_total";
+    } catch (_e) {
+      try {
+        const t2 = await supabase.from("v2_pedidos_items").select("total").limit(1);
+        if (t2?.error) throw t2.error;
+        totalCol = "total";
+      } catch (_e2) {
+        totalCol = "valor_total";
+      }
     }
-  }
+
+    let productNameCol: "nome_produto" | "produto_nome" = "produto_nome";
+    try {
+      const t = await supabase.from("v2_pedidos_items").select("nome_produto").limit(1);
+      if (t?.error) throw t.error;
+      productNameCol = "nome_produto";
+    } catch (_e) {
+      productNameCol = "produto_nome";
+    }
+
+    let hasProdutoId = false;
+    try {
+      const t = await supabase.from("v2_pedidos_items").select("produto_id").limit(1);
+      if (t?.error) throw t.error;
+      hasProdutoId = true;
+    } catch (_e) {
+      hasProdutoId = false;
+    }
+
+    return { totalCol, productNameCol, hasProdutoId };
+  };
+
+  const pedidosItemsLayout = await getPedidosItemsLayout();
 
   const customersByDoc: Record<string, any> = {};
   orders.forEach((o) => {
@@ -377,42 +401,95 @@ async function persistSyncResultToDb(
     }
   }
 
+  const uuidToBytes = (uuid: string) => {
+    const hex = String(uuid || "").replace(/-/g, "").toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(hex)) return null;
+    const out = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  };
+
+  const bytesToUuid = (bytes: Uint8Array) => {
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  };
+
+  const UUID_V5_DNS_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+  const uuidV5FromString = async (name: string, namespaceUuid = UUID_V5_DNS_NAMESPACE) => {
+    const ns = uuidToBytes(namespaceUuid);
+    if (!ns) throw new Error("Invalid UUID namespace");
+    const enc = new TextEncoder();
+    const nameBytes = enc.encode(String(name || ""));
+    const toHash = new Uint8Array(ns.length + nameBytes.length);
+    toHash.set(ns, 0);
+    toHash.set(nameBytes, ns.length);
+    const hashBuf = await crypto.subtle.digest("SHA-1", toHash);
+    const hash = new Uint8Array(hashBuf).slice(0, 16);
+    hash[6] = (hash[6] & 0x0f) | 0x50;
+    hash[8] = (hash[8] & 0x3f) | 0x80;
+    return bytesToUuid(hash);
+  };
+
   const itemRows: any[] = [];
+  let ordersWithoutItems = 0;
   pedidosRows.forEach((p: any) => {
     const pid = String(p?.id ?? "").trim();
     if (!pid) return;
     const itens = Array.isArray(p?.itens) ? p.itens : [];
-    itens.forEach((it: any) => {
-      const produtoNome = String(it?.descricao ?? it?.codigo ?? "").trim();
-      if (!produtoNome) return;
+    if (!itens.length) {
+      ordersWithoutItems += 1;
+      try {
+        console.log("[bling-sync] pedido sem itens", { pedido_id: pid });
+      } catch (_e) {}
+      return;
+    }
+    itens.forEach((it: any, idx: number) => {
+      const nomeProduto = String(it?.descricao ?? it?.nome ?? it?.produto_nome ?? it?.nome_produto ?? it?.codigo ?? "").trim();
+      if (!nomeProduto) return;
+      const produtoIdCandidate = String(it?.produto_id ?? it?.produtoId ?? it?.codigo ?? "").trim();
+      const produtoId = produtoIdCandidate || nomeProduto;
       const quantidade = Number(it?.quantidade ?? 0) || 0;
-      const valorUnitario = Number(it?.valor ?? 0) || 0;
-      const valorTotal = quantidade * valorUnitario;
+      const valorUnitario = Number(it?.valor ?? it?.valor_unitario ?? 0) || 0;
+      const valorTotal = Number(it?.valor_total ?? it?.total ?? quantidade * valorUnitario) || 0;
       const row: any = {
         pedido_id: pid,
-        produto_nome: produtoNome,
         quantidade,
         valor_unitario: valorUnitario,
         created_at: now,
       };
-      row[pedidosItemsTotalCol] = valorTotal;
+      row[pedidosItemsLayout.productNameCol] = nomeProduto;
+      row[pedidosItemsLayout.totalCol] = valorTotal;
+      if (pedidosItemsLayout.hasProdutoId) row.produto_id = produtoId;
+      row._item_id_key = `${pid}|${produtoId}|${nomeProduto}|${idx}`;
       itemRows.push(row);
     });
   });
 
   if (itemRows.length) {
-    const uniquePedidoIds = Array.from(new Set(pedidoIds)).filter(Boolean);
-    for (let i = 0; i < uniquePedidoIds.length; i += 200) {
-      const batch = uniquePedidoIds.slice(i, i + 200);
-      const { error } = await supabase.from("v2_pedidos_items").delete().in("pedido_id", batch);
-      if (error) throw error;
-    }
-    for (let i = 0; i < itemRows.length; i += 1000) {
-      const batch = itemRows.slice(i, i + 1000);
-      const { error } = await supabase.from("v2_pedidos_items").insert(batch);
+    for (let i = 0; i < itemRows.length; i += 500) {
+      const batch = itemRows.slice(i, i + 500);
+      const rowsWithId = await Promise.all(
+        batch.map(async (r: any) => {
+          const key = String(r?._item_id_key ?? "").trim();
+          const id = await uuidV5FromString(key);
+          const { _item_id_key, ...rest } = r;
+          return { id, ...rest };
+        }),
+      );
+      const { error } = await supabase.from("v2_pedidos_items").upsert(rowsWithId, { onConflict: "id" });
       if (error) throw error;
     }
   }
+
+  try {
+    console.log("[bling-sync] items persisted", {
+      pedidos: pedidosRows.length,
+      itens: itemRows.length,
+      pedidosSemItens: ordersWithoutItems,
+    });
+  } catch (_e) {}
 
   if (updateLastSync) {
     await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling", valor_texto: now, updated_at: now }], {
@@ -637,15 +714,17 @@ function mapBlingOrder(detail: any) {
     bairro: String(pick(etiqueta?.bairro, contatoEndereco?.bairro) ?? "").trim(),
   };
 
-  const itensRaw = (data?.itens ?? data?.itensPedido ?? data?.produtos ?? []) as any[];
+  const itensRaw = (data?.itens ?? data?.itensPedido ?? data?.produtos ?? data?.items ?? []) as any[];
   const itens = Array.isArray(itensRaw)
     ? itensRaw
         .map((it) => {
-          const prod = it?.produto ?? it ?? {};
+          const node = it?.item ?? it?.pedidoItem ?? it?.produtoItem ?? it ?? {};
+          const prod = node?.produto ?? node ?? {};
           const descricao = String(prod?.descricao ?? prod?.nome ?? it?.descricao ?? "").trim();
           const codigo = String(prod?.codigo ?? prod?.sku ?? prod?.id ?? it?.codigo ?? "").trim();
-          const quantidade = Number(it?.quantidade ?? it?.qty ?? 0) || 0;
-          const valor = Number(it?.valor ?? it?.valorUnitario ?? it?.preco ?? 0) || 0;
+          const quantidade = Number(node?.quantidade ?? it?.quantidade ?? node?.qty ?? it?.qty ?? 0) || 0;
+          const valor = Number(node?.valor ?? it?.valor ?? node?.valorUnitario ?? it?.valorUnitario ?? node?.preco ?? it?.preco ?? 0) ||
+            0;
           return { descricao, codigo, quantidade, valor };
         })
         .filter((it) => it.descricao || it.codigo)
@@ -877,6 +956,96 @@ serve(async (req: Request) => {
 
     const lojaIdMap = await getBlingLojaIdMap(supabaseUrl, serviceRoleKey).catch(() => ({}));
     const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
+    const reprocessExisting = persist && body?.reprocessExisting === true;
+
+    if (reprocessExisting) {
+      const supabase = createClient(supabaseUrl, serviceRoleKey);
+      const cursorKey = "bling_reprocess_items_cursor";
+      let reprocessOffset = Math.max(0, Number(body?.offset ?? NaN));
+      if (!Number.isFinite(reprocessOffset)) {
+        let stored = "";
+        try {
+          stored = await getConfigValue(supabaseUrl, serviceRoleKey, cursorKey);
+        } catch (_e) {}
+        const n = Number(String(stored || "").trim());
+        reprocessOffset = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+      }
+
+      const { data: rows, error } = await supabase
+        .from("v2_pedidos")
+        .select("id,data_pedido")
+        .order("data_pedido", { ascending: true })
+        .order("id", { ascending: true })
+        .range(reprocessOffset, reprocessOffset + limit - 1);
+      if (error) throw error;
+      const pedidoIds = (rows || []).map((r: any) => String(r?.id ?? "").trim()).filter(Boolean);
+      if (!pedidoIds.length) {
+        try {
+          await supabase.from("configuracoes").upsert([{ chave: cursorKey, valor_texto: "", updated_at: nowIso() }], {
+            onConflict: "chave",
+          });
+        } catch (_e) {}
+        return jsonResponse({
+          ok: true,
+          persisted: true,
+          reprocessedExisting: true,
+          count: 0,
+          items: 0,
+          offset: reprocessOffset,
+          nextOffset: reprocessOffset,
+          hasMore: false,
+        });
+      }
+
+      const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
+      const details = await mapWithConcurrency(pedidoIds, concurrency, async (id) => {
+        const url = `${base}/${encodeURIComponent(id)}`;
+        const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+        const mapped = mapBlingOrder(json);
+        const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
+        if (infer.slug) (mapped as any)._canal = infer.slug;
+        if (infer.lojaId && !(mapped as any)?.loja?.id) (mapped as any).loja = { ...(mapped as any).loja, id: infer.lojaId };
+        if (infer.lojaNome && !(mapped as any)?.loja?.nome) (mapped as any).loja = { ...(mapped as any).loja, nome: infer.lojaNome };
+        if (infer.canalNome && !(mapped as any)?.canal?.nome) (mapped as any).canal = { ...(mapped as any).canal, nome: infer.canalNome };
+        if (infer.numeroPedidoEcommerce && !(mapped as any)?.numeroPedidoEcommerce) (mapped as any).numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
+        return mapped;
+      });
+
+      const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
+      await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap, false);
+
+      const nextOffset = reprocessOffset + pedidoIds.length;
+      const hasMore = pedidoIds.length === limit;
+      try {
+        await supabase.from("configuracoes").upsert([{
+          chave: cursorKey,
+          valor_texto: hasMore ? String(nextOffset) : "",
+          updated_at: nowIso(),
+        }], { onConflict: "chave" });
+      } catch (_e) {}
+
+      const items = details.reduce((acc, o: any) => acc + (Array.isArray(o?.itens) ? o.itens.length : 0), 0);
+      try {
+        console.log("[bling-sync] reprocessExisting batch", {
+          pedidos: details.length,
+          itens: items,
+          offset: reprocessOffset,
+          nextOffset,
+          hasMore,
+        });
+      } catch (_e) {}
+
+      return jsonResponse({
+        ok: true,
+        persisted: true,
+        reprocessedExisting: true,
+        count: details.length,
+        items,
+        offset: reprocessOffset,
+        nextOffset,
+        hasMore,
+      });
+    }
 
     const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
     const ids: string[] = [];
