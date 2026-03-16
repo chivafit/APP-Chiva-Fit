@@ -3844,11 +3844,20 @@ function renderDashNow(){
   renderDashSalesByDay(ordersSales, ordersPrevSales);
   const ordersNew = ordersSales.filter(o=>novosSet.has(orderCustomerKey(o)));
   renderChartCanal(ordersNew);
-  renderDashInsightsMini(ordersSales);
-  renderDashProductsMini(ordersSales, ordersPrevSales);
-  renderDashAlertsMini(ordersSales);
-  renderDashVipMini(ordersSales);
-  renderDashGeoMini(ordersSales);
+  try{
+    const prodEl = document.getElementById("dash-top-products");
+    if(prodEl && !prodEl.innerHTML) prodEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+    const alertsEl = document.getElementById("dash-alerts-mini");
+    if(alertsEl && !alertsEl.innerHTML) alertsEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+    const vipsEl = document.getElementById("dash-vips-mini");
+    if(vipsEl && !vipsEl.innerHTML) vipsEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+  }catch(_e){}
+
+  try{ renderDashInsightsMini(ordersSales); }catch(_e){}
+  try{ renderDashProductsMini(ordersSales, ordersPrevSales); }catch(_e){}
+  try{ renderDashAlertsMini(ordersSales); }catch(_e){}
+  try{ renderDashVipMini(ordersSales); }catch(_e){}
+  try{ renderDashGeoMini(ordersSales); }catch(_e){}
   updateDashSecondaryFromSupabase().catch(()=>{});
 }
 
