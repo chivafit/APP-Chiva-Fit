@@ -207,17 +207,70 @@ const CANAL_NAME_BY_SLUG: Record<string, string> = {
 
 async function ensureCanaisAndGetMap(supabaseUrl: string, serviceRoleKey: string): Promise<Record<string, string>> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const rows = Object.entries(CANAL_NAME_BY_SLUG).map(([slug, nome]) => ({
+  const now = nowIso();
+
+  const trySelect = async (table: string, select: string) => {
+    const { data, error } = await supabase.from(table).select(select).limit(1);
+    if (error) throw error;
+    return data || [];
+  };
+
+  let table: "v2_canais" | "canais" = "v2_canais";
+  try {
+    await trySelect("v2_canais", "id,slug");
+    table = "v2_canais";
+  } catch (_e) {
+    table = "canais";
+  }
+
+  if (table === "v2_canais") {
+    const rows = Object.entries(CANAL_NAME_BY_SLUG).map(([slug, nome]) => ({
+      slug,
+      nome,
+      created_at: now,
+    }));
+    await supabase.from("v2_canais").upsert(rows, { onConflict: "slug" });
+    const { data, error } = await supabase
+      .from("v2_canais")
+      .select("id,slug")
+      .in("slug", Object.keys(CANAL_NAME_BY_SLUG))
+      .limit(50);
+    if (error) throw error;
+    const map: Record<string, string> = {};
+    (data || []).forEach((r: any) => {
+      const slug = String(r?.slug ?? "").trim().toLowerCase();
+      const id = String(r?.id ?? "").trim();
+      if (slug && id) map[slug] = id;
+    });
+    if (map["mercado_livre"] && !map["ml"]) map["ml"] = map["mercado_livre"];
+    if (map["ml"] && !map["mercado_livre"]) map["mercado_livre"] = map["ml"];
+    if (map["b2b"] && !map["cnpj"]) map["cnpj"] = map["b2b"];
+    if (map["cnpj"] && !map["b2b"]) map["b2b"] = map["cnpj"];
+    return map;
+  }
+
+  const CANAIS_V1: Record<string, { nome: string; tipo_canal: string; cor_hex: string }> = {
+    bling: { nome: "Bling", tipo_canal: "bling", cor_hex: "#009FE3" },
+    mercado_livre: { nome: "Mercado Livre", tipo_canal: "marketplace", cor_hex: "#FFE600" },
+    b2b: { nome: "B2B / CNPJ", tipo_canal: "b2b", cor_hex: "#6B7280" },
+    shopify: { nome: "Shopify", tipo_canal: "ecommerce", cor_hex: "#96BF48" },
+    shopee: { nome: "Shopee", tipo_canal: "marketplace", cor_hex: "#F5461D" },
+    amazon: { nome: "Amazon", tipo_canal: "marketplace", cor_hex: "#FF9900" },
+    yampi: { nome: "Yampi", tipo_canal: "ecommerce", cor_hex: "#7C3AED" },
+    outros: { nome: "Outros", tipo_canal: "outros", cor_hex: "#9CA3AF" },
+  };
+
+  const desiredSlugs = Object.keys(CANAIS_V1);
+  const rows = desiredSlugs.map((slug) => ({
     slug,
-    nome,
-    created_at: nowIso(),
+    tipo_canal: CANAIS_V1[slug].tipo_canal,
+    nome: CANAIS_V1[slug].nome,
+    cor_hex: CANAIS_V1[slug].cor_hex,
+    ativo: true,
+    created_at: now,
   }));
-  await supabase.from("v2_canais").upsert(rows, { onConflict: "slug" });
-  const { data, error } = await supabase
-    .from("v2_canais")
-    .select("id,slug")
-    .in("slug", Object.keys(CANAL_NAME_BY_SLUG))
-    .limit(50);
+  await supabase.from("canais").upsert(rows as any, { onConflict: "slug" });
+  const { data, error } = await supabase.from("canais").select("id,slug").in("slug", desiredSlugs).limit(100);
   if (error) throw error;
   const map: Record<string, string> = {};
   (data || []).forEach((r: any) => {
@@ -225,6 +278,8 @@ async function ensureCanaisAndGetMap(supabaseUrl: string, serviceRoleKey: string
     const id = String(r?.id ?? "").trim();
     if (slug && id) map[slug] = id;
   });
+  if (map["mercado_livre"]) map["ml"] = map["mercado_livre"];
+  if (map["b2b"]) map["cnpj"] = map["b2b"];
   return map;
 }
 
@@ -237,6 +292,7 @@ async function persistSyncResultToDb(
 ) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = nowIso();
+  const isUuidStr = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
   const getPedidosItemsLayout = async () => {
     let totalCol: "valor_total" | "total" = "valor_total";
@@ -276,6 +332,28 @@ async function persistSyncResultToDb(
   };
 
   const pedidosItemsLayout = await getPedidosItemsLayout();
+
+  const getPedidosLayout = async () => {
+    let hasBlingId = false;
+    try {
+      const t = await supabase.from("v2_pedidos").select("bling_id").limit(1);
+      if (t?.error) throw t.error;
+      hasBlingId = true;
+    } catch (_e) {
+      hasBlingId = false;
+    }
+    let idType: "uuid" | "text" = "text";
+    try {
+      const sel = hasBlingId ? "id,bling_id" : "id";
+      const { data, error } = await supabase.from("v2_pedidos").select(sel).limit(1);
+      if (error) throw error;
+      const sampleId = String((data?.[0] as any)?.id ?? "").trim();
+      if (sampleId && isUuidStr(sampleId)) idType = "uuid";
+    } catch (_e) {}
+    return { hasBlingId, idType };
+  };
+
+  const pedidosLayout = await getPedidosLayout();
 
   const customersByDoc: Record<string, any> = {};
   orders.forEach((o) => {
@@ -321,8 +399,8 @@ async function persistSyncResultToDb(
 
   const pedidosRows = orders
     .map((o) => {
-      const id = String(o?.id ?? o?.numero ?? "").trim();
-      if (!id) return null;
+      const blingId = String(o?.id ?? o?.numero ?? "").trim();
+      if (!blingId) return null;
       const docKey = String(makeCustomerDocKey(o) || "").trim();
       const clienteId = docToId[docKey] || null;
       const contato = o?.contato ?? {};
@@ -334,16 +412,15 @@ async function persistSyncResultToDb(
       if (!canalSlug) canalSlug = "outros";
       const canalId = canaisMap[canalSlug] || canaisMap["outros"] || null;
 
-      const numero = String(o?.numero ?? id).trim();
+      const numero = String(o?.numero ?? blingId).trim();
       const dataPedido = String(o?.data ?? "").slice(0, 10);
       const total = Number(o?.total ?? 0) || 0;
       const status = String(o?.situacao?.nome ?? o?.situacao ?? "").trim();
       const itens = Array.isArray(o?.itens) ? o.itens : [];
 
-      return {
-        id,
+      const base: any = {
         numero_pedido: numero || null,
-        bling_id: id,
+        bling_id: blingId,
         cliente_id: clienteId,
         canal_id: canalId,
         data_pedido: dataPedido || null,
@@ -353,19 +430,51 @@ async function persistSyncResultToDb(
         itens,
         created_at: now,
       };
+
+      if (pedidosLayout.idType === "text") {
+        return { ...base, id: blingId };
+      }
+      return base;
     })
     .filter(Boolean);
 
-  for (let i = 0; i < pedidosRows.length; i += 100) {
-    const batch = pedidosRows.slice(i, i + 100);
-    const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
-    if (error) throw error;
+  const blingIds = pedidosRows.map((p: any) => String(p?.bling_id ?? "").trim()).filter(Boolean);
+  if (pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId) {
+    for (let i = 0; i < pedidosRows.length; i += 100) {
+      const batch = pedidosRows.slice(i, i + 100).map((p: any) => {
+        const { id, ...rest } = p;
+        return rest;
+      });
+      const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "bling_id" });
+      if (error) throw error;
+    }
+  } else {
+    for (let i = 0; i < pedidosRows.length; i += 100) {
+      const batch = pedidosRows.slice(i, i + 100);
+      const { error } = await supabase.from("v2_pedidos").upsert(batch, { onConflict: "id" });
+      if (error) throw error;
+    }
+  }
+
+  const pedidoIdByBlingId: Record<string, string> = {};
+  if (pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId && blingIds.length) {
+    for (let i = 0; i < blingIds.length; i += 200) {
+      const slice = blingIds.slice(i, i + 200);
+      const { data, error } = await supabase.from("v2_pedidos").select("id,bling_id").in("bling_id", slice).limit(5000);
+      if (error) throw error;
+      (data || []).forEach((r: any) => {
+        const bid = String(r?.bling_id ?? "").trim();
+        const id = String(r?.id ?? "").trim();
+        if (bid && id) pedidoIdByBlingId[bid] = id;
+      });
+    }
   }
 
   const productsById: Record<string, any> = {};
   const pedidoIds: string[] = [];
   pedidosRows.forEach((p: any) => {
-    const pid = String(p?.id ?? "").trim();
+    const blingId = String(p?.bling_id ?? "").trim();
+    const pid = pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId ? pedidoIdByBlingId[blingId] : String(p?.id ?? "").trim();
     if (pid) pedidoIds.push(pid);
     const itens = Array.isArray(p?.itens) ? p.itens : [];
     itens.forEach((it: any) => {
@@ -435,7 +544,8 @@ async function persistSyncResultToDb(
   const itemRows: any[] = [];
   let ordersWithoutItems = 0;
   pedidosRows.forEach((p: any) => {
-    const pid = String(p?.id ?? "").trim();
+    const blingId = String(p?.bling_id ?? "").trim();
+    const pid = pedidosLayout.idType === "uuid" && pedidosLayout.hasBlingId ? pedidoIdByBlingId[blingId] : String(p?.id ?? "").trim();
     if (!pid) return;
     const itens = Array.isArray(p?.itens) ? p.itens : [];
     if (!itens.length) {
@@ -488,6 +598,7 @@ async function persistSyncResultToDb(
       pedidos: pedidosRows.length,
       itens: itemRows.length,
       pedidosSemItens: ordersWithoutItems,
+      pedidosIdType: pedidosLayout.idType,
     });
   } catch (_e) {}
 
@@ -973,13 +1084,15 @@ serve(async (req: Request) => {
 
       const { data: rows, error } = await supabase
         .from("v2_pedidos")
-        .select("id,data_pedido")
+        .select("id,bling_id,data_pedido")
         .order("data_pedido", { ascending: true })
         .order("id", { ascending: true })
         .range(reprocessOffset, reprocessOffset + limit - 1);
       if (error) throw error;
-      const pedidoIds = (rows || []).map((r: any) => String(r?.id ?? "").trim()).filter(Boolean);
-      if (!pedidoIds.length) {
+      const pedidoIdsForApi = (rows || [])
+        .map((r: any) => String(r?.bling_id ?? r?.id ?? "").trim())
+        .filter(Boolean);
+      if (!pedidoIdsForApi.length) {
         try {
           await supabase.from("configuracoes").upsert([{ chave: cursorKey, valor_texto: "", updated_at: nowIso() }], {
             onConflict: "chave",
@@ -998,7 +1111,7 @@ serve(async (req: Request) => {
       }
 
       const base = "https://api.bling.com.br/Api/v3/pedidos/vendas";
-      const details = await mapWithConcurrency(pedidoIds, concurrency, async (id) => {
+      const details = await mapWithConcurrency(pedidoIdsForApi, concurrency, async (id) => {
         const url = `${base}/${encodeURIComponent(id)}`;
         const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
         const mapped = mapBlingOrder(json);
@@ -1014,8 +1127,8 @@ serve(async (req: Request) => {
       const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
       await persistSyncResultToDb(supabaseUrl, serviceRoleKey, details, canaisMap, false);
 
-      const nextOffset = reprocessOffset + pedidoIds.length;
-      const hasMore = pedidoIds.length === limit;
+      const nextOffset = reprocessOffset + pedidoIdsForApi.length;
+      const hasMore = pedidoIdsForApi.length === limit;
       try {
         await supabase.from("configuracoes").upsert([{
           chave: cursorKey,
