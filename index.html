@@ -181,17 +181,21 @@
 
 <!-- DASHBOARD -->
 <div class="page" id="page-dashboard">
-  <div class="page-header">
+
+  <!-- ── Header ── -->
+  <div class="page-header dash-page-header">
     <div class="page-header-main">
       <h1 class="page-title">Dashboard</h1>
       <p class="page-subtitle">Visão geral de clientes e receita</p>
-      <div class="dash-meta" id="dash-period"></div>
+      <div class="dash-period-badge" id="dash-period"></div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="btn" onclick="openDashActionsModal()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
-      <button class="btn" onclick="renderDash()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
+    <div class="dash-header-actions">
+      <button class="btn btn-dash-primary" onclick="openDashActionsModal()">⚡ Ações do dia</button>
+      <button class="btn" onclick="renderDash()">↻ Atualizar</button>
     </div>
   </div>
+
+  <!-- ── Filtros ── -->
   <div class="saas-filterbar dash-filterbar">
     <div class="saas-chips">
       <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
@@ -220,58 +224,130 @@
       <button class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
     </div>
   </div>
-    <div id="alert-banner"></div>
+
+  <!-- ── Banners & Insights ── -->
+  <div id="alert-banner"></div>
   <div id="source-row" class="dash-source-row"></div>
   <div id="dash-insights-day"></div>
   <div id="auto-insights"></div>
+
+  <!-- ── KPIs ── -->
   <div class="stat-grid" id="dash-stats"></div>
-  <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
-  <div class="section-label" style="margin-top:8px">Diagnóstico</div>
-  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
-    <div class="chart-card">
+  <div class="stat-grid dash-stats-secondary" id="dash-stats-secondary"></div>
+
+  <!-- ══ Seção: Diagnóstico ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot"></span>
+    <span class="dash-section-title">Diagnóstico</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <!-- Hero: Vendas por Dia -->
+  <div class="chart-card dash-hero-chart">
+    <div class="chart-card-header">
       <div class="chart-title">Vendas por Dia</div>
-      <div class="chart-wrap" style="height:260px"><canvas id="chart-v2-dia"></canvas></div>
     </div>
+    <div class="chart-wrap" style="height:300px"><canvas id="chart-v2-dia"></canvas></div>
   </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+
+  <!-- Vendas por Mês + Funil -->
+  <div class="dash-grid-2">
     <div class="chart-card">
-      <div class="chart-title">Vendas por Mês</div>
-      <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
-      <div id="dash-channel-breakdown" style="margin-top:10px"></div>
-    </div>
-    <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:210px"><canvas id="chart-v2-funil"></canvas></div></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
-    <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
-  </div>
-  <div class="section-label" style="margin-top:12px">Ações prioritárias</div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
-    <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Top Produtos (Período)</div><div class="top-list" id="top-produtos-dash"></div></div>
-    <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
-  </div>
-  <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
-  </div>
-  <div class="meta-card">
-    <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
-    <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
-  </div>
-  <div class="compare-card">
-    <div class="card-hdr">
-      <span class="card-title">Comparar Períodos</span>
-      <div class="cmp-inputs">
-        <input type="month" id="cmp-a" onchange="renderCompare()"/>
-        <span style="font-size:10px;color:var(--text-3)">vs</span>
-        <input type="month" id="cmp-b" onchange="renderCompare()"/>
+      <div class="chart-card-header">
+        <div class="chart-title">Vendas por Mês</div>
       </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-mes"></canvas></div>
+      <div id="dash-channel-breakdown" style="margin-top:14px"></div>
     </div>
-    <div id="cmp-body"></div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Funil de Recompra</div>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-v2-funil"></canvas></div>
+    </div>
   </div>
+
+  <!-- Top Clientes + Top Cidades -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Clientes por LTV</div>
+        <span class="chart-card-badge">clique para ver</span>
+      </div>
+      <div class="top-list" id="top-clientes"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Cidades</div>
+      </div>
+      <div class="top-list" id="dashv2-top-cidades"></div>
+    </div>
+  </div>
+
+  <!-- ══ Seção: Ações Prioritárias ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot dash-section-dot--amber"></span>
+    <span class="dash-section-title">Ações Prioritárias</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <!-- Reativação + VIP em Risco + Próximas Ações -->
+  <div class="dash-grid-3">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Reativação Prioritária</div>
+      </div>
+      <div class="top-list" id="dashv2-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">VIP em Risco</div>
+      </div>
+      <div class="top-list" id="dashv2-vip-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Próximas Ações</div>
+      </div>
+      <div class="top-list" id="dashv2-next-actions"></div>
+    </div>
+  </div>
+
+  <!-- Top Produtos + Sem Contato -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Produtos no Período</div>
+      </div>
+      <div class="top-list" id="top-produtos-dash"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Clientes sem Contato</div>
+      </div>
+      <div class="top-list" id="dashv2-sem-contato"></div>
+    </div>
+  </div>
+
+  <!-- ── Rodapé: Meta + Comparar ── -->
+  <div class="dash-grid-2">
+    <div class="meta-card">
+      <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
+      <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
+    </div>
+    <div class="compare-card">
+      <div class="card-hdr">
+        <span class="card-title">Comparar Períodos</span>
+        <div class="cmp-inputs">
+          <input type="month" id="cmp-a" onchange="renderCompare()"/>
+          <span style="font-size:10px;color:var(--text-3)">vs</span>
+          <input type="month" id="cmp-b" onchange="renderCompare()"/>
+        </div>
+      </div>
+      <div id="cmp-body"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- OPORTUNIDADES -->

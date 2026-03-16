@@ -5027,3 +5027,171 @@ html.light .mod-field textarea {
   padding-top: 14px;
   border-top: 1px solid var(--border);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DASHBOARD PREMIUM v4
+   Layout hierárquico de nível produto — seções, grids, hero chart
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Header ── */
+.dash-page-header {
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-sub);
+}
+.dash-period-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+  letter-spacing: -.1px;
+}
+.dash-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+.btn-dash-primary {
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  color: #fff;
+  font-weight: 700;
+}
+.btn-dash-primary:hover {
+  background: var(--chiva-primary-light);
+  border-color: var(--chiva-primary-light);
+  color: var(--chiva-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand);
+}
+.btn-dash-primary:active {
+  background: var(--chiva-primary-deep);
+  border-color: var(--chiva-primary-deep);
+  color: #fff;
+  transform: translateY(0);
+}
+
+/* ── Filter bar ── */
+.dash-filterbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 14px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dash-filterbar::-webkit-scrollbar { display: none; }
+html.light .dash-filterbar {
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── KPI: secondary grid sem margin-top inline ── */
+.dash-stats-secondary { margin-top: 12px !important; }
+
+/* ── Section headings ── */
+.dash-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 32px 0 18px;
+}
+.dash-section-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--chiva-primary);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(15,167,101,.55);
+}
+.dash-section-dot--amber {
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(251,191,36,.45);
+}
+.dash-section-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .15em;
+  white-space: nowrap;
+}
+.dash-section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Hero chart ── */
+.dash-hero-chart {
+  margin-bottom: 16px;
+}
+.dash-hero-chart .chart-card-header .chart-title {
+  font-size: 14px;
+}
+
+/* ── Chart card internal structure ── */
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 10px;
+}
+.chart-card-header .chart-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  letter-spacing: -.2px !important;
+  text-transform: none !important;
+  margin-bottom: 0 !important;
+}
+html.light .chart-card-header .chart-title { color: var(--text) !important; }
+
+.chart-card-badge {
+  font-size: 10px;
+  color: var(--chiva-primary-light);
+  font-weight: 600;
+  background: var(--chiva-primary-dim);
+  border: 1px solid var(--chiva-primary-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Top-list: mais altura nos cards do dashboard ── */
+#page-dashboard .top-list { max-height: 220px; }
+
+/* ── Dashboard grids ── */
+.dash-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.dash-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1080px) {
+  .dash-grid-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .dash-grid-2,
+  .dash-grid-3 { grid-template-columns: 1fr; }
+  .dash-page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .dash-header-actions { justify-content: flex-start; }
+  .dash-filterbar { padding: 8px 10px; }
+  .dash-section-heading { margin: 24px 0 14px; }
+  .dash-hero-chart .chart-card-header .chart-title { font-size: 13px; }
+}
