@@ -612,7 +612,7 @@ body {
   display: flex; flex-direction: column;
   position: fixed; top: 0; left: 0; bottom: 0;
   z-index: 100; overflow-y: auto; overflow-x: hidden;
-  transition: transform var(--t-base);
+  transition: transform var(--t-base), width var(--t-slow), min-width var(--t-slow);
 }
 #sidebar::-webkit-scrollbar { width: 3px; }
 #sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
@@ -688,7 +688,7 @@ body {
   display: flex; align-items: center; padding: 0 24px; gap: 12px;
   position: sticky; top: 0; z-index: 50; flex-shrink: 0;
 }
-.topbar-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
+.topbar-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -.3px; }
 .topbar-search-wrap { position: relative; display: flex; align-items: center; flex: 1; max-width: 280px; }
 #topbar-search {
   width: 100%;
@@ -816,7 +816,7 @@ body {
 .btn-cancel:hover { background: var(--card2); color: var(--text2); }
 
 /* ═══ PAGES ═══════════════════════════════════════════════════ */
-.page { display: none; padding: 28px 32px 80px; max-width: 1400px; }
+.page { display: none; padding: 28px 32px 80px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .page.active { display: block; animation: pageFade .22s ease; }
 @keyframes pageFade { from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none} }
 
@@ -2144,7 +2144,7 @@ html.light .prod-panel{border-color:var(--border);box-shadow:var(--shadow-sm)}
   margin-bottom: 18px; flex-wrap: wrap; gap: 8px;
 }
 .page-header-main { min-width: 220px; }
-.page-title { font-size: 17px; font-weight: 750; letter-spacing: -.35px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -.5px; }
 .page-sub,
 .page-subtitle { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 .dash-meta{
@@ -3361,7 +3361,7 @@ html.light #topbar{
   box-shadow: 0 10px 20px rgba(0,0,0,.06);
 }
 .topbar-title{
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: -.3px;
 }
@@ -4681,4 +4681,75 @@ html.light .compare-card{
   color: var(--text-3);
   margin-top: 3px;
   line-height: 1.35;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR — BOTÃO COLAPSAR + ESTADO COLAPSADO
+   Layout responsivo: 220px expandido ↔ 60px ícones
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Botão de colapsar ── */
+.sidebar-collapse-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  background: none; border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text-3); cursor: pointer; flex-shrink: 0; margin-left: auto;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-slow);
+}
+.sidebar-collapse-btn:hover { background: var(--card-hover); border-color: var(--border2); color: var(--text-2); }
+
+/* ── Sidebar colapsada ── */
+#sidebar.collapsed { width: 60px; min-width: 60px; }
+
+#sidebar.collapsed .sidebar-logo { padding: 14px 0; justify-content: center; }
+#sidebar.collapsed .sidebar-logo-text,
+#sidebar.collapsed .sidebar-section-label,
+#sidebar.collapsed .nav-label,
+#sidebar.collapsed .nav-badge,
+#sidebar.collapsed .sidebar-user-info,
+#sidebar.collapsed .sidebar-user-exit,
+#sidebar.collapsed #theme-label,
+#sidebar.collapsed .sidebar-sync { display: none; }
+
+#sidebar.collapsed .sidebar-collapse-btn {
+  position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%) rotate(180deg);
+  border-color: var(--border-sub);
+}
+#sidebar.collapsed .sidebar-collapse-btn:hover { transform: translateX(-50%) rotate(180deg); background: var(--card-hover); border-color: var(--border2); }
+
+#sidebar.collapsed .sidebar-nav { padding: 10px 6px; }
+#sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; border-left: none; }
+#sidebar.collapsed .nav-item::before { display: none; }
+#sidebar.collapsed .nav-icon { width: 24px; height: 24px; }
+
+#sidebar.collapsed .sidebar-footer { padding: 8px 6px 60px; align-items: center; }
+#sidebar.collapsed .theme-toggle { width: 36px; height: 36px; justify-content: center; padding: 0; }
+#sidebar.collapsed .sidebar-user { justify-content: center; padding: 8px 0; }
+#sidebar.collapsed .sidebar-divider { margin: 6px 4px; }
+
+/* ── Tooltips no modo colapsado ── */
+#sidebar.collapsed .nav-item { position: relative; }
+#sidebar.collapsed .nav-item::after {
+  content: attr(data-tooltip);
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  background: var(--surface); border: 1px solid var(--border2);
+  color: var(--text); padding: 5px 10px; border-radius: var(--r-sm);
+  font-size: 11px; font-weight: 500; white-space: nowrap;
+  opacity: 0; pointer-events: none; z-index: 300; box-shadow: var(--shadow-md);
+  transition: opacity var(--t-fast);
+}
+#sidebar.collapsed .nav-item:hover::after { opacity: 1; }
+
+/* ── Main area se ajusta ── */
+#main-area.sidebar-collapsed { margin-left: 60px; }
+
+/* ── Ícones SVG no nav: usar currentColor ── */
+.nav-icon svg { display: block; }
+.nav-item.active .nav-icon { color: var(--chiva-primary); }
+.nav-item.ai-item .nav-icon { color: var(--ai); }
+.sidebar-logo-icon svg { color: #fff; display: block; }
+
+/* ── Mobile: esconder botão de colapsar ── */
+@media (max-width: 768px) {
+  .sidebar-collapse-btn { display: none; }
 }

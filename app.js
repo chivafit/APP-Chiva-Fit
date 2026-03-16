@@ -79,6 +79,25 @@ let clientesIntelUfSet = new Set();
 let clientesIntelSegSet = new Set();
 
 // ═══════════════════════════════════════════════════
+//  SIDEBAR COLLAPSE
+// ═══════════════════════════════════════════════════
+function initSidebarCollapse(){
+  if(localStorage.getItem("crm_sidebar_collapsed") === "1"){
+    document.getElementById("sidebar")?.classList.add("collapsed");
+    document.getElementById("main-area")?.classList.add("sidebar-collapsed");
+  }
+}
+function toggleSidebarCollapse(){
+  const sidebar = document.getElementById("sidebar");
+  const mainArea = document.getElementById("main-area");
+  if(!sidebar || !mainArea) return;
+  const collapsed = sidebar.classList.toggle("collapsed");
+  mainArea.classList.toggle("sidebar-collapsed", collapsed);
+  localStorage.setItem("crm_sidebar_collapsed", collapsed ? "1" : "0");
+}
+initSidebarCollapse();
+
+// ═══════════════════════════════════════════════════
 //  THEME SYSTEM
 // ═══════════════════════════════════════════════════
 function initTheme(){
