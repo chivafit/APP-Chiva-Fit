@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-5";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-6";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-5";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-5";
-import { CRMStore } from "./store.js?v=20260316-5";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-5";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-5";
+} from "./ia.js?v=20260316-6";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-6";
+import { CRMStore } from "./store.js?v=20260316-6";
+import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -25,18 +25,18 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-5";
+} from "./viewsApi.js?v=20260316-6";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260316-5";
+} from "./sync/bling.js?v=20260316-6";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-5";
+} from "./sync/yampi.js?v=20260316-6";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -1554,6 +1554,8 @@ function getPedidoItens(o){
           else if(Array.isArray(parsed.items)) raw = parsed.items;
           else if(Array.isArray(parsed.produtos)) raw = parsed.produtos;
           else if(Array.isArray(parsed.itensPedido)) raw = parsed.itensPedido;
+          else if(Array.isArray(parsed.item)) raw = parsed.item;
+          else if(parsed.item && typeof parsed.item === "object") raw = [parsed.item];
         }
       }catch(_e){}
     }
@@ -1562,6 +1564,8 @@ function getPedidoItens(o){
     else if(Array.isArray(candidate.items)) raw = candidate.items;
     else if(Array.isArray(candidate.produtos)) raw = candidate.produtos;
     else if(Array.isArray(candidate.itensPedido)) raw = candidate.itensPedido;
+    else if(Array.isArray(candidate.item)) raw = candidate.item;
+    else if(candidate.item && typeof candidate.item === "object") raw = [candidate.item];
   }
 
   if(!Array.isArray(raw) || !raw.length) return [];
@@ -10132,23 +10136,7 @@ function normalizeOrderForCRM(o, sourceHint){
     }
   };
 
-  const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
-  if(Array.isArray(itens)){
-    next.itens = itens.map(it=>{
-      const base =
-        it && typeof it === "object" && it.item && typeof it.item === "object"
-          ? it.item
-          : (it && typeof it === "object" && it.produto && typeof it.produto === "object" ? it.produto : it);
-      const descricao = String(base?.descricao || base?.title || base?.nome || base?.name || base?.produto || base?.product_name || "").trim();
-      const codigo = String(base?.codigo || base?.sku || base?.id || base?.product_id || base?.produto_id || "").trim();
-      const quantidade = Number(base?.quantidade ?? base?.quantity ?? base?.qty ?? 1) || 1;
-      const valor = Number(base?.valor ?? base?.valor_unitario ?? base?.price ?? base?.preco ?? 0) || 0;
-      const valor_total = base?.valor_total != null ? (Number(base.valor_total) || 0) : (quantidade * valor);
-      return { descricao, codigo, quantidade, valor, valor_total };
-    }).filter(it=>it.descricao || it.codigo);
-  }else{
-    next.itens = [];
-  }
+  next.itens = getPedidoItens(next);
 
   next._canal = next._canal || String(next.canal || next.channel || "").toLowerCase();
   if(!next._canal){
