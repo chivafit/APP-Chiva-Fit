@@ -162,6 +162,7 @@ let CRM_BOOTSTRAPPED = false;
 let CRM_BOOTSTRAP_ERROR = null;
 let dataReady = false;
 let isLoadingData = false;
+let lastDetectChDebugCanal = "";
 
 CRMStore.data.orders = allOrders;
 CRMStore.data.customers = allCustomers;
@@ -4872,18 +4873,36 @@ function renderClientes(){
     let rows = clientesIntelCache.slice();
     const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
     if(canalFiltro){
+      let count = 0;
       rows = rows.filter(c=>{
         const cid = String(c?.cliente_id || c?.id || "").trim();
         const docDigits = String(c?.doc || "").replace(/\D/g,"");
         const email = String(c?.email || "").trim().toLowerCase();
         const tel = String(c?.telefone || c?.celular || "").replace(/\D/g,"");
-        const key = cid || docDigits || email || tel;
-        return clienteTemPedidoNoCanal(key, canalFiltro);
+        const key = docDigits || email || tel || cid;
+        const ok = clienteTemPedidoNoCanal(key, canalFiltro);
+        if(ok) count += 1;
+        return ok;
       });
+      console.log("[Filtro Canal]", canalFiltro, "clientes que têm pedidos nesse canal:", count);
+      if(lastDetectChDebugCanal !== canalFiltro){
+        lastDetectChDebugCanal = canalFiltro;
+        try{
+          (Array.isArray(allOrders) ? allOrders.slice(0,10) : []).forEach(o=>{
+            console.log("[detectCh]", o?.numero || o?.numero_pedido || o?.id, detectCh(o));
+          });
+        }catch(_e){}
+      }
     }
     if(uf) rows = rows.filter(c=>String(c.uf||"").toUpperCase()===String(uf).toUpperCase());
-    if(statusFil) rows = rows.filter(c=>String(c.status||"")===statusFil);
-    if(segFil) rows = rows.filter(c=>String(c.segmento_crm||"")===segFil);
+    if(statusFil){
+      const st = String(statusFil||"").trim().toLowerCase();
+      rows = rows.filter(c=>String(c.status||"").trim().toLowerCase()===st);
+    }
+    if(segFil){
+      const sg = String(segFil||"").trim().toLowerCase();
+      rows = rows.filter(c=>String(c.segmento_crm||"").trim().toLowerCase()===sg);
+    }
     if(q){
       const qDigits = q.replace(/\D/g,"");
       rows = rows.filter(c=>{
@@ -4901,6 +4920,8 @@ function renderClientes(){
         return false;
       });
     }
+
+    console.log("[Filtro Clientes]", { busca: q, status: statusFil, segmento: segFil, canal: canalFiltro, uf }, "clientes encontrados:", rows.length);
 
     const suffix = clientesIntelHasMore ? "+" : "";
     document.getElementById("cli-label").textContent = isDefaultFilters ? `${rows.length}${suffix} cliente${rows.length!==1?"s":""}` : `${rows.length} encontrado${rows.length!==1?"s":""}`;
@@ -4949,6 +4970,8 @@ function renderClientes(){
   });
 
   let clis=Object.values(buildCli(filt)).sort((a,b)=>b.orders.reduce((s,o)=>s+val(o),0)-a.orders.reduce((s,o)=>s+val(o),0));
+
+  console.log("[Filtro Clientes]", { busca: q, status: statusFil, segmento: segFil, canal: canalFil || activeCh, uf }, "clientes encontrados:", clis.length);
 
   const labelEl = document.getElementById("cli-label");
   if(labelEl) labelEl.textContent = isDefaultFilters ? `${clis.length} cliente${clis.length!==1?"s":""}` : `${clis.length} encontrado${clis.length!==1?"s":""}`;
@@ -7122,6 +7145,11 @@ function renderProdutos(_deferred){
   const now=new Date();
   const m={};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
+  if(allOrders[0]){
+    try{
+      console.log("[Pedido exemplo]", allOrders[0], "itens encontrados:", getPedidoItens(allOrders[0]).length);
+    }catch(_e){}
+  }
 
   if(!allOrders.length){
     if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
@@ -7150,60 +7178,43 @@ function renderProdutos(_deferred){
     return;
   }
 
-  const catalogCodes = new Set(catalog.map(p=>String(p?.codigo||"").trim()).filter(Boolean));
-  const catalogNames = new Set(catalog.map(p=>String(p?.nome||"").trim().toLowerCase()).filter(Boolean));
-  let hasMatch = false;
-  for(let oi=0; oi<allOrders.length && !hasMatch; oi++){
-    const o = allOrders[oi];
-    if(ch && (normCanalKey(detectCh(o)) !== ch || !clienteTemPedidoNoCanal(orderCustomerKey(o), ch))) continue;
-    if(per){
-      const d = new Date(o.data||o.dataPedido);
-      if((now-d)/(86400000) > per) continue;
-    }
-    const itens = getPedidoItens(o);
-    for(let ii=0; ii<itens.length; ii++){
-      const it = itens[ii];
-      if(!it) continue;
-      const code = String(it?.codigo||"").trim();
-      const desc = String(it?.descricao||"").trim().toLowerCase();
-      if((code && catalogCodes.has(code)) || (desc && catalogNames.has(desc))){
-        hasMatch = true;
-        break;
-      }
-    }
-  }
-  if(!hasMatch){
-    const hasFiltro = !!(ch || per);
-    const canalTxt = ch ? ` via ${escapeHTML(CH[ch]||ch)}` : "";
-    const periodoTxt = per ? ` no período` : "";
-    const msg = q ? "Nenhum produto encontrado com esse código/descrição." : (hasFiltro ? `Nenhum produto${canalTxt}${periodoTxt}.` : "Nenhum produto encontrado.");
-    if(detailedEl) detailedEl.innerHTML = `<div class="empty">${msg}</div>`;
-    document.getElementById("prod-label").textContent = "0 produtos";
-    document.getElementById("prod-kpis-row").innerHTML = "";
-    document.getElementById("prod-rankings-row").innerHTML = "";
-    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
-    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
-    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
-    setProdutosChartState("chart-produtos", false);
-    setProdutosChartState("chart-participacao-produtos", false);
-    setProdutosChartState("chart-evolucao-produtos", false);
-    return;
-  }
+  const normProd = (v)=>String(v||"")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9 ]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  const catalogByCode = {};
+  const catalogByName = {};
+  catalog.forEach(p=>{
+    const code = String(p?.codigo||"").trim();
+    const name = String(p?.nome||"").trim();
+    if(code) catalogByCode[code] = p;
+    const nk = normProd(name);
+    if(nk && !catalogByName[nk]) catalogByName[nk] = p;
+  });
   
   // Processamento de dados base
   allOrders
-    .filter(o=>!ch||(normCanalKey(detectCh(o))===ch && clienteTemPedidoNoCanal(orderCustomerKey(o), ch)))
+    .filter(o=>!ch||(normCanalKey(detectCh(o))===ch))
     .filter(o=>{ if(!per)return true; const d=new Date(o.data||o.dataPedido); return (now-d)/(86400000)<=per; })
     .forEach(o=>{
       const itens = getPedidoItens(o);
       itens.forEach(it=>{
-      const k = String(it?.codigo || it?.descricao || "?").trim() || "?";
+      const code = String(it?.codigo || "").trim();
+      const descRaw = String(it?.descricao || it?.produto_nome || "").trim();
+      const descKey = normProd(descRaw);
+      const catByCode = (code && catalogByCode[code]) ? catalogByCode[code] : null;
+      const catByName = (!catByCode && descKey && catalogByName[descKey]) ? catalogByName[descKey] : null;
+      const cat = catByCode || catByName;
+      const k = String((cat?.codigo ? cat.codigo : "") || code || descKey || descRaw || "?").trim() || "?";
       const canal = normCanalKey(detectCh(o)) || "outros";
       const dataStr = o.data || o.dataPedido || "";
       
       if(!m[k]) m[k] = {
-        nome: String(it?.descricao || k),
-        code: String(it?.codigo || ""),
+        nome: String((cat?.nome || "") || descRaw || k),
+        code: String((cat?.codigo || "") || code || ""),
         total: 0,
         qty: 0,
         peds: new Set(),
@@ -7241,7 +7252,7 @@ function renderProdutos(_deferred){
     catalog.forEach(p=>{
       const code = String(p?.codigo||"").trim();
       const name = String(p?.nome||"").trim();
-      const key = code || name || String(p?.id||"").trim();
+      const key = code || normProd(name) || name || String(p?.id||"").trim();
       if(!key) return;
       if(!m[key]) m[key] = {
         nome: name || key,
@@ -7269,6 +7280,21 @@ function renderProdutos(_deferred){
 
   // 1. Cards de KPI no Topo
   const prodsComVenda = prods.filter(p=>p.qty>0 || p.total>0);
+  console.log("[Produtos] Cruzamento resultou em:", prodsComVenda.length, "produtos com vendas");
+  if(!prodsComVenda.length){
+    const msg = `Nenhum dos ${catalog.length} produtos do catálogo foi vendido no período. Verifique se os códigos dos itens dos pedidos batem com o catálogo do Bling.`;
+    if(detailedEl) detailedEl.innerHTML = `<div class="empty">${escapeHTML(msg)}</div>`;
+    document.getElementById("prod-label").textContent = "0 produtos";
+    document.getElementById("prod-kpis-row").innerHTML = "";
+    document.getElementById("prod-rankings-row").innerHTML = "";
+    if(charts.produtos){ charts.produtos.destroy(); charts.produtos = null; }
+    if(charts.prodParticipacao){ charts.prodParticipacao.destroy(); charts.prodParticipacao = null; }
+    if(charts.prodEvolucao){ charts.prodEvolucao.destroy(); charts.prodEvolucao = null; }
+    setProdutosChartState("chart-produtos", false);
+    setProdutosChartState("chart-participacao-produtos", false);
+    setProdutosChartState("chart-evolucao-produtos", false);
+    return;
+  }
   const topVendido = prodsComVenda.length ? prodsComVenda.reduce((a, b) => (a.qty > b.qty ? a : b), {nome:"—", qty:0}) : {nome:"—", qty:0};
   const topReceita = prodsComVenda.length ? (prodsComVenda.slice().sort((a,b)=>b.total-a.total)[0] || {nome:"—", total:0}) : {nome:"—", total:0};
   
@@ -9099,6 +9125,13 @@ async function loadOrdersFromSupabaseForCRM(){
 
     const nextBling = [];
     const nextYampi = [];
+    const canaisById = {};
+    try{
+      Object.entries(canaisLookup||{}).forEach(([slug,id])=>{
+        if(!slug || !id) return;
+        canaisById[String(id)] = String(slug).trim().toLowerCase();
+      });
+    }catch(_e){}
 
     const extractYampiCustomer = (raw)=>{
       const obj = raw && typeof raw === "object" ? raw : {};
@@ -9154,6 +9187,9 @@ async function loadOrdersFromSupabaseForCRM(){
     (pedRows||[]).forEach(p=>{
       const cli = cliById[p.cliente_id] || null;
       const pid = String(p.id || "");
+      const canalId = p.canal_id ?? p.canalId ?? null;
+      const canalSlugRaw = String(p.canal_slug || p.canalSlug || p.canal || p.channel || "").trim().toLowerCase();
+      const canalSlug = canalSlugRaw || (canalId != null ? (canaisById[String(canalId)] || "") : "");
       const o = {
         id: String(p.id || p.bling_id || p.numero_pedido || ""),
         numero: String(p.numero_pedido || p.id || ""),
@@ -9165,10 +9201,7 @@ async function loadOrdersFromSupabaseForCRM(){
         _source: String(p.source || "").toLowerCase() || "bling",
         cidade_entrega: p.cidade_entrega || null,
         uf_entrega: p.uf_entrega || null,
-        _canal: (()=>{
-          const inv = Object.entries(canaisLookup||{}).find(([,id])=>String(id)===String(p.canal_id));
-          return inv ? inv[0] : "";
-        })(),
+        _canal: canalSlug,
         contato: {
           id: p.cliente_id || undefined,
           nome: cli?.nome || "Desconhecido",
