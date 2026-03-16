@@ -137,7 +137,7 @@
      --font         : interface, botões, labels, corpo
      --mono         : dados numéricos, código, IDs
   ═══════════════════════════════════════════ */
-  --font-display: 'Playfair Display', 'Georgia', serif;
+  --font-display: 'Plus Jakarta Sans', 'system-ui', sans-serif;
   --font:         'Plus Jakarta Sans', 'system-ui', sans-serif;
   --mono:         'JetBrains Mono', monospace;
 
@@ -923,6 +923,12 @@ body {
   transition: border-color var(--t-base);
 }
 .cmp-inputs input:focus { border-color: var(--indigo); }
+.cmp-inputs input[disabled]{
+  opacity: 1;
+  cursor: default;
+  background: var(--surface);
+  color: var(--text);
+}
 .cmp-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .cmp-col   { background: var(--card); border-radius: var(--r-md); padding: 12px; border: 1px solid var(--border); }
 .cmp-col-title { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 5px; }
@@ -981,12 +987,20 @@ body {
   border-radius: var(--r-sm); border: 1px solid transparent;
   transition: border-color var(--t-fast), background var(--t-fast);
 }
+.top-item[onclick]{ cursor: pointer; }
 .top-item:hover { border-color: var(--border); background: var(--card2); }
 .top-rank { font-size: 10px; font-family: var(--mono); color: var(--text-3); min-width: 16px; }
 .top-name { flex: 1; font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .top-val  { font-size: 11px; font-family: var(--mono); color: var(--green); font-weight: 600; white-space: nowrap; }
 .top-bar-wrap { width: 100%; background: var(--border); border-radius: 20px; height: 2px; margin-top: 3px; }
 .top-bar      { height: 2px; border-radius: 20px; background: linear-gradient(90deg,var(--indigo),var(--violet)); }
+
+#dash-next-actions-card{
+  align-self: start;
+}
+#dash-next-actions-card .top-list{
+  max-height: 140px;
+}
 
 /* ═══ AI PAGE ══════════════════════════════════════════════════ */
 .ai-header    { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
@@ -1637,17 +1651,34 @@ body {
   color: var(--text);
   font-size: 11px;
   font-family: var(--font);
-  transition: border-color var(--t-base), background var(--t-base), box-shadow var(--t-base);
+  transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast), color var(--t-fast), transform var(--t-fast);
   white-space:nowrap;
   box-shadow: var(--shadow-sm);
 }
 .saas-chip:hover{
-  background: var(--card-hover);
-  border-color: var(--border2);
+  background: rgba(15,167,101,.06);
+  border-color: rgba(15,167,101,.24);
+  color: var(--text);
 }
-.saas-chip:focus-within{
-  border-color: var(--indigo-border);
-  box-shadow: var(--shadow-sm), 0 0 0 4px var(--indigo-bg);
+.saas-chip:focus-visible{
+  outline: none;
+  border-color: rgba(15,167,101,.35);
+  box-shadow: var(--shadow-sm), 0 0 0 3px rgba(15,167,101,.16);
+}
+.saas-chip-range:focus-within,
+.saas-chip-number:focus-within{
+  border-color: rgba(15,167,101,.35);
+  box-shadow: var(--shadow-sm), 0 0 0 3px rgba(15,167,101,.16);
+}
+.saas-chip :focus-visible{ outline: none; }
+.saas-chip.active{
+  background: rgba(15,167,101,.12);
+  border-color: rgba(15,167,101,.38);
+  color: var(--text);
+}
+.saas-chip.active:hover{
+  background: rgba(15,167,101,.14);
+  border-color: rgba(15,167,101,.45);
 }
 .saas-chip-label{
   color: var(--text-2);
@@ -3471,16 +3502,15 @@ html.light .filter-bar input:hover, html.light .filter-bar select:hover{
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
 }
 .btn:hover{
-  background: rgba(255,255,255,.03);
-  border-color: rgba(15,167,101,.22);
+  background: var(--card-hover);
+  border-color: var(--border2);
   color: var(--text);
-  transform: translateY(-1px);
 }
 .btn:active{ transform: translateY(0); }
 .btn:focus-visible{
   outline: none;
-  border-color: var(--indigo-border);
-  box-shadow: 0 0 0 5px var(--indigo-bg);
+  border-color: rgba(15,167,101,.35);
+  box-shadow: 0 0 0 3px rgba(15,167,101,.16);
 }
 html.light .btn:hover{
   background: var(--card-hover);
