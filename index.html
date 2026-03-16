@@ -163,6 +163,17 @@
   </div>
 </div>
 
+<div class="mod-overlay" id="modal-dash-actions">
+  <div class="mod-box" style="max-width:760px">
+    <div class="mod-title">⚡ Ações do Dia</div>
+    <div id="dash-actions-modal-body"></div>
+    <div class="mod-actions">
+      <button class="btn-mod-cancel" onclick="fecharModal('modal-dash-actions')">Fechar</button>
+      <button class="btn-mod-save" onclick="showPage('oportunidades');fecharModal('modal-dash-actions')">Abrir Radar</button>
+    </div>
+  </div>
+</div>
+
 <!-- DASHBOARD -->
 <div class="page" id="page-dashboard">
   <div class="page-header">
@@ -170,6 +181,10 @@
       <h1 class="page-title">Dashboard</h1>
       <p class="page-subtitle">Visão geral de clientes e receita</p>
       <div class="dash-meta" id="dash-period"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn" onclick="openDashActionsModal()" style="padding:8px 12px;font-size:11px">⚡ Gerar ações do dia</button>
+      <button class="btn" onclick="renderDash()" style="padding:8px 12px;font-size:11px">↻ Atualizar</button>
     </div>
   </div>
   <div class="saas-filterbar dash-filterbar">
@@ -187,17 +202,26 @@
         <option value="cnpj">B2B/CNPJ</option>
         <option value="outros">Outros</option>
       </select>
+      <select id="dash-tipo-filter" class="saas-chip saas-chip-select" onchange="renderDash()">
+        <option value="">Tipo de venda</option>
+        <option value="b2c">B2C</option>
+        <option value="b2b">B2B</option>
+      </select>
       <input id="dash-from" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="de (dd/mm/aaaa)" onchange="renderDash()"/>
       <input id="dash-to" class="saas-chip saas-chip-input" data-date-mask="1" inputmode="numeric" placeholder="até (dd/mm/aaaa)" onchange="renderDash()"/>
       <button class="saas-chip" onclick="setDashRange(30)">30d</button>
       <button class="saas-chip" onclick="setDashRange(90)">90d</button>
+      <button class="saas-chip" onclick="toggleDashCompare()">Comparar</button>
+      <button class="saas-chip" onclick="toggleDashMA()">Média móvel</button>
     </div>
   </div>
     <div id="alert-banner"></div>
   <div id="source-row" class="dash-source-row"></div>
+  <div id="dash-insights-day"></div>
   <div id="auto-insights"></div>
   <div class="stat-grid" id="dash-stats"></div>
   <div class="stat-grid" id="dash-stats-secondary" style="margin-top:10px"></div>
+  <div class="section-label" style="margin-top:8px">Diagnóstico</div>
   <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
     <div class="chart-card">
       <div class="chart-title">Vendas por Dia</div>
@@ -216,6 +240,7 @@
     <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
     <div class="chart-card"><div class="chart-title">Top Cidades</div><div class="top-list" id="dashv2-top-cidades"></div></div>
   </div>
+  <div class="section-label" style="margin-top:12px">Ações prioritárias</div>
   <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
     <div class="chart-card"><div class="chart-title">Reativação Prioritária</div><div class="top-list" id="dashv2-risk"></div></div>
     <div class="chart-card"><div class="chart-title">VIP em Risco</div><div class="top-list" id="dashv2-vip-risk"></div></div>
@@ -981,10 +1006,13 @@
       <div class="saas-chips">
         <select id="fil-com-canal" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
           <option value="">Canal</option>
+          <option value="shopify">Shopify / Site próprio</option>
+          <option value="yampi">Yampi / Checkout</option>
           <option value="shopee">Shopee</option>
-          <option value="site">Site</option>
-          <option value="ml">Mercado Livre</option>
-          <option value="whatsapp">WhatsApp</option>
+          <option value="amazon">Amazon</option>
+          <option value="mercado_livre">Mercado Livre</option>
+          <option value="b2b">B2B / Atacado</option>
+          <option value="outros">Outros</option>
         </select>
         <select id="fil-com-status" class="saas-chip saas-chip-select" onchange="renderComPedidos()">
           <option value="">Status</option>

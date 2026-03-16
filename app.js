@@ -288,6 +288,17 @@ function mergeOrders(){
     allOrders.push(normalizeOrderForCRM(o, "yampi"));
   });
 
+  (Array.isArray(shopifyOrders) ? shopifyOrders : []).forEach((o, idx)=>{
+    const keyNum = normKey(o?.numero || o?.order_number || o?.name || o?.id);
+    if(keyNum && (seen.has("b:" + keyNum) || seen.has("y:" + keyNum))) return;
+    const key = keyNum || ("idx:" + idx);
+    const sk = "s:" + key;
+    if(seen.has(sk)) return;
+    seen.add(sk);
+    try{ o._source = "shopify"; }catch(_e){}
+    allOrders.push(normalizeOrderForCRM(o, "shopify"));
+  });
+
   const nextCustomers = Object.values(buildCli(allOrders)).map(c=>{
     const sc = calcCliScores(c);
     return { ...c, total_gasto: sc.ltv, status: sc.status, canal_principal: c.channels && c.channels.size ? [...c.channels][0] : "" };
@@ -312,7 +323,9 @@ function mergeOrders(){
     "| Bling:",
     allOrders.filter(o=>o._source==="bling").length,
     "| Yampi exclusivo:",
-    allOrders.filter(o=>o._source==="yampi").length
+    allOrders.filter(o=>o._source==="yampi").length,
+    "| Shopify:",
+    allOrders.filter(o=>o._source==="shopify").length
   );
 
   computeCustomerIntelligence();
@@ -2830,6 +2843,12 @@ function detectCh(o){
     .replace(/[\u0300-\u036f]/g,"");
 
   const known={ml:1,shopee:1,amazon:1,shopify:1,cnpj:1,yampi:1,outros:1};
+  const origemCanal = norm(o?.origem_canal || o?.origemCanal || "");
+  if(origemCanal){
+    if(origemCanal === "mercado_livre") return "ml";
+    if(origemCanal === "b2b") return "cnpj";
+    if(known[origemCanal]) return origemCanal;
+  }
   const canalRaw = norm(o?.canal?.nome || o?.canal?.descricao || o?.canal);
   const origemRaw = norm(o?.origem?.nome || o?.origem?.descricao || o?.origem);
   const lojaRaw = norm(o?.loja?.nome || o?.loja?.descricao || o?.loja);
@@ -3275,6 +3294,33 @@ async function renderDashRevenueFromSupabase(){
 let dashRenderTimer = null;
 let dashLastYearRange = "";
 
+function isDashCompareEnabled(){
+  const v = String(localStorage.getItem("crm_dash_compare") || "1").trim();
+  return v !== "0";
+}
+function toggleDashCompare(){
+  const next = isDashCompareEnabled() ? "0" : "1";
+  localStorage.setItem("crm_dash_compare", next);
+  renderDash();
+}
+function isDashMAEnabled(){
+  const v = String(localStorage.getItem("crm_dash_ma") || "0").trim();
+  return v === "1";
+}
+function toggleDashMA(){
+  const next = isDashMAEnabled() ? "0" : "1";
+  localStorage.setItem("crm_dash_ma", next);
+  renderDash();
+}
+
+function detectTipoVenda(o){
+  const raw = String(o?.tipo_venda ?? o?.tipoVenda ?? "").trim().toLowerCase();
+  if(raw === "b2b" || raw === "b2c") return raw;
+  const doc = String(o?.contato?.cpfCnpj || o?.contato?.numeroDocumento || "").replace(/\D/g,"");
+  if(doc.length === 14) return "b2b";
+  return "b2c";
+}
+
 function renderDash(){
   if(dashRenderTimer) clearTimeout(dashRenderTimer);
   dashRenderTimer = setTimeout(()=>{
@@ -3294,6 +3340,11 @@ function renderDashNow(){
   if(dashSel){
     const stored = String(localStorage.getItem("crm_dash_canal")||"").toLowerCase().trim();
     if(stored && !dashSel.value) dashSel.value = stored;
+  }
+  const dashTipoSel = document.getElementById("dash-tipo-filter");
+  if(dashTipoSel){
+    const stored = String(localStorage.getItem("crm_dash_tipo")||"").toLowerCase().trim();
+    if(stored && !dashTipoSel.value) dashTipoSel.value = stored;
   }
   const fromEl = document.getElementById("dash-from");
   const toEl = document.getElementById("dash-to");
@@ -3337,6 +3388,8 @@ function renderDashNow(){
   }
   const dashCh = normCanalKey(dashSel?.value||"");
   if(dashSel) localStorage.setItem("crm_dash_canal", dashCh);
+  const dashTipo = String(dashTipoSel?.value || "").trim().toLowerCase();
+  if(dashTipoSel) localStorage.setItem("crm_dash_tipo", dashTipo);
   const ordersBase = Array.isArray(allOrders) ? allOrders : [];
   const selectedYear = Number(yearSel?.value || "");
   const fromIso = String(localStorage.getItem("crm_dash_from") || "").trim();
@@ -3358,7 +3411,27 @@ function renderDashNow(){
     }
     return true;
   });
-  const ordersSales = dashCh ? ordersAllRange.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersAllRange;
+  const ordersTipo = dashTipo ? ordersAllRange.filter(o=>detectTipoVenda(o) === dashTipo) : ordersAllRange;
+  const ordersSales = dashCh ? ordersTipo.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersTipo;
+  const prevRange = (fromIso && toIso) ? calcPrevRange(fromIso, toIso) : null;
+  const ordersPrevAll = prevRange ? ordersBase.filter(o=>{
+    const raw = o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "";
+    const s = String(raw || "").slice(0,10);
+    if(!s) return false;
+    const dt = new Date(s + "T12:00:00");
+    const dts = dt.getTime();
+    if(!isFinite(dts)) return false;
+    const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+    const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+    if(dts < pf || dts > pt) return false;
+    if(selectedYear && selectedYear > 1900 && selectedYear < 2200){
+      const y = dt.getFullYear();
+      if(y !== selectedYear) return false;
+    }
+    return true;
+  }) : [];
+  const ordersPrevTipo = dashTipo ? ordersPrevAll.filter(o=>detectTipoVenda(o) === dashTipo) : ordersPrevAll;
+  const ordersPrevSales = dashCh ? ordersPrevTipo.filter(o=>normCanalKey(detectCh(o)) === dashCh && clienteTemPedidoNoCanal(orderCustomerKey(o), dashCh)) : ordersPrevTipo;
 
   // Atualizar período
   const dp = document.getElementById("dash-period");
@@ -3368,11 +3441,13 @@ function renderDashNow(){
     const bits = [];
     if(fromLabel && toLabel) bits.push(fromLabel + " — " + toLabel);
     if(dashCh) bits.push(CH[dashCh] || dashCh);
+    if(dashTipo) bits.push(dashTipo.toUpperCase());
     bits.push(String(ordersSales.length) + " pedidos");
     dp.textContent = bits.filter(Boolean).join(" · ");
   }
 
   const total=ordersSales.reduce((s,o)=>s+val(o),0);
+  const totalPrev=ordersPrevSales.reduce((s,o)=>s+val(o),0);
   const now=new Date();
   const thisMo=ordersSales.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth(); });
   const prevMo=ordersSales.filter(o=>{ const d=new Date(o.data); const pm=now.getMonth()===0?11:now.getMonth()-1,py=now.getMonth()===0?now.getFullYear()-1:now.getFullYear(); return d.getFullYear()===py&&d.getMonth()===pm; });
@@ -3391,6 +3466,37 @@ function renderDashNow(){
     +(shopifyOrders.length?`<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`:"")
     +(dashCh?`<span style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:7px;padding:3px 9px">Filtro: ${escapeHTML(CH[dashCh]||dashCh)}</span>`:"")
     +(!ordersSales.length?`<span style="color:var(--text-3)">Sem dados no período</span>`:"");
+
+  const dayEl = document.getElementById("dash-insights-day");
+  if(dayEl){
+    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+    const inativos30 = cliList.filter(c=>daysSince(c.last) >= 30).length;
+    const potencial = inativos30 ? (inativos30 * ticket) : 0;
+    const deltaTicket = pctDelta(ticket, (ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0));
+    const insights = [];
+    if(inativos30){
+      insights.push(`⚠️ ${inativos30} clientes sem comprar há mais de 30 dias → potencial de recuperação de ${fmtBRL(potencial)}`);
+    }
+    if(deltaTicket != null && isFinite(deltaTicket) && Math.abs(deltaTicket) >= 8){
+      const dir = deltaTicket >= 0 ? "subiu" : "caiu";
+      insights.push(`📈 ticket médio ${dir} ${Math.abs(deltaTicket).toFixed(0)}% → oportunidade de kits promocionais`);
+    }
+    if(vipCount){
+      insights.push(`💎 ${vipCount} clientes VIP ativos na base → priorize retenção e recompra`);
+    }
+    if(!insights.length){
+      dayEl.innerHTML = "";
+    }else{
+      dayEl.innerHTML = `
+        <div class="dash-day-insights">
+          <div class="dash-day-insights-title">Insights do Dia</div>
+          <div class="dash-day-insights-body">
+            ${insights.slice(0,3).map(t=>`<div class="dash-day-insight">${escapeHTML(t)}</div>`).join("")}
+          </div>
+        </div>
+      `;
+    }
+  }
 
   const autoEl = document.getElementById("auto-insights");
   if(autoEl){
@@ -3496,28 +3602,53 @@ function renderDashNow(){
     });
     const novos = novosSet.size;
     const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+    const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
+    const pedidosPrev = ordersPrevSales.length;
+    const novosPrevSet = new Set();
+    if(prevRange){
+      const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+      const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+      ordersPrevSales.forEach(o=>{
+        const k = orderCustomerKey(o);
+        if(!k) return;
+        const ts = firstByCustomer[k];
+        if(ts == null) return;
+        if(ts < pf || ts > pt) return;
+        novosPrevSet.add(k);
+      });
+    }
+    const novosPrev = novosPrevSet.size;
+    const showCompare = isDashCompareEnabled();
+    const deltaLine = (cur, prev)=>{
+      if(!showCompare) return `<div class="exec-kpi-delta"> </div>`;
+      const d = pctDelta(cur, prev);
+      if(d == null || !isFinite(d)) return `<div class="exec-kpi-delta">— vs período anterior</div>`;
+      const up = d >= 0;
+      const cls = up ? "exec-kpi-delta-pos" : "exec-kpi-delta-neg";
+      return `<div class="exec-kpi-delta ${cls}">${up ? "↑" : "↓"} ${Math.abs(d).toFixed(0)}% vs período anterior</div>`;
+    };
     dashStatsEl.innerHTML=[
-      {l:"Faturamento",v:fmtBRL(total),s:dashCh?`Filtro ativo: ${escapeHTML(CH[dashCh]||dashCh)}`:""},
-      {l:"Pedidos",v:String(ordersSales.length),s:""},
-      {l:"Ticket Médio",v:fmtBRL(ticket),s:""},
-      {l:"Novos Clientes",v:String(novos),s:""},
-      {l:"LTV Médio",v:`<span id="kpi-ltv-medio">—</span>`,s:""},
-      {l:"Clientes Base",v:`<span id="kpi-clientes-base">—</span>`,s:""},
-    ].map(s=>`<div class="stat"><div class="stat-label">${s.l}</div><div class="stat-value">${s.v}</div><div class="stat-sub">${s.s || " "}</div></div>`).join("");
+      {l:"Faturamento",v:fmtBRL(total),d:deltaLine(total, totalPrev)},
+      {l:"Pedidos",v:String(ordersSales.length),d:deltaLine(ordersSales.length, pedidosPrev)},
+      {l:"Ticket médio",v:fmtBRL(ticket),d:deltaLine(ticket, ticketPrev)},
+      {l:"Novos clientes",v:String(novos),d:deltaLine(novos, novosPrev)}
+    ].map(s=>`<div class="exec-kpi"><div class="exec-kpi-label">${s.l}</div><div class="exec-kpi-value">${s.v}</div>${s.d}</div>`).join("")
+    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">LTV médio</div><div class="exec-kpi-value"><span id="kpi-ltv-medio">—</span></div><div class="exec-kpi-delta"> </div></div>`
+    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">Clientes base</div><div class="exec-kpi-value"><span id="kpi-clientes-base">—</span></div><div class="exec-kpi-delta"> </div></div>`;
   }
 
   renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
   renderDashSalesByDay(ordersSales);
   renderChartMes(ordersSales);
   renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
-  renderTopCli(ordersAllRange);
-  renderTopProd(ordersAllRange);
+  renderTopCli(ordersSales);
+  renderTopProd(ordersSales);
   const secEl = document.getElementById("dash-stats-secondary");
   if(secEl){
     secEl.innerHTML = "";
     updateDashSecondaryFromSupabase().catch(()=>{});
   }
-  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, fromIso, toIso }); }, 40);
+  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo, fromIso, toIso }); }, 40);
 }
 
 async function updateDashSecondaryFromSupabase(){
@@ -3582,13 +3713,22 @@ function renderDashSalesByDay(orders){
   const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   if(charts.v2dia) charts.v2dia.destroy();
+  const values = keys.map(k=>byDay[k]);
+  const showMA = isDashMAEnabled();
+  const maWindow = 7;
+  const ma = showMA ? values.map((_, i)=>{
+    const start = Math.max(0, i - (maWindow - 1));
+    const slice = values.slice(start, i + 1);
+    const sum = slice.reduce((s,v)=>s + (Number(v)||0), 0);
+    return slice.length ? (sum / slice.length) : null;
+  }) : [];
   charts.v2dia = new Chart(ctx, {
     type: "line",
     data: {
       labels: keys.map(k=>fmtDate(k)),
       datasets: [{
         label: "Faturamento",
-        data: keys.map(k=>byDay[k]),
+        data: values,
         tension: 0.35,
         fill: true,
         borderColor: "#0FA765",
@@ -3596,7 +3736,17 @@ function renderDashSalesByDay(orders){
         borderWidth: 2,
         pointRadius: 0,
         pointHitRadius: 12
-      }]
+      }].concat(showMA ? [{
+        label: "Média móvel (7d)",
+        data: ma,
+        tension: 0.35,
+        fill: false,
+        borderColor: "rgba(164,233,107,.9)",
+        borderWidth: 2,
+        borderDash: [6,6],
+        pointRadius: 0,
+        pointHitRadius: 10
+      }] : [])
     },
     options: {
       responsive: true,
@@ -3691,7 +3841,10 @@ function renderDashChannelBreakdown(input){
 
 async function renderDashExtraLists(ctx){
   const ordersAllRange = Array.isArray(ctx?.ordersAllRange) ? ctx.ordersAllRange : [];
+  const ordersSales = Array.isArray(ctx?.ordersSales) ? ctx.ordersSales : ordersAllRange;
   const dashCh = String(ctx?.dashCh || "").trim();
+  const dashTipo = String(ctx?.dashTipo || "").trim().toLowerCase();
+  const filterActive = !!(dashCh || dashTipo);
   if(!ordersAllRange.length){
     const showClear = !!dashCh;
     const msg = "Sem dados no período";
@@ -3705,53 +3858,127 @@ async function renderDashExtraLists(ctx){
 
   if(supaConnected && supaClient){
     try{
-      const funil = await getFunilRecompraView(supaClient);
-      renderDashV2Funil(funil);
+      if(filterActive){
+        const cli = Object.values(buildCli(ordersSales));
+        const c1 = cli.filter(c=>c.orders.length === 1).length;
+        const c2 = cli.filter(c=>c.orders.length === 2).length;
+        const c3 = cli.filter(c=>c.orders.length >= 3).length;
+        renderDashV2Funil([
+          { etapa: "1ª compra", clientes: c1, ordem: 1 },
+          { etapa: "2ª compra", clientes: c2, ordem: 2 },
+          { etapa: "3+ compras", clientes: c3, ordem: 3 }
+        ]);
+      }else{
+        const funil = await getFunilRecompraView(supaClient);
+        renderDashV2Funil(funil);
+      }
     }catch(_e){
       setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
     }
     try{
-      const topCities = await getTopCidadesView(supaClient, 10);
-      renderDashV2TopCidades(topCities);
+      if(filterActive){
+        renderDashTopCidadesFromOrders(ordersSales);
+      }else{
+        const topCities = await getTopCidadesView(supaClient, 10);
+        renderDashV2TopCidades(topCities);
+      }
     }catch(_e){}
     try{
-      const semContato = await getClientesSemContatoView(supaClient, 8);
-      renderDashV2SemContato(semContato);
+      if(filterActive){
+        const el = document.getElementById("dashv2-sem-contato");
+        if(el){
+          const rows = (clientesIntelCache||[])
+            .filter(r=>r && r.cliente_id && (!r.last_interaction_at || String(r.last_interaction_at).trim() === ""))
+            .slice(0,8);
+          if(!rows.length) el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+          else el.innerHTML = rows.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.cliente_id || c.id || ""));
+            const nome = String(c.nome || "Cliente");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· sem contato</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+            </div>`;
+          }).join("");
+        }
+      }else{
+        const semContato = await getClientesSemContatoView(supaClient, 8);
+        renderDashV2SemContato(semContato);
+      }
     }catch(_e){}
     try{
       const riskEl = document.getElementById("dashv2-risk");
       if(riskEl){
-        const rows = await getClientesReativacaoView(supaClient, 8);
-        riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
-          const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
-          const nome = String(c?.nome || "Cliente");
-          const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-          const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
-          return `<div class="top-item" onclick="openClientePage('${id}')">
-            <div class="top-rank">${idx+1}</div>
-            <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
-            <div class="top-val">${escapeHTML(ltv)}</div>
-            <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
-          </div>`;
-        }).join("") || `<div class="empty">Sem dados no período</div>`;
+        if(filterActive){
+          const list = Object.values(buildCli(ordersSales))
+            .filter(c=>!isCNPJ(c.doc) && daysSince(c.last) >= 30)
+            .sort((a,b)=>daysSince(b.last)-daysSince(a.last) || (b.total-a.total))
+            .slice(0,8);
+          riskEl.innerHTML = list.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.id || ""));
+            const nome = String(c.nome || "Cliente");
+            const dias = String(daysSince(c.last) || 0) + "d";
+            const ltv = fmtBRL(c.total || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }else{
+          const rows = await getClientesReativacaoView(supaClient, 8);
+          riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+            const nome = String(c?.nome || "Cliente");
+            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }
       }
     }catch(_e){}
     try{
       const vipRiskEl = document.getElementById("dashv2-vip-risk");
       if(vipRiskEl){
-        const rows = await getClientesVipRiscoView(supaClient, 8);
-        vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
-          const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
-          const nome = String(c?.nome || "VIP");
-          const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-          const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
-          return `<div class="top-item" onclick="openClientePage('${id}')">
-            <div class="top-rank">${idx+1}</div>
-            <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
-            <div class="top-val">${escapeHTML(ltv)}</div>
-            <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
-          </div>`;
-        }).join("") || `<div class="empty">Sem dados no período</div>`;
+        if(filterActive){
+          const list = Object.values(buildCli(ordersSales))
+            .filter(c=>calcCliScores(c).status === "vip" && daysSince(c.last) >= 45)
+            .sort((a,b)=>daysSince(b.last)-daysSince(a.last) || (b.total-a.total))
+            .slice(0,8);
+          vipRiskEl.innerHTML = list.map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c.id || ""));
+            const nome = String(c.nome || "VIP");
+            const dias = String(daysSince(c.last) || 0) + "d";
+            const ltv = fmtBRL(c.total || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }else{
+          const rows = await getClientesVipRiscoView(supaClient, 8);
+          vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+            const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
+            const nome = String(c?.nome || "VIP");
+            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
+            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            return `<div class="top-item" onclick="openClientePage('${id}')">
+              <div class="top-rank">${idx+1}</div>
+              <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
+              <div class="top-val">${escapeHTML(ltv)}</div>
+              <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
+            </div>`;
+          }).join("") || `<div class="empty">Sem dados no período</div>`;
+        }
       }
     }catch(_e){}
     try{
@@ -3769,6 +3996,63 @@ async function renderDashExtraLists(ctx){
     const nextEl = document.getElementById("dashv2-next-actions");
     if(nextEl) nextEl.innerHTML = `<div class="empty">Conecte o Supabase para ver ações sugeridas.</div>`;
   }
+}
+
+function openDashActionsModal(){
+  const modal = document.getElementById("modal-dash-actions");
+  const bodyEl = document.getElementById("dash-actions-modal-body");
+  if(!modal || !bodyEl) return;
+
+  const actions = getTodaySalesActionsImpl({
+    customerIntelligence: customerIntelligence,
+    customerIntel: clientesIntelCache
+  });
+
+  const rows = Array.isArray(actions) ? actions : [];
+  const list = rows.slice(0,20);
+
+  const renderRow = (r, idx)=>{
+    const id = escapeJsSingleQuote(String(r?.cliente_id || r?.cliente_uuid || r?.id || r?.cliente || ""));
+    const nome = String(r?.nome || r?.cliente_nome || "Cliente");
+    const act = String(r?.next_best_action || r?.acao_recomendada || r?.acao || "").trim() || "Ação sugerida";
+    const dias = r?.dias_desde_ultima_compra != null ? (String(r.dias_desde_ultima_compra) + "d") : "";
+    const ltv = fmtBRL(Number(r?.valor_total ?? r?.ltv ?? r?.total_gasto ?? 0) || 0);
+    const phone = String(r?.celular || r?.telefone || "").replace(/\D/g,"");
+    return `<div class="top-item" onclick="openClientePage('${id}')">
+      <div class="top-rank">${idx+1}</div>
+      <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias || act)}</span></div>
+      <div class="top-val">${escapeHTML(ltv)}</div>
+      ${phone?`<button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>`:""}
+    </div>`;
+  };
+
+  bodyEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="profile-card" style="padding:14px">
+        <div class="profile-h2" style="margin-bottom:8px">Clientes para contato hoje</div>
+        <div class="top-list">${list.length ? list.map(renderRow).join("") : `<div class="empty">Sem ações sugeridas ainda.</div>`}</div>
+      </div>
+      <div class="profile-card" style="padding:14px">
+        <div class="profile-h2" style="margin-bottom:8px">Atalhos rápidos</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn" onclick="showPage('segmentos');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>🎯 Abrir Segmentos</span><span style="color:var(--text-3)">→</span>
+          </button>
+          <button class="btn" onclick="showPage('clientes');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>👥 Abrir Clientes</span><span style="color:var(--text-3)">→</span>
+          </button>
+          <button class="btn" onclick="showPage('tarefas');fecharModal('modal-dash-actions')" style="justify-content:space-between;padding:10px 12px">
+            <span>✅ Abrir Tarefas</span><span style="color:var(--text-3)">→</span>
+          </button>
+        </div>
+        <div style="margin-top:12px;font-size:11px;color:var(--text-3);line-height:1.5">
+          Use este painel para executar rapidamente as ações recomendadas pela inteligência do CRM.
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add("open");
 }
 
 function setDashRange(days){
@@ -9202,6 +9486,9 @@ async function loadOrdersFromSupabaseForCRM(){
         cidade_entrega: p.cidade_entrega || null,
         uf_entrega: p.uf_entrega || null,
         _canal: canalSlug,
+        origem_canal: p.origem_canal || null,
+        origem_canal_nome: p.origem_canal_nome || null,
+        tipo_venda: p.tipo_venda || null,
         contato: {
           id: p.cliente_id || undefined,
           nome: cli?.nome || "Desconhecido",
@@ -9822,20 +10109,60 @@ function summarizeOrderItems(o){
   return parts.length > 2 ? `${head} +${parts.length-2}` : head;
 }
 
+function normalizeCanal(origem){
+  const norm = (v)=>String(v||"")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .trim();
+  const s = norm(origem);
+  if(!s) return { slug: "outros", nome: "Outros", emoji: "🔹", color: "var(--text-2)" };
+  if(s === "ml" || s === "mercado_livre" || /\bmercado\s*livre\b|\bmercadolivre\b|\bmeli\b|\bmlb\b/.test(s)) return { slug: "mercado_livre", nome: "Mercado Livre", emoji: "🟡", color: "var(--ml)" };
+  if(s === "shopee" || /\bshopee\b/.test(s)) return { slug: "shopee", nome: "Shopee", emoji: "🟠", color: "var(--shopee)" };
+  if(s === "amazon" || /\bamazon\b/.test(s)) return { slug: "amazon", nome: "Amazon", emoji: "🟦", color: "var(--amazon)" };
+  if(s === "shopify" || /\bshopify\b|\bloja\s*online\b|\becommerce\b|\bsite\b/.test(s)) return { slug: "shopify", nome: "Shopify / Site próprio", emoji: "🟢", color: "var(--shopify)" };
+  if(s === "yampi" || /\byampi\b/.test(s)) return { slug: "yampi", nome: "Yampi / Checkout", emoji: "🟣", color: "var(--yampi)" };
+  if(s === "b2b" || s === "cnpj" || /\bb2b\b|\bcnpj\b|\batacado\b/.test(s)) return { slug: "b2b", nome: "B2B / Atacado", emoji: "🟤", color: "var(--amber)" };
+  return { slug: "outros", nome: "Outros", emoji: "🔹", color: "var(--text-2)" };
+}
+
+function canalFromOrder(o){
+  const origem = String(o?.origem_canal ?? o?.origemCanal ?? "").trim();
+  if(origem) return normalizeCanal(origem);
+  const sourceHint = String(o?._source || o?.source || "").toLowerCase().trim();
+  if(sourceHint === "yampi") return normalizeCanal("yampi");
+  if(sourceHint === "shopify") return normalizeCanal("shopify");
+  const raw =
+    o?._canal ??
+    o?.canal ??
+    o?.channel ??
+    o?.loja?.nome ??
+    o?.origem?.nome ??
+    o?.ecommerce?.nome ??
+    "";
+  const detected = normalizeCanal(raw || detectCh(o) || "");
+  if(detected.slug !== "outros") return detected;
+  const byDetect = normalizeCanal(detectCh(o) || "");
+  return byDetect;
+}
+
 function getComPedidosBase(){
-  const baseOrders = Array.isArray(yampiOrders) && yampiOrders.length ? yampiOrders : [];
+  const baseOrders =
+    (Array.isArray(allOrders) && allOrders.length ? allOrders : null) ||
+    (Array.isArray(blingOrders) && blingOrders.length ? blingOrders : null) ||
+    (Array.isArray(yampiOrders) && yampiOrders.length ? yampiOrders : []);
   const orders = baseOrders.slice().sort((a,b)=>new Date(b.data || b.data_pedido || b.created_at || 0)-new Date(a.data || a.data_pedido || a.created_at || 0));
   return orders.map(o=>{
     const numRaw = o?.numero_pedido || o?.numero || o?.name || o?.order_number || o?.id || "";
     const num = numRaw ? (String(numRaw).startsWith("#") ? String(numRaw) : "#"+String(numRaw)) : "#—";
     const cliente = String(o?.contato?.nome || o?.customer?.name || o?.cliente?.nome || "—");
-    const canal = String(o?._canal || o?.canal || o?.channel || detectCh(o) || "yampi").toLowerCase();
+    const canalInfo = canalFromOrder(o);
     const produto = summarizeOrderItems(o);
     const valor = Number(val(o) || o?.total || o?.total_price || 0) || 0;
     const dataIso = String(o?.data_pedido || o?.data || o?.created_at || "").slice(0,10) || "";
     const data = dataIso ? fmtDate(dataIso) : "—";
     const status = mapComStatusFromOrder(o);
-    return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal, produto, valor, status, data };
+    return { id: String(o?.id || numRaw || cryptoRandomId()), num, cliente, canal: canalInfo.slug, canal_nome: canalInfo.nome, canal_color: canalInfo.color, canal_emoji: canalInfo.emoji, produto, valor, status, data };
   });
 }
 
@@ -9875,13 +10202,13 @@ function renderComPedidos(){
   var stL={novo:'🆕 Novo',separando:'📦 Separando',enviado:'🚚 Enviado',entregue:'✅ Entregue',cancelado:'❌ Cancelado'};
   var stC={novo:'var(--blue)',separando:'var(--amber)',enviado:'var(--indigo-hi)',entregue:'var(--green)',cancelado:'var(--red)'};
   var stB={novo:'var(--blue-bg)',separando:'var(--amber-bg)',enviado:'var(--indigo-bg)',entregue:'var(--green-bg)',cancelado:'var(--red-bg)'};
-  var cC={shopee:'var(--shopee)',site:'var(--indigo-hi)',ml:'var(--ml)',whatsapp:'#25d366',instagram:'#e040fb'};
+  var cC={shopee:'var(--shopee)',shopify:'var(--shopify)',yampi:'var(--yampi)',amazon:'var(--amazon)',mercado_livre:'var(--ml)',b2b:'var(--amber)',outros:'var(--text-2)',whatsapp:'#25d366',instagram:'#e040fb'};
   var header='<div class="table-head table-head-com"><span>Pedido</span><span>Cliente / Produto</span><span>Canal</span><span class="ta-r">Valor</span><span class="ta-r">Status</span></div>';
   el.innerHTML=header+list.map(function(p){
     return '<div class="table-row table-row-com">'+
       '<div><div class="mono-link">'+escapeHTML(p.num)+'</div><div class="muted-xs">'+escapeHTML(p.data)+'</div></div>'+
       '<div><div class="row-title">'+escapeHTML(p.cliente)+'</div><div class="muted-sm">'+escapeHTML(p.produto)+'</div></div>'+
-      '<div><span class="pill pill-soft" style="color:'+(cC[p.canal]||'var(--text-2)')+'">'+escapeHTML(String(p.canal||"").toUpperCase())+'</span></div>'+
+      '<div><span class="pill pill-soft" style="color:'+(cC[p.canal]||p.canal_color||'var(--text-2)')+'">'+escapeHTML(p.canal_nome||String(p.canal||"").toUpperCase())+'</span></div>'+
       '<div class="ta-r mono-strong">R$'+p.valor.toFixed(2)+'</div>'+
       '<div class="ta-r"><span class="pill" style="background:'+stB[p.status]+';color:'+stC[p.status]+'">'+escapeHTML(stL[p.status]||p.status)+'</span></div>'+
     '</div>';
@@ -9890,13 +10217,18 @@ function renderComPedidos(){
 
 function renderCanaisGrid(){
   var el=document.getElementById('canais-grid'); if(!el) return;
-  var cI={shopee:{nome:'Shopee',emoji:'🟠',color:'var(--shopee)'},site:{nome:'Site Próprio',emoji:'🌐',color:'var(--indigo-hi)'},ml:{nome:'Mercado Livre',emoji:'🟡',color:'var(--ml)'},whatsapp:{nome:'WhatsApp',emoji:'💬',color:'#25d366'}};
   var por={};
-  getComPedidosBase().forEach(function(p){ if(!por[p.canal]) por[p.canal]={qtd:0,receita:0}; por[p.canal].qtd++; por[p.canal].receita+=p.valor; });
-  el.innerHTML=Object.entries(por).map(function(e){
-    var canal=e[0],dados=e[1],info=cI[canal]||{nome:canal,emoji:'🔹',color:'var(--text-2)'};
-    var ticket=dados.receita/dados.qtd;
-    return '<div class="canal-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div style="font-size:24px">'+info.emoji+'</div><div><div style="font-size:13px;font-weight:800">'+info.nome+'</div><div style="font-size:10px;color:var(--text-3)">'+dados.qtd+' pedidos</div></div></div><div style="font-size:22px;font-weight:800;font-family:var(--mono);color:'+info.color+';margin-bottom:8px">R$'+dados.receita.toLocaleString('pt-BR',{minimumFractionDigits:0})+'</div><div style="font-size:10px;color:var(--text-3)">Ticket médio: <b style="color:var(--text)">R$'+ticket.toFixed(2)+'</b></div></div>';
+  getComPedidosBase().forEach(function(p){
+    var key=p.canal||"outros";
+    if(!por[key]) por[key]={qtd:0,receita:0,info:{nome:p.canal_nome||key,emoji:p.canal_emoji||"🔹",color:p.canal_color||"var(--text-2)"}};
+    por[key].qtd++;
+    por[key].receita+=p.valor;
+  });
+  var sorted=Object.entries(por).sort(function(a,b){return (b[1].receita||0)-(a[1].receita||0);});
+  el.innerHTML=sorted.map(function(e){
+    var dados=e[1],info=dados.info||{nome:e[0],emoji:'🔹',color:'var(--text-2)'};
+    var ticket=dados.qtd?dados.receita/dados.qtd:0;
+    return '<div class="canal-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div style="font-size:24px">'+info.emoji+'</div><div><div style="font-size:13px;font-weight:800">'+escapeHTML(info.nome)+'</div><div style="font-size:10px;color:var(--text-3)">'+dados.qtd+' pedidos</div></div></div><div style="font-size:22px;font-weight:800;font-family:var(--mono);color:'+info.color+';margin-bottom:8px">R$'+dados.receita.toLocaleString('pt-BR',{minimumFractionDigits:0})+'</div><div style="font-size:10px;color:var(--text-3)">Ticket médio: <b style="color:var(--text)">R$'+ticket.toFixed(2)+'</b></div></div>';
   }).join('');
 }
 
@@ -10254,10 +10586,10 @@ function renderChartsCom(){
     var cData={};
     getComPedidosBase().forEach(function(p){ cData[p.canal]=(cData[p.canal]||0)+p.valor; });
     var sorted=Object.entries(cData).sort(function(a,b){return b[1]-a[1];});
-    var cColors={shopee:"#f97316",site:"#6bbf3a",ml:"#f59e0b",whatsapp:"#25d366",instagram:"#e040fb"};
+    var cColors={shopee:"var(--shopee)",shopify:"var(--shopify)",yampi:"var(--yampi)",amazon:"var(--amazon)",mercado_livre:"var(--ml)",b2b:"var(--amber)",outros:"#94a3b8",whatsapp:"#25d366",instagram:"#e040fb"};
     window._chartComCanal=new Chart(cCtx,{
       type:"doughnut",
-      data:{labels:sorted.map(function(e){return e[0].toUpperCase();}),
+      data:{labels:sorted.map(function(e){return normalizeCanal(e[0]).nome;}),
         datasets:[{data:sorted.map(function(e){return e[1];}),
           backgroundColor:sorted.map(function(e){return cColors[e[0]]||"#94a3b8";}),
           borderWidth:3,borderColor:"#0e1018",hoverOffset:4}]},
