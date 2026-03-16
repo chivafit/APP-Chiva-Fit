@@ -18,7 +18,6 @@ import {
   getDashboardDaily as getDashboardDailyView,
   getDashboardDailyChannel as getDashboardDailyChannelView,
   getNewCustomersDaily as getNewCustomersDailyView,
-  getFunilRecompra as getFunilRecompraView,
   getTopCidades as getTopCidadesView,
   getProdutosFavoritos as getProdutosFavoritosView,
   getClientesVipRisco as getClientesVipRiscoView,
@@ -1061,16 +1060,8 @@ function renderAccessUsers(){
 }
 
 function hydrateConfigPage(){
-  const u =
-    localStorage.getItem("crm_supa_url") ||
-    localStorage.getItem("supa_url") ||
-    localStorage.getItem("supabase_url") ||
-    "";
-  const k =
-    localStorage.getItem("crm_supa_key") ||
-    localStorage.getItem("supa_key") ||
-    localStorage.getItem("supabase_key") ||
-    "";
+  const u = getSupabaseProjectUrl();
+  const k = getSupabaseAnonKey();
   const urlEl = document.getElementById("inp-supa-url");
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl) urlEl.value = u;
@@ -3596,7 +3587,7 @@ function renderDashNow(){
         title:`📉 Ticket médio ${dir} ${Math.abs(ticketDelta).toFixed(0)}% na semana`,
         desc:`Compare últimos 7 dias vs semana anterior para ajustar oferta/kit.`,
         cta:`Comparar`,
-        action:`document.getElementById('cmp-a')?.focus();showPage('dashboard')`
+        action:`showPage('dashboard');document.getElementById('cmp-card')?.scrollIntoView({behavior:'smooth',block:'start'})`
       });
     }
     if(stopped){
@@ -3903,24 +3894,6 @@ async function renderDashExtraLists(ctx){
   if(supaConnected && supaClient){
     try{
       if(filterActive){
-        const cli = Object.values(buildCli(ordersSales));
-        const c1 = cli.filter(c=>c.orders.length === 1).length;
-        const c2 = cli.filter(c=>c.orders.length === 2).length;
-        const c3 = cli.filter(c=>c.orders.length >= 3).length;
-        renderDashV2Funil([
-          { etapa: "1ª compra", clientes: c1, ordem: 1 },
-          { etapa: "2ª compra", clientes: c2, ordem: 2 },
-          { etapa: "3+ compras", clientes: c3, ordem: 3 }
-        ]);
-      }else{
-        const funil = await getFunilRecompraView(supaClient);
-        renderDashV2Funil(funil);
-      }
-    }catch(_e){
-      setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
-    }
-    try{
-      if(filterActive){
         renderDashTopCidadesFromOrders(ordersSales);
       }else{
         const topCities = await getTopCidadesView(supaClient, 10);
@@ -4029,7 +4002,6 @@ async function renderDashExtraLists(ctx){
       renderDashV2NextActions((clientesIntelCache||[]));
     }catch(_e){}
   }else{
-    setDashCanvasState("chart-v2-funil", false, "Sem dados no período", !!dashCh);
     renderDashTopCidadesFromOrders(ordersAllRange);
     const riskEl = document.getElementById("dashv2-risk");
     if(riskEl) riskEl.innerHTML = `<div class="empty">Conecte o Supabase para ver esta lista.</div>`;
@@ -4258,10 +4230,6 @@ async function renderDashV2(){
       }).join("") || `<div class="empty">Sem VIPs em risco no período.</div>`;
     }
 
-    try{
-      const funil = await getFunilRecompraView(supaClient);
-      renderDashV2Funil(funil);
-    }catch(_e){}
     try{
       const topProds = await getProdutosFavoritosView(supaClient, 10);
       renderDashV2TopProdutos(topProds);
@@ -4681,7 +4649,18 @@ async function editMeta(){
   renderDash();
 }
 function renderCompare(ordersOverride){
-  const a=document.getElementById("cmp-a")?.value,b=document.getElementById("cmp-b")?.value; if(!a||!b)return;
+  const now = new Date();
+  const cur = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
+  const prevDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prev = prevDate.getFullYear() + "-" + String(prevDate.getMonth()+1).padStart(2,"0");
+  const a = prev;
+  const b = cur;
+
+  const aEl = document.getElementById("cmp-a");
+  const bEl = document.getElementById("cmp-b");
+  if(aEl) aEl.value = a;
+  if(bEl) bEl.value = b;
+
   let orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   if(!Array.isArray(ordersOverride)){
     const dashCh = String(document.getElementById("dash-canal-filter")?.value||"").toLowerCase().trim();
@@ -4689,11 +4668,11 @@ function renderCompare(ordersOverride){
   }
   const flt=ym=>{ const[y,m]=ym.split("-"); return orders.filter(o=>{ const d=new Date(o.data); return d.getFullYear()===+y&&(d.getMonth()+1)===+m; }); };
   const oA=flt(a),oB=flt(b),vA=oA.reduce((s,o)=>s+val(o),0),vB=oB.reduce((s,o)=>s+val(o),0);
-  const d=vB>0?((vA-vB)/vB*100):0;
+  const d=vA>0?((vB-vA)/vA*100):0;
   const mn=ym=>{ const[y,m]=ym.split("-"); return["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"][+m-1]+"/"+y.slice(2); };
   document.getElementById("cmp-body").innerHTML=`<div class="cmp-grid">
-    <div class="cmp-col"><div class="cmp-col-title">${mn(a)}</div><div class="cmp-val" style="color:var(--blue)">${fmtBRL(vA)}</div><div class="cmp-sub">${oA.length} pedidos</div><div class="cmp-delta ${d>=0?"delta-up":"delta-down"}">${d>=0?"▲":"▼"}${Math.abs(d).toFixed(1)}% vs ${mn(b)}</div></div>
-    <div class="cmp-col"><div class="cmp-col-title">${mn(b)}</div><div class="cmp-val" style="color:var(--violet-hi)">${fmtBRL(vB)}</div><div class="cmp-sub">${oB.length} pedidos</div></div>
+    <div class="cmp-col"><div class="cmp-col-title">${mn(a)} (mês anterior)</div><div class="cmp-val" style="color:var(--text)">${fmtBRL(vA)}</div><div class="cmp-sub">${oA.length} pedidos</div></div>
+    <div class="cmp-col"><div class="cmp-col-title">${mn(b)} (mês atual)</div><div class="cmp-val" style="color:var(--green)">${fmtBRL(vB)}</div><div class="cmp-sub">${oB.length} pedidos</div><div class="cmp-delta ${d>=0?"delta-up":"delta-down"}">${d>=0?"▲":"▼"}${Math.abs(d).toFixed(1)}% vs ${mn(a)}</div></div>
   </div>`;
 }
 function renderAlertBanner(ordersOverride){
@@ -4839,12 +4818,28 @@ function renderTopCli(ordersOverride){
     return;
   }
   const m={}; orders.forEach(o=>{
-    const k=cliKey(o);
-    if(!m[k]){ m[k]={n:o.contato?.nome||"?",t:0,id:k}; }
-    m[k].t+=val(o);
+    const k = cliKey(o);
+    if(!k) return;
+    if(!m[k]){ m[k]={n:o.contato?.nome||"?",t:0,id:k,cid:""}; }
+    if(!m[k].cid){
+      const cid = String(o?.cliente_id || o?.contato?.id || "").trim();
+      if(cid) m[k].cid = cid;
+    }
+    m[k].t += val(o);
   });
   const top=Object.values(m).sort((a,b)=>b.t-a.t).slice(0,10); const max=top[0]?.t||1;
-  el.innerHTML=top.map((c,i)=>`<div class="top-item"><span class="top-rank">#${i+1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(c.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(c.t)}</span></div>`).join("");
+  el.innerHTML=top.map((c,i)=>{
+    const cid = escapeJsSingleQuote(String(c.cid || ""));
+    const on = cid ? `onclick="openClientePage('${cid}')"` : "";
+    return `<div class="top-item" ${on}>
+      <span class="top-rank">#${i+1}</span>
+      <div style="flex:1;overflow:hidden">
+        <div class="top-name">${escapeHTML(c.n)}</div>
+        <div class="top-bar-wrap"><div class="top-bar" style="width:${(c.t/max*100).toFixed(0)}%"></div></div>
+      </div>
+      <span class="top-val">${fmtBRL(c.t)}</span>
+    </div>`;
+  }).join("");
 }
 function renderTopProd(ordersOverride){
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;

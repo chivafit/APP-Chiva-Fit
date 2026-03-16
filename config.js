@@ -9,6 +9,31 @@
     }
   }
 
+  function writeLS(key, value) {
+    try {
+      localStorage.setItem(key, String(value || ""));
+    } catch (_e) {}
+  }
+
+  function readParam(name) {
+    try {
+      return String(new URLSearchParams(window.location.search).get(name) || "");
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  var paramUrl = readParam("supa_url") || readParam("supabase_url") || readParam("crm_supa_url");
+  var paramKey = readParam("supa_key") || readParam("supabase_key") || readParam("crm_supa_key");
+  if (paramUrl && !String(existing.supabaseUrl || "").trim()) {
+    writeLS("crm_supa_url", paramUrl);
+    existing.supabaseUrl = paramUrl;
+  }
+  if (paramKey && !String(existing.supabaseAnonKey || "").trim()) {
+    writeLS("crm_supa_key", paramKey);
+    existing.supabaseAnonKey = paramKey;
+  }
+
   var supabaseUrl =
     String(existing.supabaseUrl || "").trim() ||
     readLS("crm_supa_url") ||

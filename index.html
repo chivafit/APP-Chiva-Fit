@@ -234,7 +234,6 @@
       <div class="chart-wrap" style="height:210px"><canvas id="chart-mes"></canvas></div>
       <div id="dash-channel-breakdown" style="margin-top:10px"></div>
     </div>
-    <div class="chart-card"><div class="chart-title">Funil de Recompra</div><div class="chart-wrap" style="height:210px"><canvas id="chart-v2-funil"></canvas></div></div>
   </div>
   <div class="charts-grid" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
     <div class="chart-card"><div class="chart-title">Top Clientes (LTV) <span style="font-size:9px;color:var(--chiva-primary-light);font-weight:500">clique para ver</span></div><div class="top-list" id="top-clientes"></div></div>
@@ -250,19 +249,19 @@
     <div class="chart-card"><div class="chart-title">Clientes sem Contato</div><div class="top-list" id="dashv2-sem-contato"></div></div>
   </div>
   <div class="charts-grid" style="grid-template-columns:1fr;margin-top:12px">
-    <div class="chart-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
+    <div class="chart-card chart-card-compact" id="dash-next-actions-card"><div class="chart-title">Próximas Ações</div><div class="top-list" id="dashv2-next-actions"></div></div>
   </div>
   <div class="meta-card">
     <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
     <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
   </div>
-  <div class="compare-card">
+  <div class="compare-card" id="cmp-card">
     <div class="card-hdr">
       <span class="card-title">Comparar Períodos</span>
       <div class="cmp-inputs">
-        <input type="month" id="cmp-a" onchange="renderCompare()"/>
+        <input type="month" id="cmp-a" onchange="renderCompare()" disabled/>
         <span style="font-size:10px;color:var(--text-3)">vs</span>
-        <input type="month" id="cmp-b" onchange="renderCompare()"/>
+        <input type="month" id="cmp-b" onchange="renderCompare()" disabled/>
       </div>
     </div>
     <div id="cmp-body"></div>
@@ -659,7 +658,7 @@
     </div>
     <div class="setup-grid">
 
-      <div class="setup-section" style="display:none">
+      <div class="setup-section">
         <h3>🔷 Supabase</h3>
         <p>Conexão com banco de dados em nuvem.<br><strong>Como obter:</strong> Painel Supabase → Project Settings → API</p>
         <label>URL do Projeto</label>
