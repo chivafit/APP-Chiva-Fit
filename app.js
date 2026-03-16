@@ -3163,7 +3163,7 @@ function calcCliScores(c){
   if(tot>=650&&!isCnpj) recompraScore+=20;
   if(avgInterval&&avgInterval<45) recompraScore+=10;
   recompraScore=Math.min(recompraScore,100);
-  if(recompraScore === 0 && n > 0){
+  if(recompraScore === 0 && n > 0 && localStorage.getItem("crm_debug_scores")==="1"){
     try{ console.warn("[Score zero inesperado]", c.id, c.nome, "pedidos:", n); }catch(_e){}
   }
 
@@ -5381,9 +5381,11 @@ function renderDashV2NextActions(rows){
 
 function renderMeta(v){
   const meta=parseFloat(localStorage.getItem("crm_meta")||"0");
-  if(!meta){document.getElementById("meta-body").innerHTML=`<span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span>`;return;}
+  const el = document.getElementById("meta-body");
+  if(!el) return;
+  if(!meta){el.innerHTML=`<span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span>`;return;}
   const pct=Math.min(v/meta*100,100),warn=pct<50;
-  document.getElementById("meta-body").innerHTML=`
+  el.innerHTML=`
     <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:4px">
       <span class="meta-pct" style="color:${warn?"var(--amber)":"var(--green)"}">${pct.toFixed(1)}%</span>
       <span style="font-size:10px;color:var(--text-3);margin-bottom:3px">${fmtBRL(v)} de ${fmtBRL(meta)}</span>
@@ -5399,6 +5401,8 @@ async function editMeta(){
   renderDash();
 }
 function renderCompare(ordersOverride){
+  const body = document.getElementById("cmp-body");
+  if(!body) return;
   const now = new Date();
   const cur = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
   const prevDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
@@ -5420,7 +5424,7 @@ function renderCompare(ordersOverride){
   const oA=flt(a),oB=flt(b),vA=oA.reduce((s,o)=>s+val(o),0),vB=oB.reduce((s,o)=>s+val(o),0);
   const d=vA>0?((vB-vA)/vA*100):0;
   const mn=ym=>{ const[y,m]=ym.split("-"); return["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"][+m-1]+"/"+y.slice(2); };
-  document.getElementById("cmp-body").innerHTML=`<div class="cmp-grid">
+  body.innerHTML=`<div class="cmp-grid">
     <div class="cmp-col"><div class="cmp-col-title">${mn(a)} (mês anterior)</div><div class="cmp-val" style="color:var(--text)">${fmtBRL(vA)}</div><div class="cmp-sub">${oA.length} pedidos</div></div>
     <div class="cmp-col"><div class="cmp-col-title">${mn(b)} (mês atual)</div><div class="cmp-val" style="color:var(--green)">${fmtBRL(vB)}</div><div class="cmp-sub">${oB.length} pedidos</div><div class="cmp-delta ${d>=0?"delta-up":"delta-down"}">${d>=0?"▲":"▼"}${Math.abs(d).toFixed(1)}% vs ${mn(a)}</div></div>
   </div>`;
