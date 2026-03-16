@@ -612,7 +612,7 @@ body {
   display: flex; flex-direction: column;
   position: fixed; top: 0; left: 0; bottom: 0;
   z-index: 100; overflow-y: auto; overflow-x: hidden;
-  transition: transform var(--t-base);
+  transition: transform var(--t-base), width var(--t-slow), min-width var(--t-slow);
 }
 #sidebar::-webkit-scrollbar { width: 3px; }
 #sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
@@ -688,7 +688,7 @@ body {
   display: flex; align-items: center; padding: 0 24px; gap: 12px;
   position: sticky; top: 0; z-index: 50; flex-shrink: 0;
 }
-.topbar-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
+.topbar-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -.3px; }
 .topbar-search-wrap { position: relative; display: flex; align-items: center; flex: 1; max-width: 280px; }
 #topbar-search {
   width: 100%;
@@ -816,7 +816,7 @@ body {
 .btn-cancel:hover { background: var(--card2); color: var(--text2); }
 
 /* ═══ PAGES ═══════════════════════════════════════════════════ */
-.page { display: none; padding: 28px 32px 80px; max-width: 1400px; }
+.page { display: none; padding: 28px 32px 80px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .page.active { display: block; animation: pageFade .22s ease; }
 @keyframes pageFade { from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none} }
 
@@ -2175,7 +2175,7 @@ html.light .prod-panel{border-color:var(--border);box-shadow:var(--shadow-sm)}
   margin-bottom: 18px; flex-wrap: wrap; gap: 8px;
 }
 .page-header-main { min-width: 220px; }
-.page-title { font-size: 17px; font-weight: 750; letter-spacing: -.35px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -.5px; }
 .page-sub,
 .page-subtitle { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 .dash-meta{
@@ -3392,7 +3392,7 @@ html.light #topbar{
   box-shadow: 0 10px 20px rgba(0,0,0,.06);
 }
 .topbar-title{
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: -.3px;
 }
@@ -4711,4 +4711,620 @@ html.light .compare-card{
   color: var(--text-3);
   margin-top: 3px;
   line-height: 1.35;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR — BOTÃO COLAPSAR + ESTADO COLAPSADO
+   Layout responsivo: 220px expandido ↔ 60px ícones
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Botão de colapsar ── */
+.sidebar-collapse-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  background: none; border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text-3); cursor: pointer; flex-shrink: 0; margin-left: auto;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-slow);
+}
+.sidebar-collapse-btn:hover { background: var(--card-hover); border-color: var(--border2); color: var(--text-2); }
+
+/* ── Sidebar colapsada ── */
+#sidebar.collapsed { width: 60px; min-width: 60px; }
+
+#sidebar.collapsed .sidebar-logo { padding: 14px 0; justify-content: center; }
+#sidebar.collapsed .sidebar-logo-text,
+#sidebar.collapsed .sidebar-section-label,
+#sidebar.collapsed .nav-label,
+#sidebar.collapsed .nav-badge,
+#sidebar.collapsed .sidebar-user-info,
+#sidebar.collapsed .sidebar-user-exit,
+#sidebar.collapsed #theme-label,
+#sidebar.collapsed .sidebar-sync { display: none; }
+
+#sidebar.collapsed .sidebar-collapse-btn {
+  position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%) rotate(180deg);
+  border-color: var(--border-sub);
+}
+#sidebar.collapsed .sidebar-collapse-btn:hover { transform: translateX(-50%) rotate(180deg); background: var(--card-hover); border-color: var(--border2); }
+
+#sidebar.collapsed .sidebar-nav { padding: 10px 6px; }
+#sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; border-left: none; }
+#sidebar.collapsed .nav-item::before { display: none; }
+#sidebar.collapsed .nav-icon { width: 24px; height: 24px; }
+
+#sidebar.collapsed .sidebar-footer { padding: 8px 6px 60px; align-items: center; }
+#sidebar.collapsed .theme-toggle { width: 36px; height: 36px; justify-content: center; padding: 0; }
+#sidebar.collapsed .sidebar-user { justify-content: center; padding: 8px 0; }
+#sidebar.collapsed .sidebar-divider { margin: 6px 4px; }
+
+/* ── Tooltips no modo colapsado ── */
+#sidebar.collapsed .nav-item { position: relative; }
+#sidebar.collapsed .nav-item::after {
+  content: attr(data-tooltip);
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  background: var(--surface); border: 1px solid var(--border2);
+  color: var(--text); padding: 5px 10px; border-radius: var(--r-sm);
+  font-size: 11px; font-weight: 500; white-space: nowrap;
+  opacity: 0; pointer-events: none; z-index: 300; box-shadow: var(--shadow-md);
+  transition: opacity var(--t-fast);
+}
+#sidebar.collapsed .nav-item:hover::after { opacity: 1; }
+
+/* ── Main area se ajusta ── */
+#main-area.sidebar-collapsed { margin-left: 60px; }
+
+/* ── Ícones SVG no nav: usar currentColor ── */
+.nav-icon svg { display: block; }
+.nav-item.active .nav-icon { color: var(--chiva-primary); }
+.nav-item.ai-item .nav-icon { color: var(--ai); }
+.sidebar-logo-icon svg { color: #fff; display: block; }
+
+/* ── Mobile: esconder botão de colapsar ── */
+@media (max-width: 768px) {
+  .sidebar-collapse-btn { display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM v4 — CONSOLIDAÇÃO DE COMPONENTES
+   Cards, tabelas, botões, modais unificados.
+   Este bloco é a fonte da verdade — sobrescreve v1 e v3.
+═══════════════════════════════════════════════════════════════ */
+
+/* ────────────────────────────────────────────────
+   CARDS — padrão unificado
+   Padding 20px · radius 16px · shadow consistente
+──────────────────────────────────────────────── */
+.stat {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t-base), box-shadow var(--t-base), transform var(--t-base);
+}
+.stat:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+html.light .stat {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05), 0 1px 2px rgba(0,0,0,.04);
+}
+html.light .stat:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,.09);
+}
+
+/* Restaura identidade premium do chart-card (v3 havia simplificado demais) */
+.chart-card {
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15,167,101,.035) 0%, transparent 60%), var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t-base), box-shadow var(--t-base), transform var(--t-base);
+  position: relative;
+  overflow: hidden;
+}
+.chart-card::before { display: none !important; }
+.chart-card::after  { display: none !important; }
+.chart-card:hover {
+  border-color: var(--chiva-primary-border);
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--chiva-primary-border);
+  transform: translateY(-1px);
+}
+html.light .chart-card {
+  background: linear-gradient(180deg, rgba(15,167,101,.04) 0%, transparent 60%), #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,.06);
+  backdrop-filter: none;
+}
+html.light .chart-card:hover {
+  box-shadow: 0 8px 28px rgba(0,0,0,.09), 0 0 0 1px rgba(15,167,101,.18);
+}
+
+.meta-card, .compare-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+html.light .meta-card, html.light .compare-card {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+
+/* seg-card e client-card: radius consistente */
+.seg-card, .client-card, .prod-item {
+  border-radius: 14px;
+}
+
+/* ────────────────────────────────────────────────
+   TABELAS — padrão unificado
+   Cabeçalho distinto · rows com hover elevado
+──────────────────────────────────────────────── */
+.table-head, .pedido-table-header {
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 8px;
+}
+html.light .table-head, html.light .pedido-table-header {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.pedido-row, .table-row {
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+.pedido-row:hover, .table-row:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+html.light .pedido-row, html.light .table-row {
+  background: #fff;
+}
+
+/* ────────────────────────────────────────────────
+   BOTÕES — consolidação
+   Todos usam tokens de marca, sem cores hardcoded
+──────────────────────────────────────────────── */
+.btn {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+}
+.btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border2);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.btn:active { transform: translateY(0); }
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--chiva-primary);
+  box-shadow: 0 0 0 3px var(--chiva-primary-dim);
+}
+html.light .btn {
+  background: #fff;
+  border-color: var(--border);
+}
+html.light .btn:hover {
+  background: var(--card-hover);
+  border-color: var(--chiva-primary-border);
+  color: var(--text);
+}
+
+/* btn-mod-save: usa cor da marca em vez de #5a9e30 hardcoded */
+.btn-mod-save {
+  flex: 1;
+  background: var(--chiva-primary);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: background var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+}
+.btn-mod-save:hover {
+  background: var(--chiva-primary-light);
+  color: var(--chiva-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand);
+  opacity: 1;
+}
+.btn-mod-save:active {
+  transform: translateY(0);
+  background: var(--chiva-primary-deep);
+  color: #fff;
+}
+
+.btn-mod-cancel {
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-mod-del {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+/* active-tab: usa cor da marca */
+.active-tab {
+  background: var(--chiva-primary) !important;
+  color: #fff !important;
+}
+
+/* ────────────────────────────────────────────────
+   MODAIS — consolidação
+   Labels legíveis · inputs consistentes · box polido
+──────────────────────────────────────────────── */
+.mod-box {
+  border-radius: 18px;
+  border-color: var(--border);
+  padding: 24px;
+}
+html.light .mod-box {
+  background: #fff;
+  border-color: var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,.12), 0 4px 16px rgba(0,0,0,.06);
+}
+
+.mod-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.35px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Labels de campo: 9px → 10px */
+.mod-field label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* Inputs dos modais: fundo mais claro, radius consistente */
+.mod-field input,
+.mod-field select,
+.mod-field textarea {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color var(--t-base), box-shadow var(--t-base);
+}
+.mod-field input:focus,
+.mod-field select:focus,
+.mod-field textarea:focus {
+  border-color: var(--chiva-primary);
+  box-shadow: 0 0 0 3px var(--chiva-primary-dim);
+}
+html.light .mod-field input,
+html.light .mod-field select,
+html.light .mod-field textarea {
+  background: #fff;
+  border-color: var(--border);
+}
+
+.mod-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DASHBOARD PREMIUM v4
+   Layout hierárquico de nível produto — seções, grids, hero chart
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Header ── */
+.dash-page-header {
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-sub);
+}
+.dash-period-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+  letter-spacing: -.1px;
+}
+.dash-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+.btn-dash-primary {
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  color: #fff;
+  font-weight: 700;
+}
+.btn-dash-primary:hover {
+  background: var(--chiva-primary-light);
+  border-color: var(--chiva-primary-light);
+  color: var(--chiva-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand);
+}
+.btn-dash-primary:active {
+  background: var(--chiva-primary-deep);
+  border-color: var(--chiva-primary-deep);
+  color: #fff;
+  transform: translateY(0);
+}
+
+/* ── Filter bar ── */
+.dash-filterbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 14px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dash-filterbar::-webkit-scrollbar { display: none; }
+html.light .dash-filterbar {
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── KPI: secondary grid sem margin-top inline ── */
+.dash-stats-secondary { margin-top: 12px !important; }
+
+/* ── Section headings ── */
+.dash-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 32px 0 18px;
+}
+.dash-section-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--chiva-primary);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(15,167,101,.55);
+}
+.dash-section-dot--amber {
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(251,191,36,.45);
+}
+.dash-section-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .15em;
+  white-space: nowrap;
+}
+.dash-section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Hero chart ── */
+.dash-hero-chart {
+  margin-bottom: 16px;
+}
+.dash-hero-chart .chart-card-header .chart-title {
+  font-size: 14px;
+}
+
+/* ── Chart card internal structure ── */
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 10px;
+}
+.chart-card-header .chart-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  letter-spacing: -.2px !important;
+  text-transform: none !important;
+  margin-bottom: 0 !important;
+}
+html.light .chart-card-header .chart-title { color: var(--text) !important; }
+
+.chart-card-badge {
+  font-size: 10px;
+  color: var(--chiva-primary-light);
+  font-weight: 600;
+  background: var(--chiva-primary-dim);
+  border: 1px solid var(--chiva-primary-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Top-list: mais altura nos cards do dashboard ── */
+#page-dashboard .top-list { max-height: 220px; }
+
+/* ── Dashboard grids ── */
+.dash-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.dash-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1080px) {
+  .dash-grid-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .dash-grid-2,
+  .dash-grid-3 { grid-template-columns: 1fr; }
+  .dash-page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .dash-header-actions { justify-content: flex-start; }
+  .dash-filterbar { padding: 8px 10px; }
+  .dash-section-heading { margin: 24px 0 14px; }
+  .dash-hero-chart .chart-card-header .chart-title { font-size: 13px; }
+}
+
+/* ── Dashboard refinements v4.1 ── */
+/* 1. stat card: restore subtle inner-gradient + ::before accent line */
+.stat {
+  background: linear-gradient(180deg, rgba(255,255,255,.015), transparent),
+              var(--surface) !important;
+  position: relative;
+  overflow: hidden;
+}
+.stat::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--chiva-primary), var(--chiva-primary-light));
+  opacity: .4;
+  border-radius: inherit;
+  transition: opacity var(--t-base);
+  pointer-events: none;
+}
+.stat:hover::before {
+  opacity: 1;
+}
+
+/* 2. stat-label: lock at 10px for consistent hierarchy */
+.stat-label {
+  font-size: 10px !important;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* 3. top-item: rounder corners + tighter list gap */
+.top-item {
+  border-radius: 10px !important;
+}
+.top-list {
+  gap: 6px !important;
+}
+
+/* ════════════════════════════════════════════════
+   Inteligência — Página Unificada
+   ════════════════════════════════════════════════ */
+
+/* Segment grid: responsive, min 280px */
+.intel-segment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* Customer list cards (intel-top, intel-risk, etc.) */
+.intel-list-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  min-height: 80px;
+}
+.intel-list-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.intel-actions-full {
+  width: 100%;
+}
+
+/* Section action button (inline in heading) */
+.intel-section-btn {
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  white-space: nowrap;
+}
+
+/* Radar section dot */
+.intel-dot-green {
+  background: var(--chiva-primary) !important;
+  box-shadow: 0 0 8px rgba(15,167,101,.5);
+}
+
+/* AI section dot */
+.intel-dot-ai {
+  background: linear-gradient(135deg, var(--chiva-primary), var(--chiva-primary-light)) !important;
+  box-shadow: 0 0 8px rgba(164,233,107,.4);
+}
+
+/* "Powered by Claude" badge */
+.intel-ai-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--chiva-primary);
+  background: rgba(15,167,101,.08);
+  border: 1px solid rgba(15,167,101,.2);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Responsive: collapse intel-list grids on mobile */
+@media (max-width: 720px) {
+  .intel-segment-grid { grid-template-columns: 1fr; }
 }
