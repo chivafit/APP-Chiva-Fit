@@ -298,3 +298,9 @@ BEGIN
         EXECUTE format('CREATE POLICY "Authenticated Full Access" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', t);
     END LOOP;
 END $$;
+
+DROP POLICY IF EXISTS "Anon Read Config" ON public.configuracoes;
+CREATE POLICY "Anon Read Config" ON public.configuracoes
+  FOR SELECT
+  TO anon
+  USING (true);

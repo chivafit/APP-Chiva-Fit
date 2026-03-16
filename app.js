@@ -891,7 +891,17 @@ function forceLogout(reason){
 
 function goLogout(){
   if(!confirm("Sair?"))return;
-  forceLogout("");
+  (async()=>{
+    try{
+      const url = getSupabaseProjectUrl();
+      const key = getSupabaseAnonKey();
+      if(url && key && supaClient?.auth && typeof supaClient.auth.signOut === "function"){
+        await supaClient.auth.signOut();
+      }
+    }catch(_e){}
+    forceLogout("");
+    try{ window.location.replace("./login.html"); }catch(_e){}
+  })();
 }
 window.goLogout = goLogout;
 
@@ -10497,14 +10507,14 @@ async function upsertOrdersToSupabase(orders){
     for(let i=0; i<validCliRows.length; i+=50){
       const batch = validCliRows.slice(i,i+50);
       const payload = batch.map(sanitizePayload).filter(Boolean);
-      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc" });
+      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc", ignoreDuplicates: true });
       if(error){
         hadUpsertError = true;
         try{ console.error("[Upsert v2_clientes]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_clientes error", error, batch.slice(0,5));
         for(const row of payload){
           try{
-            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc" });
+            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc", ignoreDuplicates: true });
             if(rowErr){
               hadUpsertError = true;
               try{
@@ -10517,14 +10527,18 @@ async function upsertOrdersToSupabase(orders){
       }
     }
 
-    // Recarregar mapa doc→uuid após upsert de clientes
-    const {data:cliRefresh, error:cliRefreshErr} = await supaClient.from("v2_clientes").select("id,doc").limit(5000);
-    if(cliRefreshErr){
-      logSupabaseUpsertError("select v2_clientes refresh error", cliRefreshErr, null);
-      throw cliRefreshErr;
-    }
+    // Recarregar mapa doc→uuid após upsert de clientes (somente docs relevantes; evita LIMIT 5000)
     const docToUuid = {};
-    (cliRefresh||[]).forEach(c => { if(c.doc) docToUuid[c.doc] = c.id; });
+    const docsToResolve = Array.from(new Set(validCliRows.map(r=>String(r?.doc||"").trim()).filter(Boolean)));
+    for(let i=0; i<docsToResolve.length; i+=200){
+      const batch = docsToResolve.slice(i, i+200);
+      const {data, error} = await supaClient.from("v2_clientes").select("id,doc").in("doc", batch).limit(5000);
+      if(error){
+        logSupabaseUpsertError("select v2_clientes refresh error", error, batch.slice(0,20));
+        throw error;
+      }
+      (data||[]).forEach(c => { if(c?.doc) docToUuid[c.doc] = c.id; });
+    }
 
     const yampiLegacyIds = Array.from(new Set(
       (Array.isArray(orders) ? orders : [])

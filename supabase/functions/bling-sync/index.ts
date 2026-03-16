@@ -475,7 +475,7 @@ async function persistSyncResultToDb(
   const customerRows = Object.values(customersByDoc);
   for (let i = 0; i < customerRows.length; i += 100) {
     const batch = customerRows.slice(i, i + 100);
-    const { error } = await supabase.from("v2_clientes").upsert(batch, { onConflict: "doc" });
+    const { error } = await supabase.from("v2_clientes").upsert(batch, { onConflict: "doc", ignoreDuplicates: true });
     if (error) {
       console.error("[Upsert v2_clientes]", error, batch);
       throw error;

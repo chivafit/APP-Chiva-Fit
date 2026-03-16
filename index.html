@@ -14,7 +14,27 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
 <script src="./config.js?v=20260316-6"></script>
-<script type="module" src="./main.js?v=20260316-6"></script>
+<script type="module">
+  import { getSupabaseSession } from "./supabaseClient.js?v=20260316-6";
+
+  function readLS(key){
+    try{ return String(localStorage.getItem(key) || ""); }catch(_e){ return ""; }
+  }
+
+  const url = String(window.APP_CONFIG?.supabaseUrl || readLS("crm_supa_url") || readLS("supabase_url") || "").trim();
+  const key = String(window.APP_CONFIG?.supabaseAnonKey || readLS("crm_supa_key") || readLS("supabase_key") || "").trim();
+
+  if(!url || !key){
+    window.location.replace("./login.html");
+  } else {
+    const session = await getSupabaseSession(url, key);
+    if(!session?.access_token){
+      window.location.replace("./login.html");
+    } else {
+      await import("./main.js?v=20260316-6");
+    }
+  }
+</script>
 <link rel="stylesheet" href="./main.css?v=20260316-6">
 </head>
 <body>
