@@ -5195,3 +5195,41 @@ html.light .chart-card-header .chart-title { color: var(--text) !important; }
   .dash-section-heading { margin: 24px 0 14px; }
   .dash-hero-chart .chart-card-header .chart-title { font-size: 13px; }
 }
+
+/* ── Dashboard refinements v4.1 ── */
+/* 1. stat card: restore subtle inner-gradient + ::before accent line */
+.stat {
+  background: linear-gradient(180deg, rgba(255,255,255,.015), transparent),
+              var(--surface) !important;
+  position: relative;
+  overflow: hidden;
+}
+.stat::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--chiva-primary), var(--chiva-primary-light));
+  opacity: .4;
+  border-radius: inherit;
+  transition: opacity var(--t-base);
+  pointer-events: none;
+}
+.stat:hover::before {
+  opacity: 1;
+}
+
+/* 2. stat-label: lock at 10px for consistent hierarchy */
+.stat-label {
+  font-size: 10px !important;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* 3. top-item: rounder corners + tighter list gap */
+.top-item {
+  border-radius: 10px !important;
+}
+.top-list {
+  gap: 6px !important;
+}
