@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-3";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-4";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-3";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-3";
-import { CRMStore } from "./store.js?v=20260316-3";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-3";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-3";
+} from "./ia.js?v=20260316-4";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-4";
+import { CRMStore } from "./store.js?v=20260316-4";
+import { STORAGE_KEYS } from "./constants.js?v=20260316-4";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260316-4";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -25,18 +25,18 @@ import {
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-3";
+} from "./viewsApi.js?v=20260316-4";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260316-3";
+} from "./sync/bling.js?v=20260316-4";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-3";
+} from "./sync/yampi.js?v=20260316-4";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -1533,12 +1533,37 @@ function val(o){
   return parseFloat(v) || 0; 
 }
 function getPedidoItens(o){
-  const raw =
-    Array.isArray(o?.itens) ? o.itens :
-    Array.isArray(o?.items) ? o.items :
-    Array.isArray(o?.produtos) ? o.produtos :
-    Array.isArray(o?.itensPedido) ? o.itensPedido :
-    [];
+  const candidate =
+    o?.itens != null ? o.itens :
+    o?.items != null ? o.items :
+    o?.produtos != null ? o.produtos :
+    o?.itensPedido != null ? o.itensPedido :
+    null;
+
+  let raw = [];
+  if(Array.isArray(candidate)){
+    raw = candidate;
+  }else if(typeof candidate === "string"){
+    const s = candidate.trim();
+    if(s){
+      try{
+        const parsed = JSON.parse(s);
+        if(Array.isArray(parsed)) raw = parsed;
+        else if(parsed && typeof parsed === "object"){
+          if(Array.isArray(parsed.itens)) raw = parsed.itens;
+          else if(Array.isArray(parsed.items)) raw = parsed.items;
+          else if(Array.isArray(parsed.produtos)) raw = parsed.produtos;
+          else if(Array.isArray(parsed.itensPedido)) raw = parsed.itensPedido;
+        }
+      }catch(_e){}
+    }
+  }else if(candidate && typeof candidate === "object"){
+    if(Array.isArray(candidate.itens)) raw = candidate.itens;
+    else if(Array.isArray(candidate.items)) raw = candidate.items;
+    else if(Array.isArray(candidate.produtos)) raw = candidate.produtos;
+    else if(Array.isArray(candidate.itensPedido)) raw = candidate.itensPedido;
+  }
+
   if(!Array.isArray(raw) || !raw.length) return [];
   const out = [];
   raw.filter(Boolean).forEach(it=>{
@@ -4067,6 +4092,7 @@ function renderDashInsightsMini(_ordersSales){
 function renderDashProductsMini(ordersSales, ordersPrevSales){
   const el = document.getElementById("dash-top-products");
   if(!el) return;
+  try{
   const agg = (orders)=>{
     const m = {};
     orders.forEach(o=>{
@@ -4090,7 +4116,10 @@ function renderDashProductsMini(ordersSales, ordersPrevSales){
     .sort((a,b)=> (b.rev||0) - (a.rev||0))
     .slice(0, 5);
   if(!list.length){
-    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem produtos no período.</div>`;
+    const hasOrders = Array.isArray(ordersSales) && ordersSales.length > 0;
+    el.innerHTML = hasOrders
+      ? `<div class="empty" style="padding:14px 0">Sem itens de produtos nos pedidos desse período.</div>`
+      : `<div class="empty" style="padding:14px 0">Sem produtos no período.</div>`;
     return;
   }
   el.innerHTML = list.map((p,i)=>{
@@ -4110,6 +4139,9 @@ function renderDashProductsMini(ordersSales, ordersPrevSales){
       <div class="dash-prod-delta ${escapeHTML(cls)}">${escapeHTML(txt)}</div>
     </div>`;
   }).join("");
+  }catch(_e){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Erro ao carregar produtos.</div>`;
+  }
 }
 
 function renderDashAlertsMini(_ordersSales){
