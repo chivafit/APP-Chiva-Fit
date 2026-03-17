@@ -69,6 +69,10 @@ import {
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl,
 } from './sync/yampi.js';
 
+// ── Vercel Analytics: inicializa ──
+import { inject } from '@vercel/analytics';
+inject();
+
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
 window.addEventListener('unhandledrejection', function (event) {
@@ -105,6 +109,7 @@ let supaClient = null;
 let supaSession = null;
 let supaAccessToken = '';
 let supaAuthUnsub = null;
+let _sessionRefreshInFlight = null;
 let canaisLookup = {};
 let clientesIntelCache = [];
 let clientesIntelLoadedAt = 0;
@@ -179,6 +184,11 @@ function safeInvokeName(name, ...args) {
     console.warn(name + ':', e?.message || String(e));
   }
 }
+
+try {
+  window.handleRoute = handleRoute;
+  window.initNavigation = initNavigation;
+} catch (_e) {}
 
 let CID = '',
   CSEC = '',
@@ -602,7 +612,6 @@ function getSupaFnBase() {
   return url + '/functions/v1';
 }
 
-let _sessionRefreshInFlight = null;
 async function refreshSupabaseSession() {
   if (!supaClient || !supaClient.auth || typeof supaClient.auth.getSession !== 'function')
     return null;
@@ -920,7 +929,7 @@ function enterApp(userEmail) {
       nameEl.textContent = 'Administrador';
     }
   }
-  safeInvokeName('showPage', 'dashboard');
+  safeInvokeName('handleRoute');
 
   const overlay = document.getElementById('app-loader');
   if (overlay) {
@@ -3619,12 +3628,22 @@ function showPage(id) {
 
 // Sidebar mobile controls
 function openMobileSidebar() {
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('sidebar-overlay').classList.add('visible');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) {
+    sidebar.classList.add('open');
+    sidebar.classList.add('visible');
+  }
+  if (overlay) overlay.classList.add('visible');
 }
 function closeMobileSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('visible');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) {
+    sidebar.classList.remove('open');
+    sidebar.classList.remove('visible');
+  }
+  if (overlay) overlay.classList.remove('visible');
 }
 
 // Drawer controls
@@ -13856,6 +13875,9 @@ async function loadSupabaseData() {
       await loadCanalLookup();
       console.debug('[loadSupabaseData] dados auxiliares OK, carregando pedidos…');
       await loadOrdersFromSupabaseForCRM();
+      mergeOrders();
+      renderProdutos();
+      renderAll();
       console.debug(
         '[loadSupabaseData] pedidos OK — blingOrders:',
         blingOrders.length,
@@ -17082,10 +17104,46 @@ function renderChartsCom() {
   }
 }
 
+// ═══════════════════════════════════════════════════
+//  ROUTER & NAVEGAÇÃO
+// ═══════════════════════════════════════════════════
+function handleRoute() {
+  let hash = window.location.hash.replace('#', '').trim();
+  if (!hash) hash = 'dashboard';
+
+  // Tratamento de rotas com nomes divergentes
+  const routeMap = { 'pedidos': 'pedidos-page' };
+  const pageId = routeMap[hash] || hash;
+
+  if (typeof showPage === 'function') showPage(pageId);
+}
+
+let _navBound = false;
+function initNavigation() {
+  if (_navBound) return;
+  _navBound = true;
+
+  document.addEventListener('click', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.nav-item') : null;
+    if (!item) return;
+    const page = item.getAttribute('data-page');
+    if (page) window.location.hash = page;
+  });
+  window.addEventListener('hashchange', handleRoute);
+  handleRoute();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initNavigation);
+} else {
+  initNavigation();
+}
+
 Object.assign(window, {
   handleLoginSubmit,
   goLogout,
   enterApp,
+  initNavigation,
+  handleRoute,
   showPage,
   closeMobileSidebar,
   openMobileSidebar,

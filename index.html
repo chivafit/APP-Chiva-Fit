@@ -67,6 +67,67 @@
     </script>
     <link rel="stylesheet" href="./main.css" />
     <link rel="stylesheet" href="./styles/main.css" />
+    <style>
+      /* FAILSAFE DESKTOP & VISIBILITY (Acima de 1024px) */
+      @media (min-width: 1024px) {
+        /* Mata o overlay mobile */
+        #sidebar-overlay { display: none !important; pointer-events: none !important; }
+        
+        /* Estrutura principal Lado a Lado */
+        #app-shell { 
+          display: flex !important; 
+          flex-direction: row !important; 
+          height: 100vh !important;
+          overflow: hidden !important;
+        }
+        
+        /* Sidebar fixa */
+        #sidebar { 
+          position: relative !important; 
+          z-index: 10 !important; 
+          height: 100vh !important;
+          flex-shrink: 0 !important;
+        }
+        
+        /* Área principal com Scroll */
+        #main-area { 
+          flex: 1 !important; 
+          display: flex !important; 
+          flex-direction: column !important; 
+          height: 100vh !important; 
+          overflow-y: auto !important; 
+        }
+        
+        /* Topbar empurrando o conteudo */
+        #topbar { 
+          position: sticky !important; 
+          top: 0 !important; 
+          z-index: 100 !important; 
+          width: 100% !important;
+          background: var(--surface, #ffffff) !important;
+        }
+      }
+
+      /* BLINDAGEM DE VISIBILIDADE DAS PÁGINAS (Para todas as telas) */
+      #main-content .page { 
+        display: none !important; 
+        opacity: 0 !important; 
+        visibility: hidden !important;
+      }
+      
+      #main-content .page.active { 
+        display: block !important; 
+        opacity: 1 !important; 
+        visibility: visible !important;
+        min-height: 500px !important;
+        animation: fadeIn 0.3s ease forwards;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(5px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
   </head>
   <body>
     <!-- LOGIN -->
@@ -333,14 +394,17 @@
       id="app-shell"
       style="
         display: none;
-        flex-direction: column;
         min-height: 100vh;
         opacity: 0;
         transition: opacity 0.3s ease;
       "
     >
       <!-- SIDEBAR OVERLAY (mobile) -->
-      <div id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+      <div
+        id="sidebar-overlay"
+        onclick="closeMobileSidebar()"
+        style="display: none; pointer-events: none"
+      ></div>
 
       <!-- SIDEBAR -->
       <nav id="sidebar">

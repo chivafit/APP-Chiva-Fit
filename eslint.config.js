@@ -40,6 +40,7 @@ const nodeGlobals = {
   module: 'readonly',
   require: 'readonly',
   exports: 'readonly',
+  global: 'readonly',
   console: 'readonly',
   setTimeout: 'readonly',
   clearTimeout: 'readonly',
@@ -69,6 +70,21 @@ module.exports = [
     },
   },
   {
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...browserGlobals,
+        ...nodeGlobals,
+      },
+    },
+    rules: {
+      'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
     files: [
       'eslint.config.js',
       'tailwind.config.js',
@@ -78,6 +94,18 @@ module.exports = [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'script',
+      globals: nodeGlobals,
+    },
+    rules: {
+      'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
+    files: ['vite.config.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
       globals: nodeGlobals,
     },
     rules: {
