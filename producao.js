@@ -2216,6 +2216,7 @@ export {
   marcarOrdemConcluida,
   baixarEstoqueDaOrdem,
   setProdTab,
+  abrirMovimentosDoLote,
 };
 
 window.renderProdKpis = renderProdKpis;

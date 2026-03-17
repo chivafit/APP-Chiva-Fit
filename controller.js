@@ -49,7 +49,12 @@ function enableHashNavigation() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function _initController() {
   bindNavigation();
   enableHashNavigation();
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initController);
+} else {
+  _initController();
+}

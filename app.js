@@ -1,4 +1,24 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from './producao.js';
+import {
+  abrirModalInsumo,
+  abrirMovimentosDoLote,
+  abrirNovaOrdem,
+  allInsumos,
+  allOrdens,
+  calcularSimulador,
+  deletarInsumo,
+  deletarOrdem,
+  getEstPct,
+  getEstStatus,
+  registrarEntradaInsumo,
+  renderInsumos,
+  renderOrdens,
+  renderProdKpis,
+  renderReceitaDetalhe,
+  salvarInsumo,
+  salvarOrdem,
+  setProdTab,
+  novoProdutoReceita,
+} from './producao.js';
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -58,7 +78,7 @@ window.onerror = function (message, source, lineno, colno, error) {
   captureError(error || new Error(String(message)), { source, lineno, colno });
 };
 
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
   if (window.Chart) {
     Chart.defaults.font.family = "'Plus Jakarta Sans',system-ui,sans-serif";
     Chart.defaults.color = '#585f78';
@@ -71,7 +91,7 @@ document.addEventListener('DOMContentLoaded', function () {
     Chart.defaults.plugins.tooltip.padding = 10;
     Chart.defaults.plugins.tooltip.cornerRadius = 8;
   }
-});
+})();
 
 /* ═══════════════════════════════════════════
    FUNÇÕES UTILITÁRIAS — CORREÇÃO DE ERROS
@@ -249,7 +269,7 @@ window.CRMStore = CRMStore;
 // ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
+(async function _tryAutoLogin() {
   const shell = document.getElementById('app-shell');
   if (shell && shell.classList.contains('visible')) return;
 
@@ -296,7 +316,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!loggedIn) return;
   const email = localStorage.getItem(STORAGE_KEYS.sessionEmail) || 'admin@chivafit.com';
   enterApp(email);
-});
+})();
 
 try {
   (() => {
@@ -2241,7 +2261,7 @@ function copySupabaseShareLink() {
   }
 }
 // Load supa config into form on page open
-document.addEventListener('DOMContentLoaded', () => {
+(function () {
   bindDateMasks(document);
   const u =
     localStorage.getItem('crm_supa_url') ||
@@ -2278,7 +2298,7 @@ document.addEventListener('DOMContentLoaded', () => {
       toEl.value = fmtDate(new Date().toISOString().slice(0, 10));
     }
   } catch (_e) {}
-});
+})();
 
 function saveAIKey() {
   toast('A chave da IA agora é gerenciada com segurança no servidor.');
@@ -11740,17 +11760,6 @@ function renderProdutos(_deferred) {
   const now = new Date();
   const m = {};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
-  if (allOrders[0]) {
-    try {
-      console.log(
-        '[Pedido exemplo]',
-        allOrders[0],
-        'itens encontrados:',
-        getPedidoItens(allOrders[0]).length,
-      );
-    } catch (_e) {}
-  }
-
   if (!allOrders.length) {
     if (detailedEl)
       detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
@@ -13776,14 +13785,23 @@ async function loadSupabaseData() {
     }
 
     await loadClienteMetaCache();
+    console.debug('[loadSupabaseData] clienteMeta OK');
     await loadInsumosFromSupabase();
     await loadReceitasProdutosFromSupabase();
     await loadOrdensProducaoFromSupabase();
     await loadMovimentosEstoqueFromSupabase();
     await loadCarrinhosAbandonadosFromSupabase();
     await loadCanalLookup();
+    console.debug('[loadSupabaseData] dados auxiliares OK, carregando pedidos…');
     await loadOrdersFromSupabaseForCRM();
+    console.debug(
+      '[loadSupabaseData] pedidos OK — blingOrders:',
+      blingOrders.length,
+      'yampiOrders:',
+      yampiOrders.length,
+    );
     await loadClientesInteligenciaCache();
+    console.debug('[loadSupabaseData] clientesIntelCache:', clientesIntelCache.length);
     await loadBlingProductsFromSupabase();
 
     updateBadge();
@@ -13791,18 +13809,25 @@ async function loadSupabaseData() {
     populateUFs();
     dataReady = true;
     console.log(
-      '[Load] Bling:',
-      Array.isArray(blingOrders) ? blingOrders.length : 0,
-      'Yampi:',
-      Array.isArray(yampiOrders) ? yampiOrders.length : 0,
-      'Total:',
-      Array.isArray(allOrders) ? allOrders.length : 0,
-      'Clientes:',
-      Array.isArray(allCustomers) ? allCustomers.length : 0,
+      '[loadSupabaseData] ✅ CONCLUÍDO — allOrders:',
+      allOrders.length,
+      'allCustomers:',
+      allCustomers.length,
+      '| Bling:',
+      blingOrders.filter((o) => o._source === 'bling').length,
+      '| Yampi:',
+      yampiOrders.length,
     );
     renderAll();
   } catch (e) {
-    console.warn('loadSupabaseData:', e.message);
+    console.error('[loadSupabaseData] ❌ erro inesperado:', e?.message || e, e);
+    captureError(e, { context: 'loadSupabaseData' });
+    try {
+      mergeOrders();
+    } catch (_e) {}
+    try {
+      renderAll();
+    } catch (_e) {}
   } finally {
     isLoadingData = false;
     if (!dataReady) dataReady = true;
@@ -13892,6 +13917,8 @@ async function loadClientesInteligenciaCache(forceReset = false) {
   } catch (_e) {
   } finally {
     clientesIntelInFlight = false;
+    // Garante que o cooldown seja setado mesmo em falha, evitando loop de retry
+    if (!clientesIntelLoadedAt) clientesIntelLoadedAt = Date.now();
   }
 }
 
@@ -14412,7 +14439,10 @@ async function loadOrdersFromSupabaseForCRM() {
       }
     }
     return { bling: nextBling.length, yampi: nextYampi.length };
-  } catch (_e) {}
+  } catch (e) {
+    console.error('[loadOrdersFromSupabaseForCRM] ❌ falha:', e?.message || e, e);
+    captureError(e, { context: 'loadOrdersFromSupabaseForCRM' });
+  }
 }
 
 async function sbSetConfig(chave, valor) {
@@ -16771,13 +16801,13 @@ function fecharModal(id) {
   var el = document.getElementById(id);
   if (el) el.classList.remove('open');
 }
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
   document.querySelectorAll('.mod-overlay').forEach(function (el) {
     el.addEventListener('click', function (e) {
       if (e.target === el) el.classList.remove('open');
     });
   });
-});
+})();
 
 function renderChartEstoque() {
   var ctx = document.getElementById('chart-estoque');
@@ -17159,6 +17189,11 @@ Object.assign(window, {
   deletarOrdem,
   salvarOrdem,
   abrirMovimentosDoLote,
+  // Estado global — exportado para que funções externas via window.allOrders vejam os dados
+  allOrders,
+  allCustomers,
+  blingOrders,
+  yampiOrders,
 });
 
 export {
