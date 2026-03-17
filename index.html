@@ -13,42 +13,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://browser.sentry-cdn.com/8.28.0/bundle.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
-<script type="module" src="./config.js"></script>
-<script type="module">
-  import { getSupabaseSession } from "./supabaseClient.js";
-
-  (async function(){
-    function readLS(key){
-      try{ return String(localStorage.getItem(key) || ""); }catch(_e){ return ""; }
-    }
-  
-    const url = String(window.APP_CONFIG?.supabaseUrl || readLS("crm_supa_url") || readLS("supabase_url") || "").trim();
-    const key = String(window.APP_CONFIG?.supabaseAnonKey || readLS("crm_supa_key") || readLS("supabase_key") || "").trim();
-  
-    if(!url || !key){
-      window.location.replace("./login.html");
-      return;
-    }
-  
-    try {
-      const session = await getSupabaseSession(url, key);
-      if(!session?.access_token){
-        if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
-          console.warn("Sem sessão Supabase, mas permitindo carregamento em localhost.");
-          await import("./main.js");
-        } else {
-          window.location.replace("./login.html");
-        }
-      } else {
-        await import("./main.js");
-      }
-    } catch (e) {
-      console.error("Erro crítico no bootstrap:", e);
-      await import("./main.js");
-    }
-  })();
-</script>
-<link rel="stylesheet" href="./main.css">
+<script src="./config.js?v=20260317-3"></script>
+<script type="module" src="./main.js?v=20260317-4"></script>
+<link rel="stylesheet" href="./main.css?v=20260317-4">
 </head>
 <body>
 
