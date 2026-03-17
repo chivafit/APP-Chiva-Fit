@@ -49,6 +49,39 @@ const EVICTABLE_KEYS = [
   "crm_climeta",
 ];
 
+/**
+ * Retry com exponential backoff.
+ * @param {Function} fn - função async a executar
+ * @param {number} maxAttempts - máximo de tentativas (default 3)
+ * @param {number} baseDelayMs - delay base em ms (default 1000)
+ */
+export async function withRetry(fn, maxAttempts = 3, baseDelayMs = 1000){
+  let lastError;
+  for(let attempt = 1; attempt <= maxAttempts; attempt++){
+    try{
+      return await fn();
+    }catch(e){
+      lastError = e;
+      const isRetryable = !e?.message?.includes("Unauthorized") &&
+                          !e?.message?.includes("invalid_grant") &&
+                          !e?.message?.includes("Supabase não configurado");
+      if(!isRetryable || attempt === maxAttempts) throw e;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      console.warn(`[retry] tentativa ${attempt}/${maxAttempts} falhou, aguardando ${delay}ms:`, e?.message);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+export function debounce(fn, delay){
+  let timer;
+  return function(...args){
+    clearTimeout(timer);
+    timer = setTimeout(()=> fn.apply(this, args), delay);
+  };
+}
+
 export function safeSetItem(key, value){
   try{
     localStorage.setItem(key, value);

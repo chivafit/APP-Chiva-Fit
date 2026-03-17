@@ -153,7 +153,7 @@
   <span class="topbar-title" id="topbar-title">Dashboard</span>
   <div class="topbar-search-wrap">
     <span class="topbar-search-icon">🔍</span>
-    <input type="search" id="topbar-search" placeholder="Buscar clientes, pedidos..." oninput="handleTopbarSearch(this.value)"/>
+    <input type="search" id="topbar-search" placeholder="Buscar clientes, pedidos..." oninput="handleTopbarSearchDebounced(this.value)"/>
   </div>
   <div class="topbar-actions">
     <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">
@@ -636,7 +636,7 @@
   <div class="saas-filterbar" style="margin-bottom:12px">
     <div class="saas-search">
       <span class="saas-search-ico">⌕</span>
-      <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientes()"/>
+      <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientesDebounced()"/>
     </div>
     <div class="saas-chips">
       <select id="fil-cli-status" class="saas-chip saas-chip-select" onchange="renderClientes()">
@@ -1004,7 +1004,7 @@
 <div class="saas-filterbar" style="margin-bottom:14px">
   <div class="saas-search">
     <span class="saas-search-ico">⌕</span>
-    <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPage()"/>
+    <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPageDebounced()"/>
   </div>
   <div class="saas-chips" aria-label="Filtros de pedidos">
     <button class="saas-chip saas-chip-btn" onclick="exportPedidosCSV()" title="Exportar pedidos em CSV" aria-label="Exportar CSV">↓ CSV</button>

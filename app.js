@@ -9,7 +9,7 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-6";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-2";
 import { CRMStore } from "./store.js?v=20260316-6";
 import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
@@ -441,17 +441,23 @@ function getSupaFnBase(){
   return url + "/functions/v1";
 }
 
+let _sessionRefreshInFlight = null;
 async function refreshSupabaseSession(){
   if(!supaClient || !supaClient.auth || typeof supaClient.auth.getSession !== "function") return null;
-  try{
-    const { data, error } = await supaClient.auth.getSession();
-    if(error) return null;
-    supaSession = data?.session || null;
-    supaAccessToken = supaSession?.access_token ? String(supaSession.access_token) : "";
-    return supaSession;
-  }catch(_e){
-    return null;
-  }
+  // Singleton: se já há um refresh em andamento, aguardar o mesmo resultado
+  if(_sessionRefreshInFlight) return _sessionRefreshInFlight;
+  _sessionRefreshInFlight = (async()=>{
+    try{
+      const { data, error } = await supaClient.auth.getSession();
+      if(error) return null;
+      supaSession = data?.session || null;
+      supaAccessToken = supaSession?.access_token ? String(supaSession.access_token) : "";
+      return supaSession;
+    }catch(_e){
+      return null;
+    }
+  })().finally(()=>{ _sessionRefreshInFlight = null; });
+  return _sessionRefreshInFlight;
 }
 
 async function supaFnHeadersAsync(){
@@ -479,8 +485,21 @@ function supaFnHeaders(){
 async function bootstrapFromSupabase(){
   try{
     const connected = await initSupabase();
-    if(connected) await loadSupabaseData();
-
+    if(connected){
+      await loadSupabaseData();
+      // Verificar erro de token Bling e alertar o usuário no boot
+      try{
+        const { data: tokenErrRow } = await supaClient.from("configuracoes")
+          .select("valor_texto").eq("chave","bling_token_error").maybeSingle();
+        const tokenErr = String(tokenErrRow?.valor_texto || "").trim();
+        if(tokenErr){
+          const parsed = JSON.parse(tokenErr);
+          if(parsed?.type && parsed?.message){
+            setTimeout(()=> toast(`⚠ Bling: ${parsed.message}`, "error"), 3500);
+          }
+        }
+      }catch(_e){}
+    }
     CRM_BOOTSTRAPPED = true;
     CRM_BOOTSTRAP_ERROR = null;
   }catch(e){
@@ -1434,8 +1453,9 @@ async function syncBling(){
   const barTxt = document.getElementById("sync-txt-bar");
   if(bar) bar.classList.add("show");
   if(barTxt) barTxt.textContent = "⟳ Sincronizando Bling…";
+  const opts = arguments?.[0];
   try{
-    const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
+    const res = await withRetry(()=> syncBlingImpl(getSyncCtx(), opts), 3, 2000);
     checkEstoqueCritico();
     try{ refreshBlingAutoCard(); }catch(_e){}
     if(barTxt) barTxt.textContent = "✓ Bling sincronizado";
@@ -1488,7 +1508,7 @@ async function syncYampi(){
   if(bar) bar.classList.add("show");
   if(barTxt) barTxt.textContent = "⟳ Sincronizando Yampi…";
   try{
-    const res = await syncYampiImpl(getSyncCtx());
+    const res = await withRetry(()=> syncYampiImpl(getSyncCtx()), 3, 2000);
     checkEstoqueCritico();
     if(barTxt) barTxt.textContent = "✓ Yampi sincronizado";
     setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
@@ -2380,6 +2400,10 @@ function closeDrawer(){
 }
 
 // Topbar search
+const handleTopbarSearchDebounced = debounce(function(q){ handleTopbarSearch(q); }, 300);
+const renderClientesDebounced = debounce(function(){ renderClientes(); }, 250);
+const renderPedidosPageDebounced = debounce(function(){ renderPedidosPage(); }, 250);
+
 function handleTopbarSearch(q){
   if(!q||q.length<2) return;
   const lower = q.toLowerCase();
@@ -10141,6 +10165,10 @@ async function loadClientesInteligenciaCache(forceReset=false){
     clientesIntelHasMore = hasMore;
     clientesIntelLoadedAt = Date.now();
     updateClientesIntelFiltersOptions();
+    // Avisar se atingiu o limite da página (dados podem estar incompletos)
+    if(!hasMore && clientesIntelCache.length > 0 && clientesIntelCache.length % pageSize === 0){
+      console.warn(`[Clientes] Total carregado (${clientesIntelCache.length}) é múltiplo exato do pageSize — pode haver mais registros.`);
+    }
   }catch(_e){}finally{
     clientesIntelInFlight = false;
   }

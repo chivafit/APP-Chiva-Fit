@@ -56,9 +56,11 @@ async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, sel
   }
 }
 
+const DASHBOARD_KPI_COLS = "faturamento_total,faturamento_mes,faturamento_ontem,pedidos_total,pedidos_mes,pedidos_ontem,ticket_medio,ticket_medio_mes,clientes_ativos,clientes_novos_mes,clientes_churn,taxa_recompra,ltv_medio";
+
 export async function getDashboardKpis(client){
   try{
-    const { data, error } = await client.from("vw_dashboard_kpis").select("*").maybeSingle();
+    const { data, error } = await client.from("vw_dashboard_kpis").select(DASHBOARD_KPI_COLS).maybeSingle();
     if(error) return null;
     return data || null;
   }catch(_e){
@@ -104,7 +106,7 @@ export async function getNewCustomersDaily(client, fromIso, toIso){
 
 export async function getFunilRecompra(client){
   try{
-    const { data, error } = await client.from("vw_funil_recompra").select("*").limit(50);
+    const { data, error } = await client.from("vw_funil_recompra").select("etapa,clientes,percentual").limit(50);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -115,7 +117,7 @@ export async function getFunilRecompra(client){
 export async function getTopCidades(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_top_cidades").select("*").limit(n);
+    const { data, error } = await client.from("vw_top_cidades").select("cidade,uf,clientes,faturamento,pedidos").limit(n);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -126,7 +128,7 @@ export async function getTopCidades(client, limit){
 export async function getProdutosFavoritos(client, limit){
   const n = Math.max(1, Math.min(100, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_produtos_favoritos").select("*").limit(n);
+    const { data, error } = await client.from("vw_produtos_favoritos").select("produto,sku,quantidade,faturamento,clientes").limit(n);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -134,10 +136,12 @@ export async function getProdutosFavoritos(client, limit){
   }
 }
 
+const CLIENTES_CARD_COLS = "cliente_id,nome,email,telefone,canal_principal,status,segmento_crm,ltv,score_recompra,risco_churn,dias_desde_ultima_compra,total_pedidos,uf,cidade,next_best_action";
+
 export async function getClientesVipRisco(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_vip_risco").select("*").limit(n);
+    const { data, error } = await client.from("vw_clientes_vip_risco").select(CLIENTES_CARD_COLS).limit(n);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -148,7 +152,7 @@ export async function getClientesVipRisco(client, limit){
 export async function getClientesReativacao(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_reativacao").select("*").limit(n);
+    const { data, error } = await client.from("vw_clientes_reativacao").select(CLIENTES_CARD_COLS).limit(n);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -159,7 +163,7 @@ export async function getClientesReativacao(client, limit){
 export async function getClientesSemContato(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_sem_contato").select("*").limit(n);
+    const { data, error } = await client.from("vw_clientes_sem_contato").select(CLIENTES_CARD_COLS).limit(n);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){
@@ -208,13 +212,22 @@ function pickNextCursor(rows){
   };
 }
 
+const CLIENTES_INTEL_COLS = [
+  "cliente_id","nome","email","telefone","celular","doc","cidade","uf",
+  "canal_principal","status","segmento_crm","faixa_valor","faixa_frequencia",
+  "pipeline_stage","total_pedidos","total_gasto","ltv","ticket_medio",
+  "dias_desde_ultima_compra","score_recompra","risco_churn","score_final",
+  "next_best_action","ultimo_pedido","primeiro_pedido",
+  "last_interaction_at","last_interaction_type","last_contact_at","responsible_user"
+].join(",");
+
 export async function getClientesInteligencia(client, opts){
   const legacyLimit = typeof opts === "number" ? opts : null;
   const input = (opts && typeof opts === "object") ? opts : {};
   const pageSize = Math.max(1, Math.min(500, Number(input.pageSize || (legacyLimit != null ? legacyLimit : 500)) || 500));
   const cursor = input.cursor || null;
   try{
-    let q = client.from("vw_clientes_inteligencia").select("*").limit(pageSize);
+    let q = client.from("vw_clientes_inteligencia").select(CLIENTES_INTEL_COLS).limit(pageSize);
     q = q
       .order("risco_churn", { ascending: false, nullsFirst: false })
       .order("score_recompra", { ascending: false, nullsFirst: false })

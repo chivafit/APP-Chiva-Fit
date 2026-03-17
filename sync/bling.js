@@ -72,6 +72,7 @@ export async function syncBling(ctx, options){
     }catch(_e){}
   }
 
+  const syncStartedAt = Date.now();
   try{
     let offset = 0;
     let batch = 0;
@@ -138,11 +139,33 @@ export async function syncBling(ctx, options){
       st.className = "setup-status s-ok";
     }
     if(!silent) ctx.toast("✓ Bling sincronizado!");
+    // Registrar sucesso no sync_log
+    try{
+      if(ctx.isSupaReady()){
+        await ctx.getSupaClient().from("sync_log").insert({
+          integration: "bling", event: "orders_sync", status: "success",
+          message: `${imported} pedidos importados em ${batch} lotes`,
+          records_count: imported,
+          duration_ms: Date.now() - syncStartedAt
+        });
+      }
+    }catch(_e){}
   }catch(e){
     if(st){
       st.textContent = "⚠ " + (e?.message || String(e));
       st.className = "setup-status s-err";
     }
+    // Registrar erro no sync_log
+    try{
+      if(ctx.isSupaReady()){
+        await ctx.getSupaClient().from("sync_log").insert({
+          integration: "bling", event: "orders_sync", status: "error",
+          message: e?.message || String(e),
+          duration_ms: Date.now() - syncStartedAt
+        });
+      }
+    }catch(_e){}
+    throw e;
   }
 }
 

@@ -7,10 +7,13 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
  * Lê eventos da Yampi e grava em "yampi_orders" no Supabase.
  */
 
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "https://chivafit.github.io";
+
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-yampi-hmac-sha256",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
 };
 
 declare const Deno: any;
