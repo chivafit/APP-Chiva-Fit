@@ -1552,7 +1552,8 @@ export {
   setOrdemStatusQuick,
   marcarOrdemConcluida,
   baixarEstoqueDaOrdem,
-  setProdTab
+  setProdTab,
+  abrirMovimentosDoLote
 };
 
 window.renderProdKpis = renderProdKpis;
