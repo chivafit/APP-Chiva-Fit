@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  conflict-markers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on merge conflict markers
+        run: |
+          set -euo pipefail
+          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+            echo ""
+            echo "Merge conflict markers detected. Please resolve conflicts and commit the resolved files."
+            exit 1
+          fi
+          echo "OK: no conflict markers found."
+
