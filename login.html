@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="theme-color" content="#0FA765"/>
+  <title>Login — CRM Chiva Fit</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root{--bg:#0b0f1a;--card:rgba(15,23,42,.9);--text:#e5e7eb;--muted:#9ca3af;--border:rgba(255,255,255,.06);--green:#0FA765;--red:#f87171}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);font-family:"Plus Jakarta Sans",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text)}
+    .bg{position:fixed;inset:0;background-image:url('https://d2xsxph8kpxj0f.cloudfront.net/310519663418066667/ZLAADSAk7SZJ5nBybRgJRj/chiva-login-bg-9bLybzccxsDJbVAqmR9Amf.webp');background-size:cover;background-position:center;opacity:.3}
+    .grad{position:fixed;inset:0;background:radial-gradient(ellipse at center, rgba(15,167,101,.14) 0%, rgba(11,15,26,.96) 70%)}
+    .box{position:relative;z-index:1;max-width:420px;width:100%;margin:0 16px;padding:28px 24px 24px;border-radius:20px;border:1px solid var(--border);background:var(--card);backdrop-filter:blur(20px);box-shadow:0 18px 55px rgba(0,0,0,.6)}
+    .logo{display:flex;flex-direction:column;align-items:center;margin-bottom:18px}
+    .icon{width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#0FA765,#13c97e);display:flex;align-items:center;justify-content:center;margin-bottom:10px;box-shadow:0 10px 30px rgba(15,167,101,.5);font-size:26px;color:#fff}
+    h1{margin:0;font-size:18px;font-weight:800;letter-spacing:-.03em}
+    p{margin:4px 0 0;font-size:12px;color:var(--muted)}
+    label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin:10px 0 4px}
+    input{width:100%;padding:9px 10px;border-radius:9px;border:1px solid rgba(148,163,184,.5);background:rgba(15,23,42,.85);color:var(--text);font-size:12px;outline:none}
+    input:focus{border-color:#10b981}
+    .row{display:flex;gap:10px}
+    .row > div{flex:1}
+    .btn{margin-top:14px;width:100%;padding:10px 12px;border-radius:999px;border:none;background:linear-gradient(135deg,#0FA765,#13c97e);color:#fff;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+    .btn:disabled{opacity:.7;cursor:not-allowed}
+    .err{font-size:11px;color:var(--red);min-height:16px;margin-top:10px}
+    .hint{margin-top:10px;font-size:10px;color:#6b7280;text-align:center;line-height:1.35}
+    .mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grad"></div>
+
+  <div class="box">
+    <div class="logo">
+      <div class="icon">📊</div>
+      <h1>Chiva Fit CRM</h1>
+      <p>Login via Supabase Auth</p>
+    </div>
+
+    <form id="login-form">
+      <label for="cfg-url">Supabase URL</label>
+      <input id="cfg-url" class="mono" placeholder="https://xxxx.supabase.co" autocomplete="off"/>
+
+      <label for="cfg-key">Supabase anon key</label>
+      <input id="cfg-key" class="mono" placeholder="sb-anon-key..." autocomplete="off"/>
+
+      <label for="login-email">E-mail</label>
+      <input id="login-email" type="email" autocomplete="email" placeholder="admin@chivafit.com"/>
+
+      <label for="login-pass">Senha</label>
+      <input id="login-pass" type="password" autocomplete="current-password" placeholder="••••••••"/>
+
+      <div id="login-error" class="err"></div>
+      <button id="login-btn" class="btn" type="submit"><span>Entrar</span></button>
+
+      <div class="hint">
+        Se estiver abrindo via <span class="mono">file://</span>, rode um servidor local (ex.: <span class="mono">python3 -m http.server 8000</span>).
+      </div>
+    </form>
+  </div>
+
+  <script src="https://browser.sentry-cdn.com/8.28.0/bundle.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
+  <script src="./config.js?v=20260317-3"></script>
+  <script>
+    // Inicializa Sentry assim que config.js estiver disponível
+    (function(){
+      var dsn = window.APP_CONFIG && window.APP_CONFIG.sentryDsn;
+      if(dsn && typeof window.Sentry !== "undefined"){
+        window.Sentry.init({
+          dsn: dsn,
+          environment: (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "development" : "production",
+          release: "crm-chivafit@20260317",
+          tracesSampleRate: 0.05,
+        });
+      }
+    })();
+  </script>
+  <script type="module">
+    import { getSupabaseSession, signInWithEmailPassword } from "./supabaseClient.js?v=20260316-6";
+
+    const elUrl = document.getElementById("cfg-url");
+    const elKey = document.getElementById("cfg-key");
+    const elEmail = document.getElementById("login-email");
+    const elPass = document.getElementById("login-pass");
+    const elErr = document.getElementById("login-error");
+    const elBtn = document.getElementById("login-btn");
+
+    function readLS(key){
+      try{ return String(localStorage.getItem(key) || ""); }catch(_e){ return ""; }
+    }
+
+    function saveConfig(url, key){
+      try{
+        localStorage.setItem("crm_supa_url", String(url || "").trim());
+        localStorage.setItem("crm_supa_key", String(key || "").trim());
+      }catch(_e){}
+    }
+
+    function getConfig(){
+      const url = String(elUrl?.value || window.APP_CONFIG?.supabaseUrl || readLS("crm_supa_url") || readLS("supabase_url") || "").trim();
+      const key = String(elKey?.value || window.APP_CONFIG?.supabaseAnonKey || readLS("crm_supa_key") || readLS("supabase_key") || "").trim();
+      return { url, key };
+    }
+
+    async function maybeRedirectIfLogged(){
+      const { url, key } = getConfig();
+      if(!url || !key) return;
+      const session = await getSupabaseSession(url, key);
+      if(session?.access_token){
+        window.location.replace("./index.html");
+      }
+    }
+
+    elUrl.value = String(window.APP_CONFIG?.supabaseUrl || readLS("crm_supa_url") || readLS("supabase_url") || "").trim();
+    elKey.value = String(window.APP_CONFIG?.supabaseAnonKey || readLS("crm_supa_key") || readLS("supabase_key") || "").trim();
+    elEmail.value = "admin@chivafit.com";
+    await maybeRedirectIfLogged();
+
+    document.getElementById("login-form").addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      elErr.textContent = "";
+
+      if(!window.isSecureContext){
+        elErr.textContent = "Este login precisa de HTTPS (ou servidor local). Evite abrir via file://";
+        return;
+      }
+
+      const { url, key } = getConfig();
+      if(!url || !key){
+        elErr.textContent = "Informe Supabase URL e anon key.";
+        return;
+      }
+
+      const email = String(elEmail.value || "").trim();
+      const pass = String(elPass.value || "");
+      if(!email || !pass){
+        elErr.textContent = "Informe e-mail e senha.";
+        return;
+      }
+
+      saveConfig(url, key);
+
+      try{
+        elBtn.disabled = true;
+        elBtn.innerHTML = "<span>Entrando...</span>";
+        await signInWithEmailPassword(url, key, email, pass);
+        window.location.replace("./index.html");
+      }catch(err){
+        elErr.textContent = String(err?.message || String(err) || "Falha no login.");
+      }finally{
+        elBtn.disabled = false;
+        elBtn.innerHTML = "<span>Entrar</span>";
+      }
+    });
+  </script>
+</body>
+</html>
