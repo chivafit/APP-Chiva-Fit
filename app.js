@@ -12659,8 +12659,7 @@ Object.assign(window,{
   checkCarrinhosQuentes,
   exportCarrinhosCSV,
   openCarrinhoHistorico,
-  closeCarrinhoHistorico,
-  testSentry
+  closeCarrinhoHistorico
 });
 
 export {
