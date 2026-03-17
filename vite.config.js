@@ -1,13 +1,16 @@
-const { defineConfig } = require('vite');
-const path = require('path');
+import { defineConfig } from 'vite';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 
-module.exports = defineConfig(({ command }) => ({
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig(({ command }) => ({
   base: command === 'serve' ? '/' : '/APP-Chiva-Fit/',
   build: {
     rollupOptions: {
       input: {
-        index: path.resolve(__dirname, 'index.html'),
-        login: path.resolve(__dirname, 'login.html'),
+        index: resolve(__dirname, 'index.html'),
+        login: resolve(__dirname, 'login.html'),
       },
     },
   },
