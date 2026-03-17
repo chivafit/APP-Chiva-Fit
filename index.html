@@ -11,9 +11,9 @@
 <title>CRM Chiva Fit — Inteligente</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-
+<script src="https://browser.sentry-cdn.com/8.28.0/bundle.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
-<script src="./config.js?v=20260316-6"></script>
+<script src="./config.js?v=20260317-3"></script>
 <script type="module">
   import { getSupabaseSession } from "./supabaseClient.js?v=20260316-6";
 
@@ -31,11 +31,11 @@
     if(!session?.access_token){
       window.location.replace("./login.html");
     } else {
-      await import("./main.js?v=20260316-6");
+      await import("./main.js?v=20260317-4");
     }
   }
 </script>
-<link rel="stylesheet" href="./main.css?v=20260316-6">
+<link rel="stylesheet" href="./main.css?v=20260317-4">
 </head>
 <body>
 
@@ -114,7 +114,7 @@
     <div class="nav-item" data-page="alertas" id="nav-alertas" data-tooltip="Alertas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
 
     <div class="sidebar-section-label">Módulos</div>
-    <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span></div>
+    <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span><span class="nav-badge" id="badge-comercial" style="display:none">0</span></div>
     <div class="nav-item" data-page="producao" id="nav-producao" data-tooltip="Produção"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></svg></span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
     <div class="nav-item" data-page="marca" id="nav-marca" data-tooltip="Marca"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></span><span class="nav-label">Marca</span></div>
 
@@ -153,7 +153,7 @@
   <span class="topbar-title" id="topbar-title">Dashboard</span>
   <div class="topbar-search-wrap">
     <span class="topbar-search-icon">🔍</span>
-    <input type="search" id="topbar-search" placeholder="Buscar clientes, pedidos..." oninput="handleTopbarSearch(this.value)"/>
+    <input type="search" id="topbar-search" placeholder="Buscar clientes, pedidos..." oninput="handleTopbarSearchDebounced(this.value)"/>
   </div>
   <div class="topbar-actions">
     <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">
@@ -255,24 +255,121 @@
         <div class="dash-kpis" id="dash-kpis"></div>
       </div>
 
-      <div class="chart-card dash-receita-card">
-        <div class="chart-card-header dash-receita-header">
-          <div class="dash-receita-title">
-            <span class="dash-receita-icon">💹</span>
-            <span>Receita Diária</span>
-            <span class="dash-receita-sub" id="dash-receita-range">Últimos 30 dias</span>
-          </div>
-          <div class="dash-receita-controls">
-            <button class="dash-pill" id="dash-pill-this">Este mês</button>
-            <button class="dash-pill" id="dash-pill-prev">Mês anterior</button>
-          </div>
-        </div>
-        <div class="chart-wrap dash-receita-wrap" style="height:300px"><canvas id="chart-v2-dia"></canvas></div>
-        <div class="dash-receita-footer">
-          <div class="dash-mini" id="dash-mini-best"></div>
-          <div class="dash-mini" id="dash-mini-avg"></div>
-          <div class="dash-mini" id="dash-mini-orders"></div>
-        </div>
+  <!-- ══ Seção: Diagnóstico ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot"></span>
+    <span class="dash-section-title">Diagnóstico</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <!-- Hero: Receita por Dia -->
+  <div class="chart-card dash-hero-chart">
+    <div class="chart-card-header">
+      <div class="chart-title">Receita por Dia</div>
+      <span class="chart-card-badge" id="dash-dia-total"></span>
+    </div>
+    <div class="chart-wrap" style="height:280px"><canvas id="chart-v2-dia"></canvas></div>
+  </div>
+
+  <!-- Grid 3 col: Mês + Canais + Funil -->
+  <div class="dash-grid-3">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Receita por Mês</div>
+      </div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-mes"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Canais de Venda</div>
+      </div>
+      <div id="dash-channel-breakdown" style="height:200px"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Funil de Recompra</div>
+        <span class="chart-card-badge">clientes</span>
+      </div>
+      <div id="dash-funil-bars" class="funil-bars-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Top Clientes + Top Cidades -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Clientes por LTV</div>
+        <span class="chart-card-badge">clique para ver</span>
+      </div>
+      <div class="top-list" id="top-clientes"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Cidades</div>
+      </div>
+      <div class="top-list" id="dashv2-top-cidades"></div>
+    </div>
+  </div>
+
+  <!-- ══ Seção: Ações Prioritárias ══ -->
+  <div class="dash-section-heading">
+    <span class="dash-section-dot dash-section-dot--amber"></span>
+    <span class="dash-section-title">Ações Prioritárias</span>
+    <span class="dash-section-line"></span>
+  </div>
+
+  <!-- Reativação + VIP em Risco + Próximas Ações -->
+  <div class="dash-grid-3">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Reativação Prioritária</div>
+      </div>
+      <div class="top-list" id="dashv2-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">VIP em Risco</div>
+      </div>
+      <div class="top-list" id="dashv2-vip-risk"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Próximas Ações</div>
+      </div>
+      <div class="top-list" id="dashv2-next-actions"></div>
+    </div>
+  </div>
+
+  <!-- Top Produtos + Sem Contato -->
+  <div class="dash-grid-2">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Top Produtos no Período</div>
+      </div>
+      <div class="top-list" id="top-produtos-dash"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Clientes sem Contato</div>
+      </div>
+      <div class="top-list" id="dashv2-sem-contato"></div>
+    </div>
+  </div>
+
+  <!-- ── Rodapé: Meta + Comparar ── -->
+  <div class="dash-grid-2">
+    <div class="meta-card">
+      <div class="card-hdr"><span class="card-title">Meta Mensal</span><button class="btn-link" onclick="editMeta()">Editar</button></div>
+      <div id="meta-body"><span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span></div>
+    </div>
+    <div class="compare-card">
+      <div class="card-hdr">
+        <span class="card-title">Comparar Períodos</span>
+        <div class="cmp-inputs">
+          <input type="month" id="cmp-a" onchange="renderCompare()"/>
+          <span style="font-size:10px;color:var(--text-3)">vs</span>
+          <input type="month" id="cmp-b" onchange="renderCompare()"/>
+      </div>
       </div>
 
       <div class="dash-bottom-grid">
@@ -539,7 +636,7 @@
   <div class="saas-filterbar" style="margin-bottom:12px">
     <div class="saas-search">
       <span class="saas-search-ico">⌕</span>
-      <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientes()"/>
+      <input id="search-cli" class="saas-search-input" placeholder="Buscar cliente, telefone ou e-mail..." oninput="renderClientesDebounced()"/>
     </div>
     <div class="saas-chips">
       <select id="fil-cli-status" class="saas-chip saas-chip-select" onchange="renderClientes()">
@@ -566,11 +663,31 @@
       </select>
       <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">UF</option></select>
       <button class="saas-chip saas-chip-btn" onclick="recarregar()" aria-label="Recarregar"><span id="ri">↻</span></button>
+      <button class="saas-chip saas-chip-btn" onclick="exportClientesCSV()" title="Exportar clientes em CSV" aria-label="Exportar CSV">↓ CSV</button>
+      <button class="saas-chip saas-chip-btn" onclick="saveCurrentFilter()" title="Salvar filtro atual" aria-label="Salvar filtro">💾 Salvar</button>
     </div>
   </div>
+  <div class="saved-filter-row" id="saved-filter-row">
+    <span class="saved-filter-row-label">Salvos</span>
+    <div id="saved-filter-chips" style="display:contents"></div>
+  </div>
   <div class="ch-pills" id="ch-pills-cli"></div>
+  <div class="cli-select-all-row" id="cli-select-all-row" style="display:none">
+    <input type="checkbox" id="select-all-cli" onchange="toggleSelectAll(this.checked)" title="Selecionar todos visíveis"/>
+    <label for="select-all-cli" style="cursor:pointer">Selecionar todos</label>
+    <span id="cli-selected-count" style="color:var(--chiva-primary);margin-left:4px"></span>
+  </div>
   <div class="section-label" id="cli-label"></div>
   <div class="client-list" id="client-list"></div>
+</div>
+
+<!-- BARRA DE AÇÕES EM LOTE -->
+<div class="bulk-action-bar" id="bulk-action-bar">
+  <span class="bulk-count-badge" id="bulk-count">0 selecionados</span>
+  <button class="bulk-btn" onclick="bulkExportCSV()">↓ Exportar CSV</button>
+  <button class="bulk-btn" onclick="bulkCopyWhatsApp()">📋 Copiar números</button>
+  <button class="bulk-btn" onclick="bulkMarkContacted()">✓ Marcar contatado</button>
+  <button class="bulk-btn-clear" onclick="clearSelection()">✕ Limpar</button>
 </div>
 
 <!-- PERFIL DO CLIENTE -->
@@ -906,9 +1023,10 @@
 <div class="saas-filterbar" style="margin-bottom:14px">
   <div class="saas-search">
     <span class="saas-search-ico">⌕</span>
-    <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPage()"/>
+    <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPageDebounced()"/>
   </div>
   <div class="saas-chips" aria-label="Filtros de pedidos">
+    <button class="saas-chip saas-chip-btn" onclick="exportPedidosCSV()" title="Exportar pedidos em CSV" aria-label="Exportar CSV">↓ CSV</button>
     <select id="ped-canal-filter" class="saas-chip saas-chip-select" onchange="renderPedidosPage()">
       <option value="">Canal</option>
       <option value="yampi">Yampi</option>
@@ -1140,24 +1258,52 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
       <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
         <button class="btn-primary" onclick="syncCarrinhosAbandonadosYampi()">Sincronizar carrinhos</button>
+        <button class="btn" id="car-lote-btn" style="display:none" onclick="openCarrinhoBatchWa()">💬 Lote (<span id="car-lote-count">0</span>)</button>
+        <button class="btn" onclick="exportCarrinhosCSV()" title="Exportar lista filtrada para Excel/CSV">⬇ CSV</button>
+        <button class="btn" id="car-funil-btn" onclick="toggleCarrinhosFunil()" title="Ver funil de conversão por etapa">📊 Funil</button>
         <div id="abandoned-status" class="setup-status"></div>
       </div>
-      <div class="saas-filterbar" style="margin:0;min-width:420px;justify-content:flex-end">
-        <div class="saas-search" style="min-width:260px">
+      <div class="saas-filterbar" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:6px">
+        <div class="saas-search" style="min-width:200px">
           <span class="saas-search-ico">⌕</span>
           <input id="car-search" class="saas-search-input" placeholder="Buscar carrinho..." oninput="renderCarrinhosAbandonados()"/>
         </div>
         <div class="saas-chips">
           <select id="car-status" class="saas-chip saas-chip-select" onchange="renderCarrinhosAbandonados()">
-            <option value="">Status</option>
+            <option value="">Todos</option>
+            <option value="quentes">🔥 Quentes (&lt;2h)</option>
             <option value="abertos">Abertos</option>
             <option value="recuperados">Recuperados</option>
+            <option value="perdidos">Perdidos</option>
+          </select>
+          <select id="car-responsavel" class="saas-chip saas-chip-select" onchange="renderCarrinhosAbandonados()">
+            <option value="">Responsável</option>
           </select>
         </div>
       </div>
     </div>
+    <!-- KPIs do funil -->
+    <div id="carrinhos-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px"></div>
+    <!-- Funil de conversão por etapa (G) -->
+    <div id="carrinhos-funil" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:14px"></div>
     <div id="carrinhos-list"></div>
   </div>
+
+<!-- MODAL LOTE CARRINHOS -->
+<div id="car-batch-modal" style="display:none;position:fixed;inset:0;z-index:9100;background:var(--overlay);backdrop-filter:blur(6px);overflow-y:auto;padding:24px 16px">
+  <div style="max-width:680px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:800;margin:0">💬 Disparar mensagens em lote</h3>
+      <button onclick="closeCarrinhoBatchModal()" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:18px">✕</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-3);margin:0 0 14px">Revise e copie cada mensagem individualmente. Clique em "Copiar" e depois abra o WhatsApp.</p>
+    <div id="car-batch-list" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="batchCopyAllCarrinhos()">📋 Copiar todas</button>
+      <button class="btn-primary" onclick="closeCarrinhoBatchModal()">Fechar</button>
+    </div>
+  </div>
+</div>
 </div>
 
 <!-- MARCA -->
@@ -1178,7 +1324,10 @@
   <div id="marca-tab-calendario">
     <div id="cal-nav" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3)">
       <button onclick="mudarMes(-1)" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:6px 12px;color:var(--text);cursor:pointer;font-size:13px">‹</button>
-      <span id="cal-titulo" style="font-size:13px;font-weight:700"></span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="cal-titulo" style="font-size:13px;font-weight:700"></span>
+        <button onclick="irParaHoje()" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 8px;color:var(--text-3);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Hoje</button>
+      </div>
       <button onclick="mudarMes(1)" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:6px 12px;color:var(--text);cursor:pointer;font-size:13px">›</button>
     </div>
     <div id="calendario-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:var(--sp-4)"></div>
@@ -1331,7 +1480,7 @@
     <div class="mod-row">
       <div class="mod-field"><label>Título</label><input id="ev-titulo" placeholder="Nome do evento..."/></div>
       <div class="mod-field"><label>Tipo</label>
-        <select id="ev-tipo">
+        <select id="ev-tipo" onchange="toggleDegustFields()">
           <option value="degustacao">🍫 Degustação</option>
           <option value="feira">🏪 Feira/Exposição</option>
           <option value="evento">🎪 Evento</option>
@@ -1376,8 +1525,19 @@
   <button onclick="document.getElementById('install-bar').style.display='none'" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:16px;cursor:pointer">✕</button>
 </div>
 
-
-
+<!-- MODAL HISTÓRICO DE INTERAÇÕES DO CARRINHO -->
+<div id="car-history-modal" style="display:none;position:fixed;inset:0;z-index:9200;background:var(--overlay);backdrop-filter:blur(6px);overflow-y:auto;padding:24px 16px">
+  <div style="max-width:540px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <h3 style="font-size:15px;font-weight:800;margin:0 0 2px">📋 Histórico do carrinho</h3>
+        <div id="car-hist-meta" style="font-size:11px;color:var(--text-3)"></div>
+      </div>
+      <button onclick="closeCarrinhoHistorico()" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:18px">✕</button>
+    </div>
+    <div id="car-hist-body" style="display:flex;flex-direction:column;gap:8px;min-height:80px"></div>
+  </div>
+</div>
 
 
 </body>

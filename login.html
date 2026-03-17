@@ -62,8 +62,23 @@
     </form>
   </div>
 
+  <script src="https://browser.sentry-cdn.com/8.28.0/bundle.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
-  <script src="./config.js?v=20260316-6"></script>
+  <script src="./config.js?v=20260317-3"></script>
+  <script>
+    // Inicializa Sentry assim que config.js estiver disponível
+    (function(){
+      var dsn = window.APP_CONFIG && window.APP_CONFIG.sentryDsn;
+      if(dsn && typeof window.Sentry !== "undefined"){
+        window.Sentry.init({
+          dsn: dsn,
+          environment: (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "development" : "production",
+          release: "crm-chivafit@20260317",
+          tracesSampleRate: 0.05,
+        });
+      }
+    })();
+  </script>
   <script type="module">
     import { getSupabaseSession, signInWithEmailPassword } from "./supabaseClient.js?v=20260316-6";
 

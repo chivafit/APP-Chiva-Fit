@@ -71,6 +71,8 @@ async function maybeRunAutoCarrinhosSync(ctx){
 export function scheduleAutoCarrinhosSync(ctx){
   if(carrinhosAutoSyncTimer) clearInterval(carrinhosAutoSyncTimer);
   carrinhosAutoSyncTimer = setInterval(()=>{
-    maybeRunAutoCarrinhosSync(ctx).catch(()=>{});
+    maybeRunAutoCarrinhosSync(ctx).catch(e=>{
+      console.warn("[CarrinhosSync] falha no auto-sync agendado:", e?.message || String(e));
+    });
   }, 900000);
 }

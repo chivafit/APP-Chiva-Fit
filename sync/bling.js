@@ -1,11 +1,21 @@
+import { parseDateToIso, fmtDateBrFromIso } from "../utils.js?v=20260317-4";
+
 let blingAutoSyncTimer = null;
 
 export function scheduleAutoBlingSync(ctx){
   if(blingAutoSyncTimer) clearInterval(blingAutoSyncTimer);
   blingAutoSyncTimer = setInterval(()=>{
-    maybeRunAutoBlingSync(ctx).catch(()=>{});
+    maybeRunAutoBlingSync(ctx).catch(e=>{
+      const msg = e?.message || "erro desconhecido";
+      console.warn("[Bling auto-sync] falhou:", msg);
+      try{ ctx.toast("⚠ Sync automático Bling falhou: " + msg, "error"); }catch(_e){}
+    });
   }, 20*60*1000);
-  maybeRunAutoBlingSync(ctx).catch(()=>{});
+  maybeRunAutoBlingSync(ctx).catch(e=>{
+    const msg = e?.message || "erro desconhecido";
+    console.warn("[Bling auto-sync inicial] falhou:", msg);
+    try{ ctx.toast("⚠ Sync inicial Bling falhou: " + msg, "error"); }catch(_e){}
+  });
 }
 
 export async function maybeRunAutoBlingSync(ctx){
@@ -33,20 +43,7 @@ export async function syncBling(ctx, options){
   const st = document.getElementById("bling-status");
   const fromEl = document.getElementById("date-from");
   const toEl = document.getElementById("date-to");
-  const fmtDateBrFromIso = (iso)=>{
-    const s = String(iso||"").trim();
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
-  };
-  const parseDateToIso = (v)=>{
-    const s = String(v||"").trim();
-    if(!s) return "";
-    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if(iso) return s;
-    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if(br) return `${br[3]}-${br[2]}-${br[1]}`;
-    return "";
-  };
+  // parseDateToIso e fmtDateBrFromIso importados de ../utils.js
   let from = parseDateToIso(String(fromEl?.value||""));
   let to = parseDateToIso(String(toEl?.value||""));
   if((!from || !to) && !omitDates){
@@ -64,6 +61,7 @@ export async function syncBling(ctx, options){
     }catch(_e){}
   }
 
+  const syncStartedAt = Date.now();
   try{
     let offset = 0;
     let batch = 0;
@@ -130,11 +128,33 @@ export async function syncBling(ctx, options){
       st.className = "setup-status s-ok";
     }
     if(!silent) ctx.toast("✓ Bling sincronizado!");
+    // Registrar sucesso no sync_log
+    try{
+      if(ctx.isSupaReady()){
+        await ctx.getSupaClient().from("sync_log").insert({
+          integration: "bling", event: "orders_sync", status: "success",
+          message: `${imported} pedidos importados em ${batch} lotes`,
+          records_count: imported,
+          duration_ms: Date.now() - syncStartedAt
+        });
+      }
+    }catch(_e){}
   }catch(e){
     if(st){
       st.textContent = "⚠ " + (e?.message || String(e));
       st.className = "setup-status s-err";
     }
+    // Registrar erro no sync_log
+    try{
+      if(ctx.isSupaReady()){
+        await ctx.getSupaClient().from("sync_log").insert({
+          integration: "bling", event: "orders_sync", status: "error",
+          message: e?.message || String(e),
+          duration_ms: Date.now() - syncStartedAt
+        });
+      }
+    }catch(_e){}
+    throw e;
   }
 }
 

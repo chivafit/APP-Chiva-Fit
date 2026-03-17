@@ -1,3 +1,6 @@
+# Supabase project config
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+
 project_id = "chivafit"
 
 # ── Edge Functions ──────────────────────────────────────────────────────────

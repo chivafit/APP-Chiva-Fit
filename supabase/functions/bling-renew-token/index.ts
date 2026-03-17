@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "https://chivafit.github.io";
+
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
 };
 
 type BlingTokenResponse = {
@@ -215,7 +218,16 @@ serve(async (req: Request) => {
     if (!response.ok) {
       const txt = await response.text().catch(() => "");
       if (isInvalidGrant(response.status, txt)) {
-        await releaseRefreshLock(supabase, lockKey, lockValue);
+        // Registrar erro para que o frontend possa alertar o usuário
+        try {
+          await upsertConfigValue(supabase, "bling_token_error", JSON.stringify({
+            type: "invalid_grant",
+            message: "Refresh Token inválido/rotacionado. Reautorize o Bling.",
+            at: nowIso(),
+          }));
+        } catch (_e) {}
+        lockValue = null; // impede double-release no finally
+        await releaseRefreshLock(supabase, lockKey, lock.lockValue!);
         return json({
           error: "invalid_grant",
           message: "Refresh Token do Bling inválido/rotacionado. Reautorize o Bling nas Configurações.",
@@ -233,6 +245,8 @@ serve(async (req: Request) => {
     const nextRefresh = refresh_token || currentRefreshToken;
     await upsertConfigValue(supabase, "bling_access_token", access_token);
     await upsertConfigValue(supabase, "bling_refresh_token", nextRefresh);
+    // Limpar erro anterior após renovação bem-sucedida
+    try { await upsertConfigValue(supabase, "bling_token_error", ""); } catch (_e) {}
 
     const safeResponse = {
       access_token,
@@ -241,11 +255,23 @@ serve(async (req: Request) => {
       scope: data?.scope,
     };
 
-    await releaseRefreshLock(supabase, lockKey, lockValue);
+    lockValue = null; // impede double-release no finally
+    await releaseRefreshLock(supabase, lockKey, lock.lockValue!);
     return json(safeResponse, 200);
 
   } catch (error) {
-    return json({ error: (error as any)?.message || String(error) }, 500);
+    const errMsg = (error as any)?.message || String(error);
+    // Registrar erro genérico para visibilidade no painel
+    try {
+      if (supabase) {
+        await upsertConfigValue(supabase, "bling_token_error", JSON.stringify({
+          type: "error",
+          message: errMsg,
+          at: nowIso(),
+        }));
+      }
+    } catch (_e) {}
+    return json({ error: errMsg }, 500);
   } finally {
     if (supabase && lockValue) {
       await releaseRefreshLock(supabase, lockKey, lockValue);

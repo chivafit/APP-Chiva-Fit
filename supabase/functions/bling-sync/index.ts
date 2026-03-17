@@ -1,12 +1,18 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { captureToSentry } from "../_shared/sentry.ts";
+import { requireUserAuth } from "../_shared/auth.ts";
+import { safeJsonParse } from "../_shared/utils.ts";
 
 declare const Deno: any;
 
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "https://chivafit.github.io";
+
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
 };
 
 type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_token?: string };
@@ -16,71 +22,6 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function readBearerToken(req: Request): string {
-  const auth = String(req.headers.get("authorization") || "").trim();
-  if (!auth) return "";
-  const lower = auth.toLowerCase();
-  if (!lower.startsWith("bearer ")) return "";
-  return auth.slice(7).trim();
-}
-
-function normalizeEmail(v: unknown): string {
-  return String(v ?? "").trim().toLowerCase();
-}
-
-let allowlistCache: { loadedAtMs: number; emails: Set<string> } | null = null;
-
-async function getAllowlistEmails(supabaseUrl: string, serviceRoleKey: string): Promise<Set<string>> {
-  const ttlMs = 60_000;
-  const now = Date.now();
-  if (allowlistCache && now - allowlistCache.loadedAtMs < ttlMs) return allowlistCache.emails;
-
-  const emails = new Set<string>();
-  try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { data, error } = await supabase
-      .from("configuracoes")
-      .select("valor_texto")
-      .eq("chave", "crm_access_users")
-      .maybeSingle();
-    if (!error) {
-      const raw = String(data?.valor_texto || "").trim();
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((u) => {
-            const em = normalizeEmail((u as any)?.email);
-            if (em) emails.add(em);
-          });
-        }
-      }
-    }
-  } catch (_e) {
-  }
-
-  allowlistCache = { loadedAtMs: now, emails };
-  return emails;
-}
-
-async function requireUserAuth(req: Request, supabaseUrl: string, serviceRoleKey: string) {
-  const jwt = readBearerToken(req);
-  if (!jwt) return { ok: false, reason: "Missing bearer token" };
-  try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { data, error } = await supabase.auth.getUser(jwt);
-    if (error || !data?.user) return { ok: false, reason: "Invalid JWT" };
-    const email = normalizeEmail((data.user as any)?.email);
-    if (!email) return { ok: false, reason: "Missing user email" };
-    const allowlist = await getAllowlistEmails(supabaseUrl, serviceRoleKey);
-    if (allowlist.size && !allowlist.has(email) && email !== "admin@chivafit.com") {
-      return { ok: false, reason: "Email not allowed" };
-    }
-    return { ok: true, user: data.user };
-  } catch (_e) {
-    return { ok: false, reason: "Auth check failed" };
-  }
 }
 
 let tokenCache: { token: string; expiresAtMs: number } | null = null;
@@ -118,14 +59,7 @@ function isBlingCommunicationError(err: any): boolean {
   return msg.startsWith("Bling API error:") || msg.startsWith("Falha ao renovar token:");
 }
 
-function safeJsonParse(text: string): unknown {
-  if (!text || !text.trim()) return {};
-  try {
-    return JSON.parse(text);
-  } catch (_e) {
-    return null;
-  }
-}
+// safeJsonParse importado de ../_shared/utils.ts
 
 async function getStoredBlingAccessToken(supabaseUrl: string, serviceRoleKey: string): Promise<string> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -1426,6 +1360,7 @@ serve(async (req: Request) => {
       console.log("[bling-sync] internal error", { message: err?.message || String(err) });
       if (err?.stack) console.log(String(err.stack).slice(0, 5000));
     } catch (_e) {}
+    await captureToSentry(e, { function: "bling-sync" }).catch(() => {});
     const msg = String(err?.message || String(err) || "");
     if (msg.startsWith("BLING_REAUTH_REQUIRED:")) {
       return jsonResponse(

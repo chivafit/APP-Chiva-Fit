@@ -9,45 +9,25 @@
     }
   }
 
-  function writeLS(key, value) {
-    try {
-      localStorage.setItem(key, String(value || ""));
-    } catch (_e) {}
-  }
+  // Valores fixos do projeto
+  var FIXED_URL = "https://nvbicjjtnobnnscmypeq.supabase.co";
+  var FIXED_KEY = "sb_publishable_PEupIHnmmnChZMTEfJylcQ_T5I3tj-7";
 
-  function readParam(name) {
-    try {
-      return String(new URLSearchParams(window.location.search).get(name) || "");
-    } catch (_e) {
-      return "";
-    }
-  }
+  // SEGURANÇA: URL e chave NÃO são lidas do localStorage nem de parâmetros de URL.
+  // Ambos eram vetores de phishing (extensão maliciosa ou XSS poderia redirecionar
+  // para um Supabase controlado pelo atacante). A única fonte confiável é window.APP_CONFIG
+  // (injetado pelo servidor) ou as constantes fixas abaixo.
 
-  var paramUrl = readParam("supa_url") || readParam("supabase_url") || readParam("crm_supa_url");
-  var paramKey = readParam("supa_key") || readParam("supabase_key") || readParam("crm_supa_key");
-  if (paramUrl && !String(existing.supabaseUrl || "").trim()) {
-    writeLS("crm_supa_url", paramUrl);
-    existing.supabaseUrl = paramUrl;
-  }
-  if (paramKey && !String(existing.supabaseAnonKey || "").trim()) {
-    writeLS("crm_supa_key", paramKey);
-    existing.supabaseAnonKey = paramKey;
-  }
+  var supabaseUrl = String(existing.supabaseUrl || "").trim() || FIXED_URL;
 
-  var supabaseUrl =
-    String(existing.supabaseUrl || "").trim() ||
-    readLS("crm_supa_url") ||
-    readLS("supa_url") ||
-    readLS("supabase_url");
+  var supabaseAnonKey = String(existing.supabaseAnonKey || "").trim() || FIXED_KEY;
 
-  var supabaseAnonKey =
-    String(existing.supabaseAnonKey || "").trim() ||
-    readLS("crm_supa_key") ||
-    readLS("supa_key") ||
-    readLS("supabase_key");
+  // SENTRY: preencha com o DSN do seu projeto em https://sentry.io
+  var sentryDsn = String(existing.sentryDsn || "").trim() || readLS("crm_sentry_dsn") || "";
 
   window.APP_CONFIG = {
     supabaseUrl: supabaseUrl,
     supabaseAnonKey: supabaseAnonKey,
+    sentryDsn: sentryDsn,
   };
 })();
