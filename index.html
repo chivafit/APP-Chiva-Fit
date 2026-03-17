@@ -339,21 +339,9 @@
       </div>
     </div>
 
-    <div
-      id="app-shell"
-      style="
-        display: none;
-        min-height: 100vh;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-      "
-    >
+    <div id="app-shell" style="display: none; flex-direction: column; min-height: 100vh; opacity: 0; transition: opacity 0.3s ease;">
       <!-- SIDEBAR OVERLAY (mobile) -->
-      <div
-        id="sidebar-overlay"
-        onclick="closeMobileSidebar()"
-        style="display: none; pointer-events: none"
-      ></div>
+      <div id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 
       <!-- SIDEBAR -->
       <nav id="sidebar">
