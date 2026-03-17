@@ -122,6 +122,7 @@ export async function getDashboardDaily(client, fromIso, toIso) {
 }
 
 export async function getDashboardDailyChannel(client, fromIso, toIso) {
+  // 3 years × 365 days × ~5 channels ≈ 5 500 rows max; 6 000 is a safe cap
   return await tryQueryDateRange(
     client,
     'vw_dashboard_v2_daily_channel',
@@ -129,7 +130,7 @@ export async function getDashboardDailyChannel(client, fromIso, toIso) {
     fromIso,
     toIso,
     'dia,canal,pedidos,faturamento',
-    { orderBy: 'dia', ascending: true, limit: 20000 },
+    { orderBy: 'dia', ascending: true, limit: 6000 },
   );
 }
 
@@ -148,7 +149,9 @@ export async function getNewCustomersDaily(client, fromIso, toIso) {
 export async function getFunilRecompra(client) {
   try {
     const select = 'dias_sem_comprar';
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    // Fetches one lightweight column per customer; 5 000 covers most production databases.
+    // If your customer base exceeds this, consider a dedicated aggregate view on Supabase.
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(5000);
     if (error) {
       logDashQueryError({ op: 'getFunilRecompra', view: DASHBOARD_ANALYTICS_VIEW, select, error });
       return [];
@@ -189,7 +192,9 @@ export async function getTopCidades(client, limit) {
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try {
     const select = 'cidade,uf,cliente_id,receita_total,total_pedidos';
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    // Fetches 5 lightweight columns per customer for city aggregation.
+    // If your customer base exceeds 5 000, consider a dedicated aggregate view on Supabase.
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(5000);
     if (error) {
       logDashQueryError({ op: 'getTopCidades', view: DASHBOARD_ANALYTICS_VIEW, select, error });
       return [];
@@ -291,10 +296,16 @@ function normalizeClienteCardRow(r) {
 export async function getClientesVipRisco(client, limit) {
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try {
+    // Push numeric range and VIP condition to Supabase — avoids loading the entire table
     const { data, error } = await client
       .from(DASHBOARD_ANALYTICS_VIEW)
       .select(CLIENTES_CARD_COLS)
-      .limit(10000);
+      .gte('dias_sem_comprar', 30)
+      .lte('dias_sem_comprar', 120)
+      .or('ltv_medio.gte.650,total_pedidos.gte.6')
+      .order('dias_sem_comprar', { ascending: false, nullsFirst: false })
+      .order('ltv_medio', { ascending: false, nullsFirst: false })
+      .limit(n * 4); // small buffer for secondary JS sort
     if (error) {
       logDashQueryError({
         op: 'getClientesVipRisco',
@@ -307,10 +318,6 @@ export async function getClientesVipRisco(client, limit) {
     const rows = (Array.isArray(data) ? data : []).map(normalizeClienteCardRow);
     const vip = rows
       .filter((r) => r.cliente_id)
-      .filter((r) => r.ltv_medio >= 650 || r.total_pedidos >= 6)
-      .filter(
-        (r) => r.dias_sem_comprar != null && r.dias_sem_comprar >= 30 && r.dias_sem_comprar <= 120,
-      )
       .sort(
         (a, b) =>
           Number(b.dias_sem_comprar || 0) - Number(a.dias_sem_comprar || 0) ||
@@ -325,10 +332,15 @@ export async function getClientesVipRisco(client, limit) {
 export async function getClientesReativacao(client, limit) {
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try {
+    // Push range filter to Supabase — avoids loading the entire table
     const { data, error } = await client
       .from(DASHBOARD_ANALYTICS_VIEW)
       .select(CLIENTES_CARD_COLS)
-      .limit(10000);
+      .gte('dias_sem_comprar', 61)
+      .lte('dias_sem_comprar', 120)
+      .order('ltv_medio', { ascending: false, nullsFirst: false })
+      .order('dias_sem_comprar', { ascending: false, nullsFirst: false })
+      .limit(n * 4);
     if (error) {
       logDashQueryError({
         op: 'getClientesReativacao',
@@ -341,9 +353,6 @@ export async function getClientesReativacao(client, limit) {
     const rows = (Array.isArray(data) ? data : []).map(normalizeClienteCardRow);
     const list = rows
       .filter((r) => r.cliente_id)
-      .filter(
-        (r) => r.dias_sem_comprar != null && r.dias_sem_comprar >= 61 && r.dias_sem_comprar <= 120,
-      )
       .sort(
         (a, b) =>
           Number(b.ltv_medio || 0) - Number(a.ltv_medio || 0) ||
@@ -359,7 +368,15 @@ export async function getClientesSemContato(client, limit) {
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try {
     const select = CLIENTES_CARD_COLS;
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    // Push the two most common conditions to Supabase to reduce data transfer:
+    // (1) last_contact_at is null  OR  (2) last_contact_at older than 30 days
+    const { data, error } = await client
+      .from(DASHBOARD_ANALYTICS_VIEW)
+      .select(select)
+      .or(`last_contact_at.is.null,last_contact_at.lte.${thirtyDaysAgo}`)
+      .order('ltv_medio', { ascending: false, nullsFirst: false })
+      .limit(Math.max(n * 10, 200)); // generous buffer since JS still filters by phone/email
     if (error) {
       logDashQueryError({
         op: 'getClientesSemContato',
