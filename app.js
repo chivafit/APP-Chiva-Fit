@@ -24,6 +24,7 @@ import {
   getClientesReativacao as getClientesReativacaoView,
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
+  getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
 } from "./viewsApi.js?v=20260316-6";
 import {
@@ -1284,7 +1285,7 @@ function saveSupabaseConfig(){
   setTimeout(async()=>{
     const connected = await initSupabase();
     if(connected){
-      try{ await loadSupabaseData(); }catch(_e){}
+      try{ await loadSupabaseData(); }catch(e){ console.error("[supabase] loadSupabaseData falhou:", e?.message||e); }
       toast("✓ Supabase conectado com sucesso!");
     }
   }, 300);
@@ -2433,6 +2434,8 @@ function deleteTask(id){
 }
 
 function openTaskModal(id, cliente, customerId){
+  // Remove qualquer modal anterior antes de inserir novo (evita acúmulo no DOM)
+  document.getElementById("task-modal-overlay")?.remove();
   const t = id ? allTasks.find(t=>t.id===id) : null;
   const html=`
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px" id="task-modal-overlay">
@@ -3933,7 +3936,13 @@ async function updateDashSecondaryFromSupabase(){
     const ltvMedio = Number(k.ltv_medio || 0) || 0;
     elLtv.textContent = fmtBRL(ltvMedio);
     elCli.textContent = String(clientes);
-  }catch(_e){}
+  }catch(e){ console.warn("[dashboard] falha ao carregar KPIs:", e?.message||e); }
+
+  // Funil de Recompra — buscado aqui pois não depende de filtros de data
+  try{
+    const funilRows = await getFunilRecompraView(supaClient);
+    renderDashV2Funil(funilRows);
+  }catch(e){ console.warn("[dashboard] falha ao carregar funil de recompra:", e?.message||e); }
 }
 
 function renderDashKpiSparklines(ctx){
@@ -4719,7 +4728,7 @@ async function renderDashExtraLists(ctx){
         const topCities = await getTopCidadesView(supaClient, 10);
         renderDashV2TopCidades(topCities);
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao carregar top cidades:", e?.message||e); }
     try{
       if(filterActive){
         const el = document.getElementById("dashv2-sem-contato");
@@ -4743,7 +4752,7 @@ async function renderDashExtraLists(ctx){
         const semContato = await getClientesSemContatoView(supaClient, 8);
         renderDashV2SemContato(semContato);
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao carregar sem contato:", e?.message||e); }
     try{
       const riskEl = document.getElementById("dashv2-risk");
       if(riskEl){
@@ -4780,7 +4789,7 @@ async function renderDashExtraLists(ctx){
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao carregar reativação:", e?.message||e); }
     try{
       const vipRiskEl = document.getElementById("dashv2-vip-risk");
       if(vipRiskEl){
@@ -4817,10 +4826,10 @@ async function renderDashExtraLists(ctx){
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao carregar VIP em risco:", e?.message||e); }
     try{
       renderDashV2NextActions((clientesIntelCache||[]));
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar próximas ações:", e?.message||e); }
   }else{
     renderDashTopCidadesFromOrders(ordersAllRange);
     const riskEl = document.getElementById("dashv2-risk");
