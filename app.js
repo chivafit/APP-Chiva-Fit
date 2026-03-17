@@ -855,6 +855,12 @@ function enterApp(userEmail) {
   try {
     localStorage.removeItem('crm_bootstrap_pass_ts');
   } catch (_e) {}
+  try {
+    localStorage.removeItem('crm_dash_canal');
+  } catch (_e) {}
+  try {
+    localStorage.removeItem('crm_dash_tipo');
+  } catch (_e) {}
   const loginEl = document.getElementById('login-screen');
   if (loginEl) loginEl.style.display = 'none';
   const shell = document.getElementById('app-shell');
@@ -3555,6 +3561,23 @@ function showPage(id) {
     )
       listEl.innerHTML =
         typeof renderClienteSkeletons === 'function' ? renderClienteSkeletons(7) : '';
+  }
+
+  // Retry de renderização: se o container ainda estiver vazio após 100ms, renderiza novamente
+  const retryMap = {
+    "dashboard":    { sel: "#dash-kpis",        fn: "renderDash" },
+    "clientes":     { sel: "#client-list",       fn: "renderClientes" },
+    "pedidos-page": { sel: "#pedidos-list-wrap", fn: "renderPedidosPage" }
+  };
+  if(retryMap[id]){
+    const { sel, fn } = retryMap[id];
+    setTimeout(()=>{
+      const el = document.querySelector(sel);
+      if(el && !el.children.length){
+        console.log('DEBUG RETRY: container', sel, 'vazio após render inicial — tentando novamente');
+        safeInvokeName(fn);
+      }
+    }, 100);
   }
 
   // Close mobile sidebar
@@ -17078,6 +17101,7 @@ Object.assign(window, {
   computeCustomerIntelligence,
   renderInteligencia,
   renderDash,
+  renderDashNow,
   setDashRange,
   openDashActionsModal,
   toggleDashCompare,
