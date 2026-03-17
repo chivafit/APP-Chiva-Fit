@@ -18,7 +18,7 @@ type BlingTokenResponse = {
   scope?: string;
 };
 
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -27,7 +27,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function safeJsonParse(text: string): any | null {
+function safeJsonParse(text: string): unknown {
   if (!text || !text.trim()) return {};
   try {
     return JSON.parse(text);
@@ -56,17 +56,20 @@ function parseLock(raw: unknown) {
   try {
     const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!obj || typeof obj !== 'object') return { locked: false, by: null, at: null };
+    const o = obj as Record<string, unknown>;
     return {
-      locked: !!(obj as any).locked,
-      by: (obj as any).by ?? null,
-      at: (obj as any).at ?? null,
+      locked: !!o.locked,
+      by: o.by ?? null,
+      at: o.at ?? null,
     };
   } catch (_e) {
     return { locked: false, by: null, at: null };
   }
 }
 
-async function getConfigValue(supabase: any, chave: string) {
+type SupabaseClient = ReturnType<typeof createClient>;
+
+async function getConfigValue(supabase: SupabaseClient, chave: string) {
   const { data, error } = await supabase
     .from('configuracoes')
     .select('valor_texto')
@@ -76,14 +79,14 @@ async function getConfigValue(supabase: any, chave: string) {
   return data?.valor_texto ?? null;
 }
 
-async function upsertConfigValue(supabase: any, chave: string, valor_texto: string) {
+async function upsertConfigValue(supabase: SupabaseClient, chave: string, valor_texto: string) {
   const { error } = await supabase
     .from('configuracoes')
     .upsert([{ chave, valor_texto, updated_at: nowIso() }], { onConflict: 'chave' });
   if (error) throw error;
 }
 
-async function ensureLockRowExists(supabase: any, lockKey: string) {
+async function ensureLockRowExists(supabase: SupabaseClient, lockKey: string) {
   try {
     const existing = await getConfigValue(supabase, lockKey);
     if (existing != null) return;
@@ -99,7 +102,7 @@ async function ensureLockRowExists(supabase: any, lockKey: string) {
   } catch (_e) {}
 }
 
-async function acquireRefreshLock(supabase: any, lockKey: string, requestId: string) {
+async function acquireRefreshLock(supabase: SupabaseClient, lockKey: string, requestId: string) {
   await ensureLockRowExists(supabase, lockKey);
   const maxWaitMs = 30_000;
   const pollMs = 600;
@@ -141,7 +144,7 @@ async function acquireRefreshLock(supabase: any, lockKey: string, requestId: str
   return { acquired: false, lockValue: null };
 }
 
-async function releaseRefreshLock(supabase: any, lockKey: string, lockValue: string) {
+async function releaseRefreshLock(supabase: SupabaseClient, lockKey: string, lockValue: string) {
   try {
     const nextVal = JSON.stringify({ locked: false, by: null, at: null });
     await supabase
@@ -157,7 +160,7 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  let supabase: any = null;
+  let supabase: SupabaseClient | null = null;
   let lockKey = 'bling_refresh_lock';
   let lockValue: string | null = null;
 
@@ -186,8 +189,9 @@ serve(async (req: Request) => {
       : String(Date.now()) + '-' + String(Math.random()).slice(2);
 
     const rawBody = await req.text().catch(() => '');
-    const body = safeJsonParse(rawBody);
-    if (body === null) return json({ error: 'Invalid JSON' }, 400);
+    const bodyParsed = safeJsonParse(rawBody);
+    if (bodyParsed === null) return json({ error: 'Invalid JSON' }, 400);
+    const body = (bodyParsed && typeof bodyParsed === 'object' ? bodyParsed : {}) as Record<string, unknown>;
 
     const bodyRefresh = String(body?.refresh_token || body?.refreshToken || '').trim();
 
@@ -286,7 +290,7 @@ serve(async (req: Request) => {
     await releaseRefreshLock(supabase, lockKey, lock.lockValue!);
     return json(safeResponse, 200);
   } catch (error) {
-    const errMsg = (error as any)?.message || String(error);
+    const errMsg = (error instanceof Error ? error.message : String(error));
     // Registrar erro genérico para visibilidade no painel
     try {
       if (supabase) {

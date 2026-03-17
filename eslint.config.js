@@ -48,7 +48,7 @@ const nodeGlobals = {
   clearInterval: 'readonly',
 };
 
-const unusedVarsWarn = ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }];
+const unusedVarsWarn = ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }];
 
 const allowEmptyCatchWarn = ['warn', { allowEmptyCatch: true }];
 
@@ -147,6 +147,30 @@ module.exports = [
       'no-undef': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...browserGlobals,
+        global: 'readonly',
+        process: 'readonly',
+        vi: 'readonly',
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': unusedVarsWarn,
+      'no-undef': 'error',
     },
   },
   {

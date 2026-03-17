@@ -2957,20 +2957,14 @@ async function upsertCarrinhosAbandonadosToSupabase(list) {
 
 async function fetchYampiAbandoned() {
   if (supaConnected && supaClient) {
-    let data = null,
-      error = null;
-    try {
-      ({ data, error } = await supaClient
-        .from('yampi_orders')
-        .select(
-          'external_id,total,created_at,updated_at,status,is_abandoned_cart,customer_name,customer_email,customer_phone,raw',
-        )
-        .eq('is_abandoned_cart', true)
-        .order('created_at', { ascending: false })
-        .limit(2000));
-    } catch (e) {
-      throw e;
-    }
+    const { data, error } = await supaClient
+      .from('yampi_orders')
+      .select(
+        'external_id,total,created_at,updated_at,status,is_abandoned_cart,customer_name,customer_email,customer_phone,raw',
+      )
+      .eq('is_abandoned_cart', true)
+      .order('created_at', { ascending: false })
+      .limit(2000);
     if (error) throw error;
     return (Array.isArray(data) ? data : []).map((r) => {
       const raw = r && typeof r.raw === 'object' && r.raw ? r.raw : {};
@@ -3385,7 +3379,7 @@ async function syncShopify() {
     renderAll();
     try {
       if (supaConnected) await sbSetConfig('ultima_sync_shopify', new Date().toISOString());
-    } catch (e) {}
+    } catch (_e) {}
     st.textContent = `✓ ${shopifyOrders.length} pedidos importados`;
     st.className = 'setup-status s-ok';
     toast('✓ Shopify sincronizado!');
@@ -5608,7 +5602,7 @@ function renderDashNow() {
   const novosPrev = novosPrevSet.size;
   const showCompare = isDashCompareEnabled();
   const deltaLine = (cur, prev) => {
-    if (!showCompare) return `<div class="dash-kpi-delta"> </div>`;
+    if (!showCompare) return `<div class="dash-kpi-delta"> </div>`;
     const d = pctDelta(cur, prev);
     if (d == null || !isFinite(d)) return `<div class="dash-kpi-delta">—</div>`;
     const up = d >= 0;
@@ -5675,7 +5669,7 @@ function renderDashNow() {
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">LTV Médio</div>
             <div class="dash-kpi-value"><span id="kpi-ltv-medio">—</span></div>
-            <div class="dash-kpi-delta"> </div>
+            <div class="dash-kpi-delta"> </div>
           </div>
           <div class="dash-kpi-side">
             <div class="dash-kpi-icon dash-kpi-icon--ghost">💎</div>
@@ -5687,7 +5681,7 @@ function renderDashNow() {
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">Clientes Base</div>
             <div class="dash-kpi-value"><span id="kpi-clientes-base">—</span></div>
-            <div class="dash-kpi-delta"> </div>
+            <div class="dash-kpi-delta"> </div>
           </div>
           <div class="dash-kpi-side">
             <div class="dash-kpi-icon dash-kpi-icon--ghost">👥</div>
@@ -11951,7 +11945,7 @@ function renderProdutos(_deferred) {
 
         if (!m[k].lastVenda || dataStr > m[k].lastVenda) m[k].lastVenda = dataStr;
 
-        if (m[k].canais.hasOwnProperty(canal)) m[k].canais[canal] += qtd;
+        if (Object.prototype.hasOwnProperty.call(m[k].canais, canal)) m[k].canais[canal] += qtd;
         else m[k].canais.outros += qtd;
 
         if (dataStr) {
@@ -13506,7 +13500,7 @@ async function syncReceitasToSupabase(list) {
       const s = String(v == null ? '' : v)
         .trim()
         .replace(',', '.')
-        .replace(/[^0-9.\-]/g, '');
+        .replace(/[^0-9.-]/g, '');
       const n = parseFloat(s);
       return Number.isFinite(n) ? n : 0;
     };
@@ -13641,7 +13635,7 @@ async function syncOrdensProducaoToSupabase(list) {
         .from('ordens_producao')
         .upsert(chunk, { onConflict: 'id' });
       if (error) {
-        const fallback = chunk.map(({ custo_total_lote, ...rest }) => rest);
+        const fallback = chunk.map(({ custo_total_lote: _custo, ...rest }) => rest);
         const { error: e2 } = await supaClient
           .from('ordens_producao')
           .upsert(fallback, { onConflict: 'id' });
@@ -13650,7 +13644,7 @@ async function syncOrdensProducaoToSupabase(list) {
     }
     setSyncStatus('ok');
   } catch (e) {
-    const fallbackRows = rowsWithCost.map(({ custo_total_lote, ...rest }) => rest);
+    const fallbackRows = rowsWithCost.map(({ custo_total_lote: _custo, ...rest }) => rest);
     handleSyncError('syncOrdensProducaoToSupabase', e, {
       table: 'ordens_producao',
       rows: fallbackRows,
@@ -14529,7 +14523,7 @@ async function sbSetConfig(chave, valor) {
     await supaClient
       .from('configuracoes')
       .upsert({ chave, valor_texto: valor, updated_at: new Date().toISOString() });
-  } catch (e) {}
+  } catch (_e) {}
 }
 
 async function upsertOrdersToSupabase(orders) {

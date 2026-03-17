@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // _shared/utils.ts has no external HTTP imports, import directly
 import {

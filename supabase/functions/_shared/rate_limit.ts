@@ -70,7 +70,7 @@ export async function checkRateLimit(
     return { allowed: true, remaining: maxPerHour - count - 1, resetAt };
   } catch (_e) {
     // Falha aberta: se o rate limit não puder ser verificado, permite a requisição
-    console.warn('[rate_limit] falha ao verificar rate limit:', (_e as any)?.message);
+    console.warn('[rate_limit] falha ao verificar rate limit:', (_e instanceof Error ? _e.message : String(_e)));
     return { allowed: true, remaining: maxPerHour, resetAt };
   }
 }

@@ -6,9 +6,15 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
+export interface SupabaseUser {
+  id: string;
+  email?: string;
+  [key: string]: unknown;
+}
+
 export interface AuthResult {
   ok: boolean;
-  user?: any;
+  user?: SupabaseUser;
   email?: string;
   reason?: string;
 }
@@ -53,7 +59,7 @@ export async function getAllowlistEmails(
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           parsed.forEach((u) => {
-            const em = normalizeEmail((u as any)?.email);
+            const em = normalizeEmail((u as Record<string, unknown>)?.email);
             if (em) emails.add(em);
           });
         }
@@ -61,7 +67,7 @@ export async function getAllowlistEmails(
     }
   } catch (_e) {
     // falha ao carregar allowlist — não bloqueia, mas loga
-    console.warn('[auth] falha ao carregar crm_access_users:', (_e as any)?.message);
+    console.warn('[auth] falha ao carregar crm_access_users:', (_e instanceof Error ? _e.message : String(_e)));
   }
 
   allowlistCache = { loadedAtMs: now, emails };
@@ -86,7 +92,7 @@ export async function requireUserAuth(
     const { data, error } = await supabase.auth.getUser(jwt);
     if (error || !data?.user) return { ok: false, reason: 'Invalid JWT' };
 
-    const email = normalizeEmail((data.user as any)?.email);
+    const email = normalizeEmail((data.user as Record<string, unknown>)?.email);
     if (!email) return { ok: false, reason: 'Missing user email' };
 
     const allowlist = await getAllowlistEmails(supabaseUrl, serviceRoleKey);
@@ -97,7 +103,7 @@ export async function requireUserAuth(
 
     return { ok: true, user: data.user, email };
   } catch (_e) {
-    console.error('[auth] erro na verificação de auth:', (_e as any)?.message);
+    console.error('[auth] erro na verificação de auth:', (_e instanceof Error ? _e.message : String(_e)));
     return { ok: false, reason: 'Auth check failed' };
   }
 }
