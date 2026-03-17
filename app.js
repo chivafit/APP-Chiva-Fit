@@ -69,6 +69,10 @@ import {
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl,
 } from './sync/yampi.js';
 
+// ── Vercel Analytics: inicializa ──
+import { inject } from '@vercel/analytics';
+inject();
+
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
 window.addEventListener('unhandledrejection', function (event) {
