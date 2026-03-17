@@ -177,6 +177,8 @@ let allCustomers = [];
 let customerIntel = [];
 let customerIntelligence = [];
 let activeCh = "all";
+let savedFilters = safeJsonParse("crm_filtros_salvos", []);
+let selectedClientes = new Set();
 let charts   = {};
 let activeSegment = null;
 let syncTimer = null;
@@ -720,6 +722,15 @@ function enterApp(userEmail){
   })();
 }
 window.enterApp = enterApp;
+window.saveCurrentFilter = saveCurrentFilter;
+window.applyFilter = applyFilter;
+window.deleteSavedFilter = deleteSavedFilter;
+window.toggleClienteSelection = toggleClienteSelection;
+window.toggleSelectAll = toggleSelectAll;
+window.clearSelection = clearSelection;
+window.bulkExportCSV = bulkExportCSV;
+window.bulkCopyWhatsApp = bulkCopyWhatsApp;
+window.bulkMarkContacted = bulkMarkContacted;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
@@ -6119,7 +6130,185 @@ function appendClienteCards(html){
   else listEl.insertAdjacentHTML("beforeend", html);
 }
 
+/* ═══════════════════════════════════════════════════
+   FILTROS SALVOS
+═══════════════════════════════════════════════════ */
+function getSavedFilterState(){
+  return {
+    q: document.getElementById("search-cli")?.value || "",
+    statusFil: document.getElementById("fil-cli-status")?.value || "",
+    segFil: document.getElementById("fil-cli-seg")?.value || "",
+    canalFil: document.getElementById("fil-cli-canal")?.value || "",
+    uf: document.getElementById("fil-estado")?.value || "",
+    ch: activeCh,
+  };
+}
+
+function saveCurrentFilter(){
+  const state = getSavedFilterState();
+  const isEmpty = !state.q && !state.statusFil && !state.segFil && !state.canalFil && !state.uf && state.ch === "all";
+  if(isEmpty){ toast("Nenhum filtro ativo para salvar.", "warning"); return; }
+  const nome = window.prompt("Nome do filtro salvo:");
+  if(!nome || !nome.trim()) return;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+  savedFilters.push({ id, nome: nome.trim(), criado_em: new Date().toISOString().slice(0,10), filtros: state });
+  safeSetItem("crm_filtros_salvos", JSON.stringify(savedFilters));
+  renderSavedFilterChips();
+  toast(`Filtro "${nome.trim()}" salvo!`, "success");
+}
+
+function applyFilter(id){
+  const f = savedFilters.find(f=>f.id===id);
+  if(!f) return;
+  const { q, statusFil, segFil, canalFil, uf, ch } = f.filtros;
+  const sv = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = val||""; };
+  sv("search-cli", q);
+  sv("fil-cli-status", statusFil);
+  sv("fil-cli-seg", segFil);
+  sv("fil-cli-canal", canalFil);
+  sv("fil-estado", uf);
+  activeCh = ch || "all";
+  clearSelection();
+  renderClientes();
+}
+
+function deleteSavedFilter(id){
+  savedFilters = savedFilters.filter(f=>f.id!==id);
+  safeSetItem("crm_filtros_salvos", JSON.stringify(savedFilters));
+  renderSavedFilterChips();
+}
+
+function renderSavedFilterChips(){
+  const row = document.getElementById("saved-filter-row");
+  const container = document.getElementById("saved-filter-chips");
+  if(!row || !container) return;
+  if(!savedFilters.length){ row.classList.remove("visible"); return; }
+  row.classList.add("visible");
+  container.innerHTML = savedFilters.map(f=>`
+    <div class="saved-filter-chip" onclick="applyFilter('${escapeJsSingleQuote(f.id)}')" title="${escapeHTML(f.criado_em||"")}">
+      <span>${escapeHTML(f.nome)}</span>
+      <button class="saved-filter-chip-del" onclick="event.stopPropagation();deleteSavedFilter('${escapeJsSingleQuote(f.id)}')" title="Remover filtro">×</button>
+    </div>
+  `).join("");
+}
+
+/* ═══════════════════════════════════════════════════
+   AÇÕES EM LOTE
+═══════════════════════════════════════════════════ */
+function toggleClienteSelection(id, checked){
+  const cid = String(id||"");
+  if(checked) selectedClientes.add(cid);
+  else selectedClientes.delete(cid);
+  const card = document.getElementById("cli-sel-"+cid);
+  if(card) card.classList.toggle("selected", checked);
+  renderBulkActionBar();
+  updateSelectAllCheckbox();
+}
+
+function toggleSelectAll(checked){
+  document.querySelectorAll(".cli-check").forEach(cb=>{
+    cb.checked = checked;
+    const cid = String(cb.dataset.id||"");
+    if(checked) selectedClientes.add(cid);
+    else selectedClientes.delete(cid);
+    const card = document.getElementById("cli-sel-"+cid);
+    if(card) card.classList.toggle("selected", checked);
+  });
+  renderBulkActionBar();
+}
+
+function updateSelectAllCheckbox(){
+  const cbs = document.querySelectorAll(".cli-check");
+  const sa = document.getElementById("select-all-cli");
+  if(!sa || !cbs.length) return;
+  const checkedCount = Array.from(cbs).filter(cb=>cb.checked).length;
+  sa.checked = checkedCount === cbs.length;
+  sa.indeterminate = checkedCount > 0 && checkedCount < cbs.length;
+}
+
+function clearSelection(){
+  selectedClientes.clear();
+  document.querySelectorAll(".cli-check").forEach(cb=>{ cb.checked=false; });
+  document.querySelectorAll(".client-card.selected").forEach(el=>el.classList.remove("selected"));
+  const sa = document.getElementById("select-all-cli");
+  if(sa){ sa.checked=false; sa.indeterminate=false; }
+  renderBulkActionBar();
+}
+
+function renderBulkActionBar(){
+  const bar = document.getElementById("bulk-action-bar");
+  const countEl = document.getElementById("bulk-count");
+  const selCountEl = document.getElementById("cli-selected-count");
+  const selectAllRow = document.getElementById("cli-select-all-row");
+  const n = selectedClientes.size;
+  if(bar){ if(n>0){ bar.classList.add("visible"); } else { bar.classList.remove("visible"); } }
+  if(countEl) countEl.textContent = `${n} selecionado${n!==1?"s":""}`;
+  if(selCountEl) selCountEl.textContent = n>0 ? `(${n} selecionado${n!==1?"s":""})` : "";
+  if(selectAllRow) selectAllRow.style.display = clientesIntelCache.length > 0 ? "" : "none";
+  // Adiciona classe cli-selecting no container para mostrar checkboxes
+  const listEl = document.getElementById("client-list");
+  if(listEl) listEl.classList.toggle("cli-selecting", n>0);
+}
+
+function bulkExportCSV(){
+  const selected = clientesIntelCache.filter(c=>selectedClientes.has(String(c.cliente_id||c.id||"")));
+  if(!selected.length){ toast("Nenhum cliente selecionado.", "warning"); return; }
+  const cols = ["Nome","E-mail","Telefone","Canal","Status","UF","Cidade","LTV","Risco Churn","Dias sem comprar"];
+  const rows = selected.map(c=>[
+    c.nome, c.email, c.telefone||c.celular, c.canal_principal, c.status, c.uf, c.cidade,
+    (Number(c.ltv||c.total_gasto||0)).toFixed(2),
+    c.risco_churn, c.dias_desde_ultima_compra
+  ].map(v=>`"${String(v||"").replace(/"/g,'""')}"`).join(","));
+  const csv = [cols.join(","), ...rows].join("\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download=`clientes_selecionados_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast(`${selected.length} cliente${selected.length!==1?"s":""} exportado${selected.length!==1?"s":""}!`, "success");
+  clearSelection();
+}
+
+function bulkCopyWhatsApp(){
+  const selected = clientesIntelCache.filter(c=>selectedClientes.has(String(c.cliente_id||c.id||"")));
+  const numbers = selected.map(c=>String(c.celular||c.telefone||"").replace(/\D/g,"")).filter(Boolean);
+  if(!numbers.length){ toast("Nenhum número encontrado nos selecionados.", "warning"); return; }
+  const txt = numbers.join("\n");
+  const msg = `${numbers.length} número${numbers.length!==1?"s":""} copiado${numbers.length!==1?"s":""}!`;
+  if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(()=>toast(msg,"success")).catch(()=>{ fallbackCopy(txt); toast(msg,"success"); }); }
+  else { fallbackCopy(txt); toast(msg,"success"); }
+  clearSelection();
+}
+
+function fallbackCopy(text){
+  const ta = document.createElement("textarea");
+  ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+}
+
+function bulkMarkContacted(){
+  const n = selectedClientes.size;
+  if(!n){ toast("Nenhum cliente selecionado.", "warning"); return; }
+  // Persiste interação do tipo "contato" para cada cliente selecionado
+  if(!supaClient){ toast("Sem conexão com Supabase.", "error"); return; }
+  const ids = Array.from(selectedClientes);
+  const now = new Date().toISOString();
+  const rows = ids.map(id=>({
+    customer_id: id,
+    type: "contato",
+    description: "Contato registrado em lote via CRM",
+    source: "crm_bulk",
+    created_at: now,
+  }));
+  supaClient.from("interactions").insert(rows).then(({error})=>{
+    if(error){ toast("Erro ao registrar contatos.", "error"); return; }
+    toast(`${n} cliente${n!==1?"s":""} marcado${n!==1?"s":""} como contatado${n!==1?"s":""}!`, "success");
+    clearSelection();
+  }).catch(e=>{ captureError(e,{context:"bulkMarkContacted"}); toast("Erro ao registrar contatos.","error"); });
+}
+
 function renderClientes(){
+  renderSavedFilterChips();
   const usingViews = !!(supaConnected && supaClient);
   const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
   const statusFil=document.getElementById("fil-cli-status")?.value||"";
@@ -6127,6 +6316,8 @@ function renderClientes(){
   const canalFil=document.getElementById("fil-cli-canal")?.value||"";
   const uf=document.getElementById("fil-estado")?.value||"";
   const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === "all";
+  // Limpa seleção sempre que os filtros são reaplicados
+  if(selectedClientes.size) clearSelection();
 
   if(usingViews){
     if(!clientesIntelCache.length){
@@ -6305,8 +6496,13 @@ function renderCliIntelCard(c, eid){
   if(churn) line3Parts.push(`Risco ${Number(churn||0).toFixed(0)}`);
   const line3 = line3Parts.join(" · ");
 
-  return `<div class="client-card" id="${eid}">
-    <div class="client-head" onclick="openClientePage('${id}')">
+  const cardId = "cli-sel-"+id;
+  return `<div class="client-card" id="${eid}" data-cid="${escapeHTML(id)}">
+    <div class="cli-check-wrap" onclick="event.stopPropagation()">
+      <input type="checkbox" class="cli-check" id="${cardId}" data-id="${escapeHTML(id)}"
+        onchange="toggleClienteSelection('${escapeJsSingleQuote(id)}', this.checked)"/>
+    </div>
+    <div class="client-head" onclick="openClientePage('${id}')" style="padding-left:28px">
       <div>
         <div class="client-name-row" style="align-items:flex-start">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>

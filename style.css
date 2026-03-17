@@ -6098,3 +6098,160 @@ html.light .chart-card-header .chart-title { color: var(--text) !important; }
 @media (max-width: 720px) {
   .intel-segment-grid { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════
+   FILTROS SALVOS
+═══════════════════════════════════════════ */
+.saved-filter-row {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.saved-filter-row.visible { display: flex; }
+.saved-filter-row-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.saved-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--chiva-primary-border);
+  background: var(--chiva-primary-dim);
+  color: var(--chiva-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+}
+.saved-filter-chip:hover { background: rgba(15,167,101,.18); }
+.saved-filter-chip-del {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 1px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s;
+}
+.saved-filter-chip-del:hover { color: var(--red, #f87171); }
+
+/* ═══════════════════════════════════════════
+   AÇÕES EM LOTE — BARRA FLUTUANTE
+═══════════════════════════════════════════ */
+.bulk-action-bar {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9000;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--chiva-primary-border);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5), 0 0 0 1px rgba(15,167,101,.1);
+  backdrop-filter: blur(12px);
+  white-space: nowrap;
+  animation: bulkBarIn .2s ease;
+}
+.bulk-action-bar.visible { display: flex; }
+@keyframes bulkBarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.bulk-count-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--chiva-primary);
+  background: var(--chiva-primary-dim);
+  border: 1px solid var(--chiva-primary-border);
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+.bulk-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.bulk-btn:hover { background: var(--card-hover); color: var(--text); border-color: var(--border-hi); }
+.bulk-btn-clear {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color .15s;
+}
+.bulk-btn-clear:hover { color: var(--text-2); }
+
+/* ═══════════════════════════════════════════
+   CHECKBOX DE SELEÇÃO NOS CARDS
+═══════════════════════════════════════════ */
+.cli-select-all-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  user-select: none;
+}
+.cli-select-all-row input[type="checkbox"] {
+  accent-color: var(--chiva-primary);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.client-card { position: relative; }
+.cli-check-wrap {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.client-card:hover .cli-check-wrap,
+.client-card.selected .cli-check-wrap,
+.cli-selecting .cli-check-wrap { opacity: 1; }
+.cli-check-wrap input[type="checkbox"] {
+  accent-color: var(--chiva-primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.client-card.selected {
+  border-color: var(--chiva-primary-border) !important;
+  background: var(--chiva-primary-dim) !important;
+}

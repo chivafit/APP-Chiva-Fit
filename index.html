@@ -31,11 +31,11 @@
     if(!session?.access_token){
       window.location.replace("./login.html");
     } else {
-      await import("./main.js?v=20260316-6");
+      await import("./main.js?v=20260317-4");
     }
   }
 </script>
-<link rel="stylesheet" href="./main.css?v=20260316-6">
+<link rel="stylesheet" href="./main.css?v=20260317-4">
 </head>
 <body>
 
@@ -664,11 +664,30 @@
       <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">UF</option></select>
       <button class="saas-chip saas-chip-btn" onclick="recarregar()" aria-label="Recarregar"><span id="ri">↻</span></button>
       <button class="saas-chip saas-chip-btn" onclick="exportClientesCSV()" title="Exportar clientes em CSV" aria-label="Exportar CSV">↓ CSV</button>
+      <button class="saas-chip saas-chip-btn" onclick="saveCurrentFilter()" title="Salvar filtro atual" aria-label="Salvar filtro">💾 Salvar</button>
     </div>
   </div>
+  <div class="saved-filter-row" id="saved-filter-row">
+    <span class="saved-filter-row-label">Salvos</span>
+    <div id="saved-filter-chips" style="display:contents"></div>
+  </div>
   <div class="ch-pills" id="ch-pills-cli"></div>
+  <div class="cli-select-all-row" id="cli-select-all-row" style="display:none">
+    <input type="checkbox" id="select-all-cli" onchange="toggleSelectAll(this.checked)" title="Selecionar todos visíveis"/>
+    <label for="select-all-cli" style="cursor:pointer">Selecionar todos</label>
+    <span id="cli-selected-count" style="color:var(--chiva-primary);margin-left:4px"></span>
+  </div>
   <div class="section-label" id="cli-label"></div>
   <div class="client-list" id="client-list"></div>
+</div>
+
+<!-- BARRA DE AÇÕES EM LOTE -->
+<div class="bulk-action-bar" id="bulk-action-bar">
+  <span class="bulk-count-badge" id="bulk-count">0 selecionados</span>
+  <button class="bulk-btn" onclick="bulkExportCSV()">↓ Exportar CSV</button>
+  <button class="bulk-btn" onclick="bulkCopyWhatsApp()">📋 Copiar números</button>
+  <button class="bulk-btn" onclick="bulkMarkContacted()">✓ Marcar contatado</button>
+  <button class="bulk-btn-clear" onclick="clearSelection()">✕ Limpar</button>
 </div>
 
 <!-- PERFIL DO CLIENTE -->
