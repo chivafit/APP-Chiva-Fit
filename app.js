@@ -2675,6 +2675,7 @@ document.addEventListener("click",e=>{ if(!e.target.closest("#notif-panel")&&!e.
 //  PAGES
 // ═══════════════════════════════════════════════════
 function showPage(id){
+  console.log('DEBUG NAV: Tentando mostrar página:', id);
   // Hide all pages
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
 
@@ -3391,6 +3392,7 @@ function selectSegment(id){
 }
 
 function renderAll(){
+  console.log('DEBUG RENDER: Iniciando renderAll com', allOrders.length, 'pedidos e', allCustomers.length, 'clientes');
   safeInvokeName("renderDash");
   safeInvokeName("renderClientes");
   safeInvokeName("renderInteligencia");
@@ -12733,7 +12735,12 @@ Object.assign(window,{
   registrarEntradaInsumo,
   deletarOrdem,
   salvarOrdem,
-  abrirMovimentosDoLote
+  abrirMovimentosDoLote,
+  // Estado global — exportado para que funções externas via window.allOrders vejam os dados
+  allOrders,
+  allCustomers,
+  blingOrders,
+  yampiOrders
 });
 
 export {
