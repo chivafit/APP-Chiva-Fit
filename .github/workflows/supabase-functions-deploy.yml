@@ -17,6 +17,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Cache Supabase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.supabase
+          key: supabase-cli-${{ runner.os }}-${{ hashFiles('supabase/config.toml') }}
+          restore-keys: |
+            supabase-cli-${{ runner.os }}-
 
       - uses: supabase/setup-cli@v1
         with:
@@ -34,19 +44,35 @@ jobs:
           fi
           echo "✓ Secrets validados com sucesso."
 
-      - name: Deploy Edge Functions (sem verificação JWT)
+      - name: Detect changed functions
+        id: changed
         run: |
-          for fn in bling-renew-token bling-sync bling-products-sync yampi-webhook; do
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            FUNCTIONS=$(ls supabase/functions/ | tr '\n' ' ')
+            echo "Trigger manual — deployando todas as funções: $FUNCTIONS"
+          else
+            FUNCTIONS=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/**' \
+              | grep -oP 'supabase/functions/\K[^/]+' \
+              | sort -u \
+              | tr '\n' ' ')
+            echo "Push detectado — funções alteradas: ${FUNCTIONS:-nenhuma}"
+          fi
+          echo "functions=$FUNCTIONS" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Edge Functions
+        if: steps.changed.outputs.functions != ''
+        run: |
+          for fn in ${{ steps.changed.outputs.functions }}; do
             echo "→ Deploying $fn"
             supabase functions deploy "$fn" \
-              --no-verify-jwt \
               --project-ref "$SUPABASE_PROJECT_ID"
           done
 
-      - name: Deploy Edge Functions (com verificação JWT)
+      - name: Notify failure
+        if: failure()
         run: |
-          for fn in ia-claude ia-commercial; do
-            echo "→ Deploying $fn"
-            supabase functions deploy "$fn" \
-              --project-ref "$SUPABASE_PROJECT_ID"
-          done
+          echo "::error::Deploy falhou — verifique os logs acima."
+          # Para notificação via Slack, configure o secret SLACK_WEBHOOK_URL e descomente:
+          # curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+          #   -H "Content-Type: application/json" \
+          #   -d "{\"text\":\"❌ *Deploy falhou* em \`${{ github.repository }}\` (branch: \`${{ github.ref_name }}\`)\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver logs>\"}"
