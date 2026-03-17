@@ -612,7 +612,13 @@ async function handleLoginSubmit(e){
 
       const connected = await initSupabase();
       if(!connected){
-        if(errEl) errEl.textContent = "Supabase não está conectado. Verifique a URL, a chave (anon) e as políticas (RLS).";
+        // Se falhou o initSupabase, tentamos pegar o erro que ele logou no st
+        const st = document.getElementById("supa-status");
+        if(errEl) errEl.textContent = (st && st.textContent.includes("⚠")) ? st.textContent.replace("⚠ ","") : "Supabase não está conectado. Verifique a URL e a Chave.";
+        if(btnEl){
+          btnEl.disabled = false;
+          btnEl.innerHTML = '<span>Entrar</span>';
+        }
         return false;
       }
 
