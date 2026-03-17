@@ -1019,6 +1019,15 @@ function closeCarrinhoHistorico(){
 window.openCarrinhoHistorico = openCarrinhoHistorico;
 window.closeCarrinhoHistorico = closeCarrinhoHistorico;
 
+// Marca
+function toggleDegustFields(){
+  var tipo=(document.getElementById('ev-tipo')||{}).value||'';
+  var el=document.getElementById('ev-degust-fields');
+  if(el) el.style.display=(tipo==='degustacao'||tipo==='feira')?'':'none';
+}
+window.toggleDegustFields = toggleDegustFields;
+window.irParaHoje = irParaHoje;
+
 window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
 window.toggleCarrinhoSelection = toggleCarrinhoSelection;
 window.toggleAllCarrinhos = toggleAllCarrinhos;
@@ -12256,13 +12265,30 @@ function deletarCampanha(){
 // MÓDULO MARCA
 // ═══════════════════════════════════════════════════════════
 
+// kpiCard — cartão de KPI usado em Comercial e Marca
+function kpiCard(title, value, subtitle, color){
+  return '<div class="car-kpi-card" style="--i:0">'+
+    '<div class="car-kpi-value" style="color:'+escapeHTML(String(color||'var(--text)'))+'">'+escapeHTML(String(value??''))+'</div>'+
+    '<div class="car-kpi-label">'+escapeHTML(String(title||''))+'</div>'+
+    (subtitle?'<div class="car-kpi-sub">'+escapeHTML(String(subtitle))+'</div>':'')+
+  '</div>';
+}
+
+// miniKpi — cartão compacto usado em Degustações e Resultados
+function miniKpi(label, value, color){
+  return '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center">'+
+    '<div style="font-size:14px;font-weight:900;color:'+escapeHTML(String(color||'var(--text)'))+'">'+escapeHTML(String(value??''))+'</div>'+
+    '<div style="font-size:9px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">'+escapeHTML(String(label||''))+'</div>'+
+  '</div>';
+}
+
 var calMesAtual=new Date().getMonth(), calAnoAtual=new Date().getFullYear(), filtroDia=null;
 
 let allEventos = safeJsonParse('crm_eventos', null) || [
-  {id:1,titulo:'Degustação Shopping Iguatemi',tipo:'degustacao',data:'2025-03-29',hora:'10:00',local:'Shopping Iguatemi — BH',responsavel:'Ana',custo:350,amostras:120,conversoes:18,receita:1620,obs:'Ótima receptividade sabor chocolate'},
-  {id:2,titulo:'Feira Natural Expo',tipo:'feira',data:'2025-04-12',hora:'09:00',local:'Expo Center — SP',responsavel:'Carlos',custo:1200,amostras:250,conversoes:0,receita:0,obs:'Montar estande 3x3'},
-  {id:3,titulo:'Live com Nutricionista',tipo:'live',data:'2025-04-05',hora:'19:00',local:'Instagram @chivafit',responsavel:'Marketing',custo:0,amostras:0,conversoes:0,receita:0,obs:'Tema: proteína na dieta feminina'},
-  {id:4,titulo:'Degustação Academia FitLife',tipo:'degustacao',data:'2025-04-19',hora:'07:00',local:'Academia FitLife — BH',responsavel:'Ana',custo:150,amostras:60,conversoes:0,receita:0,obs:''},
+  {id:1,titulo:'Degustação Shopping Iguatemi',tipo:'degustacao',data:'2026-03-22',hora:'10:00',local:'Shopping Iguatemi — BH',responsavel:'Ana',custo:350,amostras:120,conversoes:18,receita:1620,obs:'Ótima receptividade sabor chocolate'},
+  {id:2,titulo:'Feira Natural Expo',tipo:'feira',data:'2026-04-12',hora:'09:00',local:'Expo Center — SP',responsavel:'Carlos',custo:1200,amostras:250,conversoes:0,receita:0,obs:'Montar estande 3x3'},
+  {id:3,titulo:'Live com Nutricionista',tipo:'live',data:'2026-03-28',hora:'19:00',local:'Instagram @chivafit',responsavel:'Marketing',custo:0,amostras:0,conversoes:0,receita:0,obs:'Tema: proteína na dieta feminina'},
+  {id:4,titulo:'Degustação Academia FitLife',tipo:'degustacao',data:'2026-04-05',hora:'07:00',local:'Academia FitLife — BH',responsavel:'Ana',custo:150,amostras:60,conversoes:0,receita:0,obs:''},
 ];
 function saveEventos(){ localStorage.setItem('crm_eventos',JSON.stringify(allEventos)); }
 
@@ -12296,18 +12322,30 @@ function renderCalendario(){
   }
   el.innerHTML=h; renderEventosLista();
 }
-function mudarMes(delta){ calMesAtual+=delta; if(calMesAtual>11){calMesAtual=0;calAnoAtual++;} if(calMesAtual<0){calMesAtual=11;calAnoAtual--;} renderCalendario(); }
+function mudarMes(delta){ calMesAtual+=delta; if(calMesAtual>11){calMesAtual=0;calAnoAtual++;} if(calMesAtual<0){calMesAtual=11;calAnoAtual--;} filtroDia=null; renderCalendario(); }
+function irParaHoje(){ calMesAtual=new Date().getMonth(); calAnoAtual=new Date().getFullYear(); filtroDia=null; renderCalendario(); }
 function filtrarDia(dia){ filtroDia=filtroDia===dia?null:dia; renderEventosLista(); }
 
 function renderEventosLista(){
   var el=document.getElementById('eventos-lista'); if(!el) return;
   var tE={degustacao:'🍫',feira:'🏪',evento:'🎪',reuniao:'🤝',live:'📱'};
   var tC={degustacao:'ev-degustacao',feira:'ev-feira',evento:'ev-evento',reuniao:'ev-reuniao',live:'ev-evento'};
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
   var list=[].concat(allEventos).sort(function(a,b){return a.data.localeCompare(b.data);});
-  if(filtroDia!==null) list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual&&parseInt(e.data.split('-')[2])===filtroDia; });
-  if(!list.length){ el.innerHTML='<div class="empty">Nenhum evento neste período</div>'; return; }
-  el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+(filtroDia?'Eventos dia '+filtroDia:'Próximos eventos')+'</div>'+list.map(function(e){
-    return '<div class="evento-card"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(fmtDate(e.data))+' '+escapeHTML(e.hora)+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
+  // Sempre filtrar pelo mês visível (a menos que filtroDia esteja ativo)
+  if(filtroDia!==null){
+    list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual&&parseInt(e.data.split('-')[2])===filtroDia; });
+  } else {
+    list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual; });
+  }
+  var titulo=filtroDia?('Eventos — dia '+filtroDia):('Eventos de '+['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][calMesAtual]);
+  if(!list.length){ el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+escapeHTML(titulo)+'</div><div class="empty">Nenhum evento neste período.</div>'; return; }
+  el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+escapeHTML(titulo)+'</div>'+list.map(function(e){
+    var evData=new Date(e.data+'T12:00:00'); evData.setHours(0,0,0,0);
+    var isPast=evData<hoje;
+    var isHoje=evData.getTime()===hoje.getTime();
+    var badge=isHoje?'<span style="background:var(--indigo);color:#fff;font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">HOJE</span>':isPast?'<span style="background:var(--card);color:var(--text-3);font-size:9px;border-radius:4px;padding:1px 5px;margin-left:6px;border:1px solid var(--border)">Realizado</span>':'<span style="background:var(--chiva-primary-dim);color:var(--chiva-primary);font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">Próximo</span>';
+    return '<div class="evento-card" style="'+(isPast&&!isHoje?'opacity:.7':'')+'"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+badge+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(fmtDate(e.data))+(e.hora?' '+escapeHTML(e.hora):'')+(e.local?' · '+escapeHTML(e.local):'')+(e.responsavel?' · '+escapeHTML(e.responsavel):'')+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
   }).join('');
 }
 
@@ -12327,11 +12365,42 @@ function renderMarcaResultados(){
   var degust=allEventos.filter(function(e){return e.tipo==='degustacao';});
   var tA=degust.reduce(function(s,e){return s+(e.amostras||0);},0);
   var tC=degust.reduce(function(s,e){return s+(e.conversoes||0);},0);
-  var tCusto=degust.reduce(function(s,e){return s+(e.custo||0);},0);
-  var tR=degust.reduce(function(s,e){return s+(e.receita||0);},0);
+  var tCusto=allEventos.reduce(function(s,e){return s+(e.custo||0);},0);
+  var tR=allEventos.reduce(function(s,e){return s+(e.receita||0);},0);
   var roi=tCusto>0?((tR-tCusto)/tCusto*100).toFixed(0):0;
   var taxa=tA>0?(tC/tA*100).toFixed(1):0;
-  el.innerHTML='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">📊 Consolidado Trade Marketing</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+miniKpi('Total Amostras',tA,'var(--blue)')+miniKpi('Conversões',tC,'var(--green)')+miniKpi('Taxa Geral',taxa+'%','var(--indigo-hi)')+miniKpi('Custo Total','R$'+tCusto.toLocaleString('pt-BR'),'var(--red)')+miniKpi('Receita Total','R$'+tR.toLocaleString('pt-BR'),'var(--green)')+miniKpi('ROI Geral',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)')+'</div></div>';
+  // Por tipo
+  var tipoMap={degustacao:{label:'🍫 Degustação'},feira:{label:'🏪 Feira'},evento:{label:'🎪 Evento'},reuniao:{label:'🤝 Reunião'},live:{label:'📱 Live'}};
+  var tipoRows=Object.keys(tipoMap).map(function(t){
+    var evs=allEventos.filter(function(e){return e.tipo===t;});
+    if(!evs.length) return '';
+    var custo=evs.reduce(function(s,e){return s+(e.custo||0);},0);
+    var receita=evs.reduce(function(s,e){return s+(e.receita||0);},0);
+    var roiT=custo>0?((receita-custo)/custo*100).toFixed(0):null;
+    return '<tr>'+
+      '<td>'+escapeHTML(tipoMap[t].label)+'</td>'+
+      '<td style="text-align:center">'+evs.length+'</td>'+
+      '<td style="text-align:right">'+escapeHTML('R$'+custo.toLocaleString('pt-BR'))+'</td>'+
+      '<td style="text-align:right">'+escapeHTML('R$'+receita.toLocaleString('pt-BR'))+'</td>'+
+      '<td style="text-align:right;font-weight:700;color:'+(roiT!==null&&parseInt(roiT)>=0?'var(--green)':'var(--red)')+'">'+escapeHTML(roiT!==null?roiT+'%':'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  el.innerHTML=
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:12px">'+
+      '<div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">📊 Consolidado Geral</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+
+        miniKpi('Total Amostras',tA,'var(--blue)')+miniKpi('Conversões',tC,'var(--green)')+miniKpi('Taxa Conv.',taxa+'%','var(--indigo-hi)')+miniKpi('Custo Total','R$'+tCusto.toLocaleString('pt-BR'),'var(--red)')+miniKpi('Receita Total','R$'+tR.toLocaleString('pt-BR'),'var(--green)')+miniKpi('ROI Geral',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)')+
+      '</div>'+
+    '</div>'+
+    (tipoRows?
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px">'+
+        '<div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">Por tipo de evento</div>'+
+        '<table class="chiva-table">'+
+          '<thead><tr><th>Tipo</th><th style="text-align:center">Qtd</th><th style="text-align:right">Custo</th><th style="text-align:right">Receita</th><th style="text-align:right">ROI</th></tr></thead>'+
+          '<tbody>'+tipoRows+'</tbody>'+
+        '</table>'+
+      '</div>'
+    :'');
 }
 
 function setMarcaTab(tab){
@@ -12369,22 +12438,27 @@ function abrirModalEvento(id){
   } else {
     document.getElementById('ev-edit-id').value='';
     document.getElementById('modal-evento-title').textContent='Novo Evento';
+    document.getElementById('ev-tipo').value='degustacao';
     ['ev-titulo','ev-data','ev-hora','ev-local','ev-responsavel','ev-custo','ev-amostras','ev-conversoes','ev-receita','ev-obs'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
     del.style.display='none';
   }
+  toggleDegustFields();
   m.classList.add('open');
 }
 function salvarEvento(){
   var id=document.getElementById('ev-edit-id').value;
-  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:parseDateToIso(document.getElementById('ev-data').value),hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
-  if(!obj.titulo){ toast('⚠️ Informe o título'); return; }
+  var dataRaw=document.getElementById('ev-data').value;
+  var dataIso=parseDateToIso(dataRaw);
+  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:dataIso,hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
+  if(!obj.titulo){ toast('⚠️ Informe o título','warning'); return; }
+  if(!obj.data){ toast('⚠️ Informe a data do evento','warning'); return; }
   if(id){ var idx=allEventos.findIndex(function(x){return x.id===parseInt(id);}); if(idx>=0) allEventos[idx]=obj; } else allEventos.push(obj);
-  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('✅ Evento salvo!');
+  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('✅ Evento salvo!','success');
 }
 function deletarEvento(){
   var id=parseInt(document.getElementById('ev-edit-id').value);
   allEventos=allEventos.filter(function(x){return x.id!==id;});
-  saveEventos(); renderCalendario(); renderMarcaKpis(); fecharModal('modal-evento'); toast('🗑️ Evento excluído');
+  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('🗑️ Evento excluído');
 }
 
 function fecharModal(id){ var el=document.getElementById(id); if(el) el.classList.remove('open'); }
