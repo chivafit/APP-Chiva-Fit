@@ -68,6 +68,7 @@ import {
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl,
 } from './sync/yampi.js';
+import brazilStatesSvgUrl from './assets/brazil-states.svg?url';
 
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
@@ -6207,7 +6208,7 @@ let _dashBrazilSvgText = null;
 async function ensureDashBrazilSvg() {
   if (_dashBrazilSvgText) return _dashBrazilSvgText;
   try {
-    const res = await fetch('./assets/brazil-states.svg');
+    const res = await fetch(brazilStatesSvgUrl);
     _dashBrazilSvgText = await res.text();
     return _dashBrazilSvgText;
   } catch (_e) {
@@ -12605,8 +12606,7 @@ async function ensureBrazilMapSvg(container) {
   if (brazilMapSvgEl) return brazilMapSvgEl;
   if (!brazilMapSvgPromise) {
     brazilMapSvgPromise = (async () => {
-      const url = new URL('./assets/brazil-states.svg', window.location.href).toString();
-      const resp = await fetch(url);
+      const resp = await fetch(brazilStatesSvgUrl);
       if (!resp.ok) throw new Error('Falha ao carregar SVG do mapa do Brasil');
       const text = await resp.text();
       const tmp = document.createElement('div');

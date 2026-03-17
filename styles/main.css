@@ -1,1 +1,9 @@
 @import url('../style.css');
+
+/* Garante que o escudo do mobile nunca bloqueie cliques no Desktop */
+@media (min-width: 1024px) {
+  #sidebar-overlay {
+    display: none !important;
+    pointer-events: none !important;
+  }
+}
