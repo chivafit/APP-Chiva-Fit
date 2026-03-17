@@ -9,7 +9,7 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-3";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-4";
 import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
 import { CRMStore } from "./store.js?v=20260316-6";
 import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
@@ -33,7 +33,7 @@ import {
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260316-6";
+} from "./sync/bling.js?v=20260317-4";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
@@ -416,7 +416,7 @@ function checkEstoqueCritico(){
         tipo: "estoque_critico",
         conteudo: { itens: crit.map(i=>({ id: i?.id, nome: i?.nome, estoque_atual: i?.estoque_atual ?? i?.estoque ?? 0, estoque_minimo: i?.estoque_minimo ?? i?.minimo ?? 0 })) },
         created_at: new Date().toISOString()
-      }).then(()=>{}).catch(()=>{});
+      }).then(()=>{}).catch(e=>{ console.warn("[alertas] falha ao inserir alerta de estoque crítico:", e?.message || String(e)); captureError(e, { context: "insert_alerta_estoque" }); });
     }
   }
 }
@@ -1275,7 +1275,7 @@ function loadAccessUsers(){
 
 function saveAccessUsers(users){
   localStorage.setItem("crm_access_users", JSON.stringify(users));
-  if(supaConnected && supaClient) sbSetConfig("crm_access_users", JSON.stringify(users)).catch(()=>{});
+  if(supaConnected && supaClient) sbSetConfig("crm_access_users", JSON.stringify(users)).catch(e=>{ console.warn("[config] falha ao salvar crm_access_users no Supabase:", e?.message || String(e)); captureError(e, { context: "save_access_users" }); });
 }
 
 function getAccessUserByEmail(email){
@@ -1596,7 +1596,7 @@ function saveAlertDays(){
   if(!v) return;
   localStorage.setItem("crm_alertdays", v);
   if(supaConnected && supaClient){
-    sbSetConfig("alert_days", v).catch(()=>{});
+    sbSetConfig("alert_days", v).catch(e=>{ console.warn("[config] falha ao salvar alert_days no Supabase:", e?.message || String(e)); });
   }
 }
 
@@ -4329,7 +4329,7 @@ function renderDashNow(){
   try{ renderDashAlertsMini(ordersSales); }catch(_e){}
   try{ renderDashVipMini(ordersSales); }catch(_e){}
   try{ renderDashGeoMini(ordersSales); }catch(_e){}
-  updateDashSecondaryFromSupabase().catch(()=>{});
+  updateDashSecondaryFromSupabase().catch(e=>{ console.warn("[dashboard] falha ao atualizar KPIs secundários do Supabase:", e?.message || String(e)); });
 }
 
 async function updateDashSecondaryFromSupabase(){
@@ -6698,7 +6698,7 @@ function renderClientes(){
 
   if(usingViews){
     if(!clientesIntelCache.length){
-      loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(()=>{});
+      loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(e=>{ console.warn("[clientes] falha ao carregar cache de inteligência:", e?.message || String(e)); captureError(e, { context: "load_clientes_intel_cache" }); });
       document.getElementById("cli-label").textContent = "";
       document.getElementById("client-list").innerHTML = renderClienteSkeletons(7);
       document.getElementById("ch-pills-cli").innerHTML = "";
@@ -9971,7 +9971,7 @@ async function flushPendingOps(){
 
 function ensurePendingOpsPump(){
   if(pendingOpsTimer) return;
-  pendingOpsTimer = setInterval(()=>{ flushPendingOps().catch(()=>{}); }, 30_000);
+  pendingOpsTimer = setInterval(()=>{ flushPendingOps().catch(e=>{ console.warn("[pendingOps] falha ao sincronizar operações pendentes:", e?.message || String(e)); }); }, 30_000);
 }
 
 let deferred;

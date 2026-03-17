@@ -204,10 +204,12 @@ function cursorToOrFilter(cursor){
 function pickNextCursor(rows){
   if(!Array.isArray(rows) || !rows.length) return null;
   const last = rows[rows.length - 1] || {};
+  // Correção: usar != null em vez de ?? para tratar 0 como valor válido
+  // (o operador ?? não ativa para 0, mas o operador != null sim)
   return {
-    risco_churn: last.risco_churn ?? last.risco_churn === 0 ? Number(last.risco_churn) : null,
-    score_recompra: last.score_recompra ?? last.score_recompra === 0 ? Number(last.score_recompra) : null,
-    total_gasto: last.total_gasto ?? last.total_gasto === 0 ? Number(last.total_gasto) : null,
+    risco_churn: last.risco_churn != null ? Number(last.risco_churn) : null,
+    score_recompra: last.score_recompra != null ? Number(last.score_recompra) : null,
+    total_gasto: last.total_gasto != null ? Number(last.total_gasto) : null,
     cliente_id: String(last.cliente_id || last.id || "").trim()
   };
 }

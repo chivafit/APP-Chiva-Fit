@@ -85,6 +85,28 @@ export async function withRetry(fn, maxAttempts = 3, baseDelayMs = 1000){
   throw lastError;
 }
 
+/**
+ * Converte data em formato BR (dd/mm/yyyy) ou ISO (yyyy-mm-dd) para ISO.
+ * Retorna string vazia se não reconhecer o formato.
+ */
+export function parseDateToIso(v){
+  const s = String(v||"").trim();
+  if(!s) return "";
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return "";
+}
+
+/**
+ * Converte data ISO (yyyy-mm-dd) para formato BR (dd/mm/yyyy).
+ */
+export function fmtDateBrFromIso(iso){
+  const s = String(iso||"").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+
 export function debounce(fn, delay){
   let timer;
   return function(...args){
