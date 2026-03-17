@@ -47,7 +47,7 @@ const nodeGlobals = {
   clearInterval: 'readonly',
 };
 
-const unusedVarsWarn = ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }];
+const unusedVarsWarn = ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }];
 
 const allowEmptyCatchWarn = ['warn', { allowEmptyCatch: true }];
 

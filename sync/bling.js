@@ -72,7 +72,7 @@ export async function syncBling(ctx, options) {
     }
   }
 
-  const syncStartedAt = Date.now();
+  const _syncStartedAt = Date.now();
   try {
     let offset = 0;
     let batch = 0;

@@ -4,7 +4,7 @@ import { captureToSentry } from '../_shared/sentry.ts';
 import { requireUserAuth } from '../_shared/auth.ts';
 import { safeJsonParse } from '../_shared/utils.ts';
 
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
 
@@ -55,8 +55,8 @@ async function rateLimitWait() {
   if (waitMs > 0) await sleep(waitMs);
 }
 
-function isBlingCommunicationError(err: any): boolean {
-  const msg = String(err?.message || err || '');
+function isBlingCommunicationError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : String(err) || '');
   return msg.startsWith('Bling API error:') || msg.startsWith('Falha ao renovar token:');
 }
 
@@ -128,7 +128,7 @@ async function getBlingLojaIdMap(
   return map;
 }
 
-function inferCanalSlugFromBling(detailData: any, lojaIdMap: Record<string, string>) {
+function inferCanalSlugFromBling(detailData: unknown, lojaIdMap: Record<string, string>) {
   const data = detailData && typeof detailData === 'object' ? detailData : {};
   const lojaObj = data?.loja ?? data?.store ?? {};
 
@@ -232,7 +232,7 @@ function cleanPhone(v: unknown): string {
   return d.length >= 10 ? d : '';
 }
 
-function makeCustomerDocKey(order: any): string {
+function makeCustomerDocKey(order: Record<string, unknown>): string {
   const contato = order?.contato ?? {};
   const doc = onlyDigitsStr(
     contato?.cpfCnpj ?? contato?.numeroDocumento ?? contato?.cpf ?? contato?.cnpj ?? '',

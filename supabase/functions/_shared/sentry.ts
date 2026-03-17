@@ -1,4 +1,4 @@
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 /**
  * Minimal Sentry client for Deno Edge Functions.

@@ -1251,6 +1251,7 @@ export function normalizeBrazilPhone(phone) {
   if (digits.length === 10 || digits.length === 11) {
     if (!digits.startsWith('55')) digits = '55' + digits;
   } else if (digits.length === 12 && digits.startsWith('55')) {
+    // already correct format, no conversion needed
   } else {
     return null;
   }
