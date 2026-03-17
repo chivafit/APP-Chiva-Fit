@@ -13,10 +13,10 @@
   var FIXED_URL = "https://nvbicjjtnobnnscmypeq.supabase.co";
   var FIXED_KEY = "sb_publishable_PEupIHnmmnChZMTEfJylcQ_T5I3tj-7";
 
-  // SEGURANÇA: URL e chave podem ser lidas do localStorage se não estiverem no APP_CONFIG.
-  var supabaseUrl = String(existing.supabaseUrl || "").trim() || FIXED_URL || readLS("crm_supa_url") || readLS("supabase_url");
+  // SEGURANÇA: Prioriza APP_CONFIG (injetado) > LocalStorage > FIXED (fallback).
+  var supabaseUrl = String(existing.supabaseUrl || "").trim() || readLS("crm_supa_url") || readLS("supabase_url") || FIXED_URL;
 
-  var supabaseAnonKey = String(existing.supabaseAnonKey || "").trim() || FIXED_KEY || readLS("crm_supa_key") || readLS("supabase_key");
+  var supabaseAnonKey = String(existing.supabaseAnonKey || "").trim() || readLS("crm_supa_key") || readLS("supabase_key") || FIXED_KEY;
 
   // SENTRY: preencha com o DSN do seu projeto em https://sentry.io
   var sentryDsn = String(existing.sentryDsn || "").trim() || readLS("crm_sentry_dsn") || "";
