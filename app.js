@@ -17120,16 +17120,25 @@ function handleRoute() {
   if (typeof showPage === 'function') showPage(pageId);
 }
 
+let _navBound = false;
 function initNavigation() {
-  document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', function() {
-      const page = this.getAttribute('data-page');
-      if (page) window.location.hash = page;
-    });
+  if (_navBound) return;
+  _navBound = true;
+
+  document.addEventListener('click', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.nav-item') : null;
+    if (!item) return;
+    const page = item.getAttribute('data-page');
+    if (page) window.location.hash = page;
   });
   window.addEventListener('hashchange', handleRoute);
+  handleRoute();
 }
-document.addEventListener('DOMContentLoaded', initNavigation);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initNavigation);
+} else {
+  initNavigation();
+}
 
 Object.assign(window, {
   handleLoginSubmit,
