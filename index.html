@@ -114,7 +114,7 @@
     <div class="nav-item" data-page="alertas" id="nav-alertas" data-tooltip="Alertas"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><span class="nav-label">Alertas</span><span class="nav-badge" id="badge-alertas" style="display:none">0</span></div>
 
     <div class="sidebar-section-label">Módulos</div>
-    <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span></div>
+    <div class="nav-item" data-page="comercial" id="nav-comercial" data-tooltip="Comercial"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-label">Comercial</span><span class="nav-badge" id="badge-comercial" style="display:none">0</span></div>
     <div class="nav-item" data-page="producao" id="nav-producao" data-tooltip="Produção"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></svg></span><span class="nav-label">Produção</span><span class="nav-badge" id="badge-producao" style="display:none">0</span></div>
     <div class="nav-item" data-page="marca" id="nav-marca" data-tooltip="Marca"><span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></span><span class="nav-label">Marca</span></div>
 
@@ -1515,8 +1515,19 @@
   <button onclick="document.getElementById('install-bar').style.display='none'" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:16px;cursor:pointer">✕</button>
 </div>
 
-
-
+<!-- MODAL HISTÓRICO DE INTERAÇÕES DO CARRINHO -->
+<div id="car-history-modal" style="display:none;position:fixed;inset:0;z-index:9200;background:var(--overlay);backdrop-filter:blur(6px);overflow-y:auto;padding:24px 16px">
+  <div style="max-width:540px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <h3 style="font-size:15px;font-weight:800;margin:0 0 2px">📋 Histórico do carrinho</h3>
+        <div id="car-hist-meta" style="font-size:11px;color:var(--text-3)"></div>
+      </div>
+      <button onclick="closeCarrinhoHistorico()" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:18px">✕</button>
+    </div>
+    <div id="car-hist-body" style="display:flex;flex-direction:column;gap:8px;min-height:80px"></div>
+  </div>
+</div>
 
 
 </body>

@@ -732,6 +732,154 @@ window.clearSelection = clearSelection;
 window.bulkExportCSV = bulkExportCSV;
 window.bulkCopyWhatsApp = bulkCopyWhatsApp;
 window.bulkMarkContacted = bulkMarkContacted;
+
+/* ═══════════════════════════════════════════════════
+   C — ALERTAS DE CARRINHOS QUENTES EM TEMPO REAL
+═══════════════════════════════════════════════════ */
+const CARRINHO_ALERTA_KEY = "crm_carrinhos_alertados_ids";
+const CARRINHO_HOT_MIN = 20; // janela em minutos considerada "quente"
+
+function getCarrinhosAlertados(){
+  try{ return new Set(JSON.parse(localStorage.getItem(CARRINHO_ALERTA_KEY)||"[]")); }catch(_){ return new Set(); }
+}
+function setCarrinhosAlertados(s){
+  try{ localStorage.setItem(CARRINHO_ALERTA_KEY, JSON.stringify([...s].slice(-300))); }catch(_){}
+}
+
+function checkCarrinhosQuentes(){
+  const lista = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>c.checkout_id);
+  const quentes = lista.filter(c=>!c.recuperado && !c.perdido && minutosDesdeIso(c.criado_em) != null && minutosDesdeIso(c.criado_em) < CARRINHO_HOT_MIN);
+
+  // Atualizar badge nav
+  const badge = document.getElementById("badge-comercial");
+  if(badge){
+    if(quentes.length){
+      badge.textContent = String(quentes.length);
+      badge.style.display = "";
+      badge.classList.add("hot");
+    } else {
+      badge.style.display = "none";
+      badge.classList.remove("hot");
+    }
+  }
+
+  // Alertar apenas carrinhos ainda não avisados
+  const jaAlertados = getCarrinhosAlertados();
+  const novos = quentes.filter(c=>!jaAlertados.has(String(c.checkout_id)));
+  if(!novos.length) return;
+
+  novos.forEach(c=>jaAlertados.add(String(c.checkout_id)));
+  setCarrinhosAlertados(jaAlertados);
+
+  const nomes = novos.slice(0,3).map(c=>String(c.cliente_nome||"").split(" ")[0]||"Cliente").join(", ");
+  const extras = novos.length > 3 ? ` +${novos.length-3}` : "";
+  const plural = novos.length>1 ? "carrinhos quentes" : "carrinho quente";
+  toast(`🔥 ${novos.length} novo${novos.length>1?"s":""} ${plural}: ${nomes}${extras}`, "warning");
+
+  // Tenta navegação via Notification API como fallback silencioso
+  try{
+    if("Notification" in window && Notification.permission === "granted"){
+      new Notification("🔥 Carrinho quente — Chiva Fit", {
+        body: `${novos.length} novo${novos.length>1?"s":""} ${plural} nos últimos ${CARRINHO_HOT_MIN} min.`,
+        silent: true
+      });
+    }
+  }catch(_){}
+}
+
+// Exposto globalmente para ser chamado após sync
+window.checkCarrinhosQuentes = checkCarrinhosQuentes;
+
+/* ═══════════════════════════════════════════════════
+   F — HISTÓRICO DE INTERAÇÕES POR CARRINHO
+═══════════════════════════════════════════════════ */
+async function openCarrinhoHistorico(checkoutId){
+  const modal  = document.getElementById("car-history-modal");
+  const body   = document.getElementById("car-hist-body");
+  const metaEl = document.getElementById("car-hist-meta");
+  if(!modal || !body) return;
+
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c){ toast("Carrinho não encontrado.","error"); return; }
+
+  const nome  = escapeHTML(c.cliente_nome||"—");
+  const valor = escapeHTML(fmtBRL(c.valor||0));
+  if(metaEl) metaEl.textContent = `${c.cliente_nome||"—"} · ${valor}`;
+  body.innerHTML = '<div style="text-align:center;padding:20px 0;color:var(--text-3);font-size:12px">Carregando...</div>';
+  modal.style.display = "";
+
+  if(!supaConnected || !supaClient){
+    body.innerHTML = '<div style="padding:16px 0;text-align:center;font-size:12px;color:var(--text-3)">Conexão com Supabase necessária para ver o histórico.</div>';
+    return;
+  }
+
+  try{
+    const customerKey = String(c.email||"").trim().toLowerCase() || rawPhone(c.telefone||"") || "";
+    let rows = [];
+
+    if(customerKey){
+      const uuid = await resolveCustomerUuid(customerKey).catch(()=>null);
+      if(uuid){
+        const {data} = await supaClient
+          .from("interactions")
+          .select("id,type,description,created_at,user_responsible,metadata")
+          .eq("customer_id", uuid)
+          .order("created_at", {ascending:false})
+          .limit(50);
+        rows = data || [];
+      }
+    }
+
+    // Filtrar para este carrinho especificamente (metadata.checkout_id) ou tipo recovery
+    const local = rows.filter(r=>
+      (r.metadata && String(r.metadata.checkout_id||"")===cid) ||
+      String(r.type||"").includes("carrinho") ||
+      String(r.description||"").toLowerCase().includes("carrinho")
+    );
+    // Mostrar local-specific primeiro, depois o resto se < 5 total
+    const display = local.length ? local : rows.slice(0,20);
+
+    if(!display.length){
+      body.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-3)">Nenhuma interação registrada. O histórico é criado ao enviar mensagens pelo CRM.</div>';
+      return;
+    }
+
+    const typeIcon = t=>{
+      if(t==="mensagem_enviada") return "💬";
+      if(t==="ligacao") return "📞";
+      if(t==="nota") return "📝";
+      if(t==="compra") return "🛒";
+      return "📌";
+    };
+
+    body.innerHTML = display.map(r=>{
+      const dt = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+      const desc = escapeHTML(String(r.description||"").slice(0,200));
+      const etapa = r.metadata?.etapa ? ` · ${escapeHTML(r.metadata.etapa)}` : "";
+      const resp  = r.user_responsible ? ` · ${escapeHTML(r.user_responsible)}` : "";
+      return `<div class="car-hist-item">
+        <div class="car-hist-icon">${typeIcon(r.type)}</div>
+        <div>
+          <div class="car-hist-type">${escapeHTML(r.type||"interação")}${etapa}</div>
+          ${desc ? `<div class="car-hist-desc">${desc}</div>` : ""}
+          <div class="car-hist-time">${escapeHTML(dt)}${resp}</div>
+        </div>
+      </div>`;
+    }).join("");
+  }catch(e){
+    body.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--text-3)">Erro ao carregar histórico: ${escapeHTML(String(e?.message||e))}</div>`;
+  }
+}
+
+function closeCarrinhoHistorico(){
+  const modal = document.getElementById("car-history-modal");
+  if(modal) modal.style.display = "none";
+}
+
+window.openCarrinhoHistorico = openCarrinhoHistorico;
+window.closeCarrinhoHistorico = closeCarrinhoHistorico;
+
 window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
 window.toggleCarrinhoSelection = toggleCarrinhoSelection;
 window.toggleAllCarrinhos = toggleAllCarrinhos;
@@ -11837,7 +11985,8 @@ function renderCarrinhosAbandonados(){
           var subtitle = resumo?'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>':'';
           var lastInfo = (!c.recuperado&&!c.perdido&&c.last_etapa_enviada)?('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(c.last_etapa_enviada)+(c.last_tempo_label?' · '+escapeHTML(c.last_tempo_label):'')+'</div>'):'';
           var badge  = pipelineBadge(c);
-          var btnWa  = (!c.recuperado&&!c.perdido&&rawPhone(c.telefone||''))?'<button class="opp-mini-btn" onclick="openWaModalCarrinho(\''+safeId+'\')">💬 WA</button> ':'';
+          var btnWa   = (!c.recuperado&&!c.perdido&&rawPhone(c.telefone||''))?'<button class="opp-mini-btn" onclick="openWaModalCarrinho(\''+safeId+'\')">💬 WA</button> ':'';
+          var btnHist = '<button class="opp-mini-btn" onclick="openCarrinhoHistorico(\''+safeId+'\')" title="Ver histórico de interações">📋</button> ';
           var btnPer = (!c.recuperado&&!c.perdido)?'<button class="opp-mini-btn" style="color:var(--red,#f87171)" onclick="marcarCarrinhoPerdido(\''+safeId+'\')">✗</button>':'';
           var prioIcon = c.prioridade_id==='alta'?'🔥':c.prioridade_id==='media'?'⚡':'';
           var nextAcao = c.recuperado?'—':c.perdido?'—':(c.etapa_label?(prioIcon+' '+c.etapa_label):'—');
@@ -11850,12 +11999,14 @@ function renderCarrinhosAbandonados(){
             '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(String(Math.round(c.score_calc||0)))+'</td>'+
             '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
             '<td style="font-size:11px;color:var(--text-2)">'+escapeHTML(nextAcao)+'</td>'+
-            '<td style="text-align:right;white-space:nowrap">'+btnWa+btnPer+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+btnWa+btnHist+btnPer+'</td>'+
           '</tr>';
         }).join('')+
       '</tbody>'+
     '</table>'+
   '</div>';
+  // C — atualizar badge + alertar novos quentes após renderizar
+  try{ checkCarrinhosQuentes(); }catch(_){}
 }
 
 function toggleAllCarrinhos(checked){
