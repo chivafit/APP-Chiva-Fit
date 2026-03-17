@@ -1258,24 +1258,45 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
       <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
         <button class="btn-primary" onclick="syncCarrinhosAbandonadosYampi()">Sincronizar carrinhos</button>
+        <button class="btn" id="car-lote-btn" style="display:none" onclick="openCarrinhoBatchWa()">💬 Disparar em lote (<span id="car-lote-count">0</span>)</button>
         <div id="abandoned-status" class="setup-status"></div>
       </div>
       <div class="saas-filterbar" style="margin:0;min-width:420px;justify-content:flex-end">
-        <div class="saas-search" style="min-width:260px">
+        <div class="saas-search" style="min-width:220px">
           <span class="saas-search-ico">⌕</span>
           <input id="car-search" class="saas-search-input" placeholder="Buscar carrinho..." oninput="renderCarrinhosAbandonados()"/>
         </div>
         <div class="saas-chips">
           <select id="car-status" class="saas-chip saas-chip-select" onchange="renderCarrinhosAbandonados()">
-            <option value="">Status</option>
+            <option value="">Todos</option>
+            <option value="quentes">🔥 Quentes (&lt;2h)</option>
             <option value="abertos">Abertos</option>
             <option value="recuperados">Recuperados</option>
+            <option value="perdidos">Perdidos</option>
           </select>
         </div>
       </div>
     </div>
+    <!-- KPIs do funil -->
+    <div id="carrinhos-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px"></div>
     <div id="carrinhos-list"></div>
   </div>
+
+<!-- MODAL LOTE CARRINHOS -->
+<div id="car-batch-modal" style="display:none;position:fixed;inset:0;z-index:9100;background:var(--overlay);backdrop-filter:blur(6px);overflow-y:auto;padding:24px 16px">
+  <div style="max-width:680px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:800;margin:0">💬 Disparar mensagens em lote</h3>
+      <button onclick="closeCarrinhoBatchModal()" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:18px">✕</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-3);margin:0 0 14px">Revise e copie cada mensagem individualmente. Clique em "Copiar" e depois abra o WhatsApp.</p>
+    <div id="car-batch-list" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="batchCopyAllCarrinhos()">📋 Copiar todas</button>
+      <button class="btn-primary" onclick="closeCarrinhoBatchModal()">Fechar</button>
+    </div>
+  </div>
+</div>
 </div>
 
 <!-- MARCA -->

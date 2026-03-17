@@ -179,6 +179,7 @@ let customerIntelligence = [];
 let activeCh = "all";
 let savedFilters = safeJsonParse("crm_filtros_salvos", []);
 let selectedClientes = new Set();
+let selectedCarrinhos = new Set();
 let charts   = {};
 let activeSegment = null;
 let syncTimer = null;
@@ -731,6 +732,15 @@ window.clearSelection = clearSelection;
 window.bulkExportCSV = bulkExportCSV;
 window.bulkCopyWhatsApp = bulkCopyWhatsApp;
 window.bulkMarkContacted = bulkMarkContacted;
+window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
+window.toggleCarrinhoSelection = toggleCarrinhoSelection;
+window.toggleAllCarrinhos = toggleAllCarrinhos;
+window.openWaModalCarrinho = openWaModalCarrinho;
+window.openCarrinhoBatchWa = openCarrinhoBatchWa;
+window.closeCarrinhoBatchModal = closeCarrinhoBatchModal;
+window.batchCopyOne = batchCopyOne;
+window.batchOpenWa = batchOpenWa;
+window.batchCopyAllCarrinhos = batchCopyAllCarrinhos;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
@@ -11563,104 +11573,302 @@ function renderCampanhas(){
   }).join('');
 }
 
+/* ═══════════════════════════════════════════════════
+   CARRINHO ABANDONADO — FUNIL, PIPELINE & LOTE
+═══════════════════════════════════════════════════ */
+
+function renderCarrinhosKpis(list){
+  const el = document.getElementById("carrinhos-kpis");
+  if(!el) return;
+  const agora = Date.now();
+  const abertos = list.filter(c=>!c.recuperado && !c.perdido);
+  const quentes = abertos.filter(c=>{ const m = c.tempo_min; return m != null && m < 120; });
+  const recuperados = list.filter(c=>c.recuperado);
+  const valorRisco = abertos.reduce((s,c)=>s+Number(c.valor||0),0);
+  const valorRec   = recuperados.reduce((s,c)=>s+Number(c.valor||0),0);
+  const pctRec     = list.length ? Math.round(recuperados.length/list.length*100) : 0;
+  const ticketMed  = abertos.length ? valorRisco/abertos.length : 0;
+  el.innerHTML = [
+    {icon:"💰", value:fmtBRL(valorRisco), label:"Valor em risco", sub:`${abertos.length} carrinho${abertos.length!==1?"s":""} aberto${abertos.length!==1?"s":""}`, cls:"", i:0},
+    {icon:"🔥", value:String(quentes.length), label:"Quentes (< 2h)", sub:"Janela de maior conversão", cls:" hot", i:1},
+    {icon:"✅", value:`${pctRec}%`, label:"Taxa de recuperação", sub:fmtBRL(valorRec)+" recuperado", cls:" green", i:2},
+    {icon:"🎯", value:fmtBRL(ticketMed), label:"Ticket médio", sub:"Média dos carrinhos abertos", cls:"", i:3},
+  ].map(k=>`
+    <div class="car-kpi-card${k.cls}" style="--i:${k.i}">
+      <div class="car-kpi-icon">${k.icon}</div>
+      <div class="car-kpi-value">${escapeHTML(k.value)}</div>
+      <div class="car-kpi-label">${escapeHTML(k.label)}</div>
+      <div class="car-kpi-sub">${escapeHTML(k.sub)}</div>
+    </div>`).join("");
+}
+
+function pipelineBadge(c){
+  if(c.recuperado) return `<span class="pipe-badge pipe-recuperado">✓ Recuperado</span>`;
+  if(c.perdido)    return `<span class="pipe-badge pipe-perdido">✗ Perdido</span>`;
+  const etapa = String(c.last_etapa_enviada||"").trim();
+  if(etapa && etapa !== "aguardar") return `<span class="pipe-badge pipe-contatado">💬 Contatado</span>`;
+  return `<span class="pipe-badge pipe-novo">Novo</span>`;
+}
+
+function marcarCarrinhoPerdido(checkoutId){
+  const cid = String(checkoutId||"");
+  const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+  if(idx<0){ toast("Carrinho não encontrado.","error"); return; }
+  carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), { perdido: true, perdido_em: new Date().toISOString() });
+  safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
+  toast("Carrinho marcado como perdido.", "success");
+  renderCarrinhosAbandonados();
+}
+
+function toggleCarrinhoSelection(id, checked){
+  const cid = String(id||"");
+  if(checked) selectedCarrinhos.add(cid); else selectedCarrinhos.delete(cid);
+  const n = selectedCarrinhos.size;
+  const btn = document.getElementById("car-lote-btn");
+  const count = document.getElementById("car-lote-count");
+  if(btn){ btn.style.display = n>0 ? "" : "none"; }
+  if(count) count.textContent = String(n);
+}
+
+// D — Modal WA com templates específicos para carrinho
+function openWaModalCarrinho(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c){ toast("⚠ Carrinho não encontrado"); return; }
+  const digits = rawPhone(c.telefone||"");
+  if(!digits){ toast("⚠ Carrinho sem telefone"); return; }
+
+  const lookup = buildClienteLookupParaCarrinhos();
+  const calc   = calcularScoreRecuperacaoCarrinho(c, lookup);
+  const etapa  = sugerirEtapaParaCarrinho(c, calc.mins);
+  const prio   = prioridadePorScore(c.score_recuperacao == null ? calc.score : c.score_recuperacao);
+
+  const nome = String(c.cliente_nome||"").trim() || "cliente";
+  const itens = Array.isArray(c.produtos) ? c.produtos : [];
+  const prodTxt = itens.slice(0,3).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join(", ");
+  const valorTxt = Number(c.valor||0) ? fmtBRL(Number(c.valor||0)) : "";
+  const link = c.link_finalizacao ? String(c.link_finalizacao) : "";
+
+  const tpls = [
+    {
+      titulo: "🆘 Ajuda (10-120 min)",
+      texto: [`Oi ${nome}!`, "Vi que você estava finalizando seu pedido e ele ficou pendente.", prodTxt ? `Carrinho: ${prodTxt}` : "", "Quer que eu te ajude a concluir por aqui? 😊"].filter(Boolean).join(" "),
+    },
+    {
+      titulo: "🔗 Link de recuperação (2-24h)",
+      texto: [`Oi ${nome}!`, "Passando pra te ajudar a finalizar seu pedido.", prodTxt ? `Itens: ${prodTxt}` : "", valorTxt ? `Total: ${valorTxt}` : "", link ? `Link pra finalizar: ${link}` : "Posso te mandar o link pra finalizar rapidinho 👇"].filter(Boolean).join(" "),
+    },
+    {
+      titulo: "🎁 Incentivo leve (24-72h)",
+      texto: [`Oi ${nome}!`, "Só passando pra lembrar do seu carrinho que ficou por aqui.", prodTxt ? `${prodTxt}` : "", valorTxt ? `Total: ${valorTxt}` : "", prio.id==="alta" ? "Se precisar de ajuda pra fechar, me fala 🙂" : "Se fizer sentido pra você, consigo verificar o que posso fazer!", link ? `Link: ${link}` : ""].filter(Boolean).join(" "),
+    },
+  ];
+
+  const recIdx = etapa.id==="ajuda" ? 0 : etapa.id==="link" ? 1 : etapa.id==="incentivo" ? 2 : 0;
+
+  // Reutiliza o modal WA existente, injetando templates de carrinho
+  const phone = digits.startsWith("55") ? digits : "55"+digits;
+  waPhone = phone;
+  waName  = nome;
+  waCustomerId = null; // não é cliente cadastrado, é carrinho
+
+  const modalEl = document.getElementById("wa-modal");
+  const nameEl  = document.getElementById("wa-modal-name");
+  const tplsEl  = document.getElementById("wa-templates");
+  const customEl= document.getElementById("wa-custom");
+  if(!modalEl || !tplsEl || !customEl) return;
+
+  if(nameEl) nameEl.textContent = `${nome}${valorTxt ? " · "+valorTxt : ""}${prodTxt ? " · "+prodTxt : ""}`;
+
+  tplsEl.innerHTML = tpls.map((t,i)=>`
+    <div class="wa-tpl${i===recIdx?" selected":""}" onclick="selectTpl(${i})" style="cursor:pointer">
+      <strong style="font-size:10px;display:block;margin-bottom:4px;opacity:.6">${escapeHTML(t.titulo)}</strong>
+      ${escapeHTML(t.texto)}
+    </div>`).join("");
+
+  customEl.value = tpls[recIdx].texto;
+  modalEl.classList.add("open");
+
+  // Após envio registrar etapa no carrinho
+  const origSendWa = window.sendWa;
+  window.sendWa = function(){
+    origSendWa && origSendWa();
+    // Registrar etapa enviada
+    const etapaId = ["ajuda","link","incentivo"][recIdx] || "ajuda";
+    const nowIso = new Date().toISOString();
+    const idx2 = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+    if(idx2>=0){
+      carrinhosAbandonados[idx2] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx2]), { last_etapa_enviada: etapaId, last_mensagem_at: nowIso });
+      safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+      if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx2]]).catch(()=>{});
+      if(typeof window.renderCarrinhosAbandonados==="function") window.renderCarrinhosAbandonados();
+    }
+    window.sendWa = origSendWa; // restore
+  };
+}
+
+// E — Lote personalizado
+function openCarrinhoBatchWa(){
+  const modal = document.getElementById("car-batch-modal");
+  const listEl = document.getElementById("car-batch-list");
+  if(!modal || !listEl) return;
+  const selected = (carrinhosAbandonados||[]).filter(c=>selectedCarrinhos.has(String(c.checkout_id||"")));
+  if(!selected.length){ toast("Nenhum carrinho selecionado.","warning"); return; }
+
+  const lookup = buildClienteLookupParaCarrinhos();
+  listEl.innerHTML = selected.map(raw=>{
+    const c = normalizeCarrinhoAbandonado(raw);
+    const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+    const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+    const prio  = prioridadePorScore(c.score_recuperacao == null ? calc.score : c.score_recuperacao);
+    const msg   = buildCarrinhoWaMessage(c, {etapa, prioridade: prio});
+    const phone = rawPhone(c.telefone||"");
+    const safeId = escapeJsSingleQuote(String(c.checkout_id||""));
+    return `<div class="car-batch-item" id="cbi-${escapeHTML(String(c.checkout_id||""))}">
+      <div class="car-batch-header">
+        <div>
+          <div class="car-batch-name">${escapeHTML(c.cliente_nome||"—")}</div>
+          <div class="car-batch-meta">${phone ? "📱 "+escapeHTML(fmtPhone(phone)) : "sem telefone"} · ${escapeHTML(fmtBRL(c.valor||0))} · ${escapeHTML(etapa.label||"—")}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="opp-mini-btn" onclick="batchCopyOne('${safeId}')">📋 Copiar</button>
+          ${phone ? `<button class="opp-mini-btn" onclick="batchOpenWa('${safeId}')">↗ WA</button>` : ""}
+        </div>
+      </div>
+      <textarea class="car-batch-msg" id="cbmsg-${escapeHTML(String(c.checkout_id||""))}">${escapeHTML(msg)}</textarea>
+    </div>`;
+  }).join("");
+
+  modal.style.display = "";
+}
+
+function closeCarrinhoBatchModal(){
+  const modal = document.getElementById("car-batch-modal");
+  if(modal) modal.style.display = "none";
+}
+
+function batchCopyOne(checkoutId){
+  const ta = document.getElementById("cbmsg-"+checkoutId);
+  if(!ta) return;
+  const txt = ta.value;
+  if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(()=>toast("Mensagem copiada!","success")).catch(()=>{ fallbackCopy(txt); toast("Mensagem copiada!","success"); }); }
+  else { fallbackCopy(txt); toast("Mensagem copiada!","success"); }
+}
+
+function batchOpenWa(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c) return;
+  const digits = rawPhone(c.telefone||"");
+  if(!digits){ toast("⚠ Sem telefone","warning"); return; }
+  const ta = document.getElementById("cbmsg-"+cid);
+  const msg = ta ? ta.value : buildCarrinhoWaMessage(c,{});
+  const phone = digits.startsWith("55") ? digits : "55"+digits;
+  window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(msg),"_blank");
+}
+
+function batchCopyAllCarrinhos(){
+  const items = document.querySelectorAll(".car-batch-msg");
+  if(!items.length){ toast("Nenhuma mensagem para copiar.","warning"); return; }
+  const all = Array.from(items).map(ta=>ta.value).join("\n\n---\n\n");
+  if(navigator.clipboard){ navigator.clipboard.writeText(all).then(()=>toast(`${items.length} mensagens copiadas!`,"success")).catch(()=>{ fallbackCopy(all); toast(`${items.length} mensagens copiadas!`,"success"); }); }
+  else { fallbackCopy(all); toast(`${items.length} mensagens copiadas!`,"success"); }
+}
+
 function renderCarrinhosAbandonados(){
   var el=document.getElementById('carrinhos-list'); if(!el) return;
-  try{
-    carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
-  }catch(_e){}
-  var q=String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
-  var st=String((document.getElementById('car-status')||{}).value||'');
-
+  try{ carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || []; }catch(_e){}
+  var q  = String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
+  var st = String((document.getElementById('car-status')||{}).value||'');
   var lookup = buildClienteLookupParaCarrinhos();
-  var list=[].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){
-    if(!c.checkout_id) return false;
-    if(st==='abertos' && c.recuperado) return false;
-    if(st==='recuperados' && !c.recuperado) return false;
-    if(q){
-      var hit = String(c.cliente_nome||'').toLowerCase().includes(q) ||
-        String(c.email||'').toLowerCase().includes(q) ||
-        rawPhone(c.telefone||'').includes(rawPhone(q));
-      if(!hit) return false;
-    }
-    return true;
-  }).map(function(c){
+
+  // Enriquecer todos para KPIs (antes do filtro)
+  var enriched = [].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){ return !!c.checkout_id; }).map(function(c){
     var calc = calcularScoreRecuperacaoCarrinho(c, lookup);
     var score = c.score_recuperacao == null ? calc.score : (Number(c.score_recuperacao||0)||0);
     var mins = calc.mins;
-    var tempo = fmtTempoDesde(mins);
     var etapa = sugerirEtapaParaCarrinho(c, mins);
-    var prioridade = prioridadePorScore(score);
+    var prio  = prioridadePorScore(score);
     var lastMins = minutosDesdeIso(c.last_mensagem_at);
-    var lastLabel = lastMins == null ? "" : fmtTempoDesde(lastMins);
-    return Object.assign({}, c, {score_calc: score, tempo_min: mins, tempo_label: tempo, etapa_id: etapa.id, etapa_label: etapa.label, prioridade_id: prioridade.id, prioridade_label: prioridade.label, cli_status: calc.cli ? calc.cli.status : "", last_tempo_label: lastLabel});
-  }).sort(function(a,b){
-    if(a.recuperado !== b.recuperado) return a.recuperado ? 1 : -1;
-    if((b.score_calc||0) !== (a.score_calc||0)) return (b.score_calc||0) - (a.score_calc||0);
-    return new Date(b.criado_em||0) - new Date(a.criado_em||0);
+    return Object.assign({}, c, {score_calc:score, tempo_min:mins, tempo_label:fmtTempoDesde(mins), etapa_id:etapa.id, etapa_label:etapa.label, prioridade_id:prio.id, prioridade_label:prio.label, last_tempo_label: lastMins==null?"":fmtTempoDesde(lastMins)});
   });
 
-  if(!list.length){
-    el.innerHTML='<div class="empty" style="padding:40px 0">Nenhum carrinho encontrado.</div>';
-    return;
-  }
+  renderCarrinhosKpis(enriched);
 
-  el.innerHTML =
-    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
-      '<table class="chiva-table">'+
-        '<thead><tr>'+
-          '<th>Tempo</th>'+
-          '<th>Cliente</th>'+
-          '<th>Prioridade</th>'+
-          '<th style="text-align:right">Score</th>'+
-          '<th style="text-align:right">Valor</th>'+
-          '<th>Mensagem</th>'+
-          '<th></th>'+
-        '</tr></thead>'+
-        '<tbody>'+
-          list.map(function(c){
-            var safeId = escapeJsSingleQuote(String(c.checkout_id||''));
-            var name = escapeHTML(c.cliente_nome||'—');
-            var contato = [c.telefone?fmtPhone(c.telefone):'', c.email?escapeHTML(c.email):''].filter(Boolean).join(' · ') || '—';
-            var dt = c.tempo_label || '—';
-            var prioridadeLabel = c.prioridade_label || '—';
-            var prioridadeIcon = c.prioridade_id==='alta' ? '🔥' : (c.prioridade_id==='media' ? '⚡' : '🧊');
-            var prioridadeTxt = prioridadeIcon+' '+prioridadeLabel;
-            var scoreTxt = String(Math.round(c.score_calc||0));
-            var msgLabel = c.recuperado ? '—' : (c.etapa_label || '—');
-            var lastStageLabel = (function(id){
-              if(id==='ajuda') return 'Ajuda';
-              if(id==='link') return 'Link';
-              if(id==='incentivo') return 'Incentivo';
-              return id || '';
-            })(String(c.last_etapa_enviada||''));
-            var lastInfo = (!c.recuperado && c.last_etapa_enviada) ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(lastStageLabel)+(c.last_tempo_label?(' · '+escapeHTML(c.last_tempo_label)):'')+'</div>') : '';
-            var btnLabel = (function(id){
-              if(id==='ajuda') return 'WhatsApp (ajuda)';
-              if(id==='link') return 'WhatsApp (link)';
-              if(id==='incentivo') return 'WhatsApp (24h)';
-              if(id==='aguardar') return 'WhatsApp';
-              return 'WhatsApp';
-            })(String(c.etapa_id||''));
-            var btn = c.recuperado ? '' : ('<button class="opp-mini-btn" onclick="openWhatsAppCarrinho(\''+safeId+'\')">'+escapeHTML(btnLabel)+'</button> ');
-            var itens = Array.isArray(c.produtos) ? c.produtos : [];
-            var resumo = itens.slice(0,3).map(function(it){ return String(it?.nome||it?.title||it?.descricao||it?.name||'').trim(); }).filter(Boolean).join(', ');
-            var subtitle = resumo ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>') : '';
-            return '<tr>'+
-              '<td class="chiva-table-mono">'+escapeHTML(dt)+'</td>'+
-              '<td><div style="font-weight:800;color:var(--text)">'+name+'</div>'+subtitle+'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(contato)+'</div></td>'+
-              '<td>'+escapeHTML(prioridadeTxt)+'</td>'+
-              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(scoreTxt)+'</td>'+
-              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
-              '<td>'+escapeHTML(msgLabel)+lastInfo+'</td>'+
-              '<td style="text-align:right;white-space:nowrap">'+
-                btn+
-                '<button class="opp-mini-btn" onclick="copyCarrinhoId(\''+safeId+'\')">Copiar ID</button>'+
-              '</td>'+
-            '</tr>';
-          }).join('')+
-        '</tbody>'+
-      '</table>'+
-    '</div>';
+  var list = enriched.filter(function(c){
+    if(st==='abertos'    && (c.recuperado||c.perdido)) return false;
+    if(st==='recuperados' && !c.recuperado) return false;
+    if(st==='perdidos'   && !c.perdido) return false;
+    if(st==='quentes'    && (c.recuperado||c.perdido||(c.tempo_min==null||c.tempo_min>=120))) return false;
+    if(q){
+      var hit = String(c.cliente_nome||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q)||rawPhone(c.telefone||'').includes(rawPhone(q));
+      if(!hit) return false;
+    }
+    return true;
+  }).sort(function(a,b){
+    if(a.recuperado!==b.recuperado) return a.recuperado?1:-1;
+    if(a.perdido!==b.perdido) return a.perdido?1:-1;
+    if((b.score_calc||0)!==(a.score_calc||0)) return (b.score_calc||0)-(a.score_calc||0);
+    return new Date(b.criado_em||0)-new Date(a.criado_em||0);
+  });
+
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:40px 0">Nenhum carrinho encontrado.</div>'; return; }
+
+  el.innerHTML='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+    '<table class="chiva-table">'+
+      '<thead><tr>'+
+        '<th style="width:28px"><input type="checkbox" class="car-check" id="car-select-all" title="Selecionar todos" onchange="toggleAllCarrinhos(this.checked)"/></th>'+
+        '<th>Tempo</th>'+
+        '<th>Cliente</th>'+
+        '<th>Pipeline</th>'+
+        '<th style="text-align:right">Score</th>'+
+        '<th style="text-align:right">Valor</th>'+
+        '<th>Próxima ação</th>'+
+        '<th></th>'+
+      '</tr></thead>'+
+      '<tbody>'+
+        list.map(function(c){
+          var safeId = escapeJsSingleQuote(String(c.checkout_id||''));
+          var name   = escapeHTML(c.cliente_nome||'—');
+          var contato= [c.telefone?escapeHTML(fmtPhone(c.telefone)):'', c.email?escapeHTML(c.email):''].filter(Boolean).join(' · ')||'—';
+          var itens  = Array.isArray(c.produtos)?c.produtos:[];
+          var resumo = itens.slice(0,2).map(function(it){ return String(it?.nome||it?.title||it?.descricao||it?.name||'').trim(); }).filter(Boolean).join(', ');
+          var subtitle = resumo?'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>':'';
+          var lastInfo = (!c.recuperado&&!c.perdido&&c.last_etapa_enviada)?('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(c.last_etapa_enviada)+(c.last_tempo_label?' · '+escapeHTML(c.last_tempo_label):'')+'</div>'):'';
+          var badge  = pipelineBadge(c);
+          var btnWa  = (!c.recuperado&&!c.perdido&&rawPhone(c.telefone||''))?'<button class="opp-mini-btn" onclick="openWaModalCarrinho(\''+safeId+'\')">💬 WA</button> ':'';
+          var btnPer = (!c.recuperado&&!c.perdido)?'<button class="opp-mini-btn" style="color:var(--red,#f87171)" onclick="marcarCarrinhoPerdido(\''+safeId+'\')">✗</button>':'';
+          var prioIcon = c.prioridade_id==='alta'?'🔥':c.prioridade_id==='media'?'⚡':'';
+          var nextAcao = c.recuperado?'—':c.perdido?'—':(c.etapa_label?(prioIcon+' '+c.etapa_label):'—');
+          var checked  = selectedCarrinhos.has(String(c.checkout_id||''));
+          return '<tr>'+
+            '<td><input type="checkbox" class="car-check car-row-check" data-id="'+escapeHTML(String(c.checkout_id||''))+'" '+(checked?'checked':'')+' onchange="toggleCarrinhoSelection(\''+safeId+'\',this.checked)"/></td>'+
+            '<td class="chiva-table-mono" style="white-space:nowrap">'+escapeHTML(c.tempo_label||'—')+'</td>'+
+            '<td><div style="font-weight:800;color:var(--text)">'+name+'</div>'+subtitle+'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+contato+'</div></td>'+
+            '<td>'+badge+lastInfo+'</td>'+
+            '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(String(Math.round(c.score_calc||0)))+'</td>'+
+            '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
+            '<td style="font-size:11px;color:var(--text-2)">'+escapeHTML(nextAcao)+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+btnWa+btnPer+'</td>'+
+          '</tr>';
+        }).join('')+
+      '</tbody>'+
+    '</table>'+
+  '</div>';
+}
+
+function toggleAllCarrinhos(checked){
+  document.querySelectorAll(".car-row-check").forEach(function(cb){
+    cb.checked=checked;
+    var cid=String(cb.dataset.id||"");
+    if(checked) selectedCarrinhos.add(cid); else selectedCarrinhos.delete(cid);
+  });
+  var n=selectedCarrinhos.size;
+  var btn=document.getElementById("car-lote-btn");
+  var count=document.getElementById("car-lote-count");
+  if(btn) btn.style.display=n>0?"":"none";
+  if(count) count.textContent=String(n);
 }
 
 function copyCarrinhoId(checkoutId){

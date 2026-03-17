@@ -6336,3 +6336,65 @@ html.light .chart-card-header .chart-title { color: var(--text) !important; }
   animation: kpiFadeIn .25s ease both;
   animation-delay: calc(var(--i, 0) * 60ms);
 }
+
+/* ═══════════════════════════════════════════
+   CARRINHOS ABANDONADOS — KPIs & Pipeline
+═══════════════════════════════════════════ */
+.car-kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: cardFadeIn .2s ease both;
+  animation-delay: calc(var(--i,0) * 50ms);
+}
+.car-kpi-icon  { font-size: 18px; line-height: 1; margin-bottom: 2px; }
+.car-kpi-value { font-size: 20px; font-weight: 900; letter-spacing: -.5px; color: var(--text); font-family: var(--mono); }
+.car-kpi-label { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.car-kpi-sub   { font-size: 11px; color: var(--text-2); font-weight: 600; margin-top: 2px; }
+.car-kpi-card.hot  { border-color: rgba(239,68,68,.3);  background: rgba(239,68,68,.05); }
+.car-kpi-card.green{ border-color: var(--chiva-primary-border); background: var(--chiva-primary-dim); }
+
+/* Pipeline stage badges */
+.pipe-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 20px;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.pipe-novo      { background: rgba(148,163,184,.12); color: var(--text-3); border: 1px solid var(--border); }
+.pipe-contatado { background: rgba(59,130,246,.12);  color: #93c5fd;       border: 1px solid rgba(59,130,246,.25); }
+.pipe-recuperado{ background: var(--chiva-primary-dim); color: var(--chiva-primary); border: 1px solid var(--chiva-primary-border); }
+.pipe-perdido   { background: rgba(239,68,68,.1);    color: #fca5a5;       border: 1px solid rgba(239,68,68,.25); }
+
+/* Cart row checkbox */
+.car-check { accent-color: var(--chiva-primary); width: 14px; height: 14px; cursor: pointer; }
+
+/* Batch message card */
+.car-batch-item {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.car-batch-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.car-batch-name { font-size: 13px; font-weight: 800; color: var(--text); }
+.car-batch-meta { font-size: 10px; color: var(--text-3); font-weight: 600; }
+.car-batch-msg  {
+  width: 100%; padding: 8px 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-2);
+  font-size: 12px; line-height: 1.5; resize: vertical; min-height: 70px;
+  font-family: var(--font);
+}
+
+@media (max-width: 640px) {
+  #carrinhos-kpis { grid-template-columns: repeat(2, 1fr); }
+}
