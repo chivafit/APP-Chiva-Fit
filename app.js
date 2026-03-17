@@ -3929,20 +3929,20 @@ async function updateDashSecondaryFromSupabase(){
     elCli.textContent = String(list.length);
     return;
   }
+  // KPIs e Funil em paralelo — são independentes entre si
   try{
-    const k = await getDashboardKpisView(supaClient);
-    if(!k) return;
-    const clientes = Number(k.total_clientes || 0) || 0;
-    const ltvMedio = Number(k.ltv_medio || 0) || 0;
-    elLtv.textContent = fmtBRL(ltvMedio);
-    elCli.textContent = String(clientes);
-  }catch(e){ console.warn("[dashboard] falha ao carregar KPIs:", e?.message||e); }
-
-  // Funil de Recompra — buscado aqui pois não depende de filtros de data
-  try{
-    const funilRows = await getFunilRecompraView(supaClient);
+    const [k, funilRows] = await Promise.all([
+      getDashboardKpisView(supaClient),
+      getFunilRecompraView(supaClient)
+    ]);
+    if(k){
+      const clientes = Number(k.total_clientes || 0) || 0;
+      const ltvMedio = Number(k.ltv_medio || 0) || 0;
+      elLtv.textContent = fmtBRL(ltvMedio);
+      elCli.textContent = String(clientes);
+    }
     renderDashV2Funil(funilRows);
-  }catch(e){ console.warn("[dashboard] falha ao carregar funil de recompra:", e?.message||e); }
+  }catch(e){ console.warn("[dashboard] falha ao carregar KPIs/funil:", e?.message||e); }
 }
 
 function renderDashKpiSparklines(ctx){
@@ -4721,14 +4721,31 @@ async function renderDashExtraLists(ctx){
   }
 
   if(supaConnected && supaClient){
+    // Quando sem filtro ativo: busca as 4 views em paralelo (1 RTT em vez de 4)
+    let topCitiesPre = null, semContatoPre = null, rowsReatPre = null, rowsVipPre = null;
+    if(!filterActive){
+      [topCitiesPre, semContatoPre, rowsReatPre, rowsVipPre] = await Promise.all([
+        getTopCidadesView(supaClient, 10)
+          .catch(e=>{ console.warn("[dashboard] top cidades:", e?.message||e); return []; }),
+        getClientesSemContatoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] sem contato:", e?.message||e); return []; }),
+        getClientesReativacaoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] reativação:", e?.message||e); return []; }),
+        getClientesVipRiscoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] vip risco:", e?.message||e); return []; })
+      ]);
+    }
+
+    // Top Cidades
     try{
       if(filterActive){
         renderDashTopCidadesFromOrders(ordersSales);
       }else{
-        const topCities = await getTopCidadesView(supaClient, 10);
-        renderDashV2TopCidades(topCities);
+        renderDashV2TopCidades(topCitiesPre);
       }
-    }catch(e){ console.warn("[dashboard] falha ao carregar top cidades:", e?.message||e); }
+    }catch(e){ console.warn("[dashboard] falha ao renderizar top cidades:", e?.message||e); }
+
+    // Sem Contato
     try{
       if(filterActive){
         const el = document.getElementById("dashv2-sem-contato");
@@ -4749,10 +4766,11 @@ async function renderDashExtraLists(ctx){
           }).join("");
         }
       }else{
-        const semContato = await getClientesSemContatoView(supaClient, 8);
-        renderDashV2SemContato(semContato);
+        renderDashV2SemContato(semContatoPre);
       }
-    }catch(e){ console.warn("[dashboard] falha ao carregar sem contato:", e?.message||e); }
+    }catch(e){ console.warn("[dashboard] falha ao renderizar sem contato:", e?.message||e); }
+
+    // Reativação Prioritária
     try{
       const riskEl = document.getElementById("dashv2-risk");
       if(riskEl){
@@ -4774,8 +4792,7 @@ async function renderDashExtraLists(ctx){
             </div>`;
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }else{
-          const rows = await getClientesReativacaoView(supaClient, 8);
-          riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          riskEl.innerHTML = (Array.isArray(rowsReatPre) ? rowsReatPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "Cliente");
             const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
@@ -4786,10 +4803,12 @@ async function renderDashExtraLists(ctx){
               <div class="top-val">${escapeHTML(ltv)}</div>
               <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
             </div>`;
-          }).join("") || `<div class="empty">Sem dados no período</div>`;
+          }).join("") || `<div class="empty">Sem reativação prioritária.</div>`;
         }
       }
-    }catch(e){ console.warn("[dashboard] falha ao carregar reativação:", e?.message||e); }
+    }catch(e){ console.warn("[dashboard] falha ao renderizar reativação:", e?.message||e); }
+
+    // VIP em Risco
     try{
       const vipRiskEl = document.getElementById("dashv2-vip-risk");
       if(vipRiskEl){
@@ -4811,8 +4830,7 @@ async function renderDashExtraLists(ctx){
             </div>`;
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }else{
-          const rows = await getClientesVipRiscoView(supaClient, 8);
-          vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          vipRiskEl.innerHTML = (Array.isArray(rowsVipPre) ? rowsVipPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "VIP");
             const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
@@ -4823,10 +4841,11 @@ async function renderDashExtraLists(ctx){
               <div class="top-val">${escapeHTML(ltv)}</div>
               <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
             </div>`;
-          }).join("") || `<div class="empty">Sem dados no período</div>`;
+          }).join("") || `<div class="empty">Sem VIPs em risco no período.</div>`;
         }
       }
-    }catch(e){ console.warn("[dashboard] falha ao carregar VIP em risco:", e?.message||e); }
+    }catch(e){ console.warn("[dashboard] falha ao renderizar VIP em risco:", e?.message||e); }
+
     try{
       renderDashV2NextActions((clientesIntelCache||[]));
     }catch(e){ console.warn("[dashboard] falha ao renderizar próximas ações:", e?.message||e); }
@@ -4957,6 +4976,9 @@ function dashDeltaBadge(delta){
   return `<span style="color:${color}">${up ? "▲" : "▼"}${Math.abs(delta).toFixed(1)}%</span>`;
 }
 
+// ATENÇÃO: renderDashV2 nunca é chamada (código morto).
+// O fluxo real usa renderDashExtraLists + updateDashSecondaryFromSupabase.
+// Mantida para referência até revisão futura.
 async function renderDashV2(){
   const host = document.getElementById("dashv2-card");
   if(!host) return;
