@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-6";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,12 +8,12 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-4";
-import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
-import { CRMStore } from "./store.js?v=20260316-6";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
+} from "./ia.js";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js";
+import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js";
+import { CRMStore } from "./store.js";
+import { STORAGE_KEYS } from "./constants.js";
+import { getSupabaseClient } from "./supabaseClient.js";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -27,18 +27,18 @@ import {
   getClientesInteligencia as getClientesInteligenciaView,
   getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-6";
+} from "./viewsApi.js";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260317-4";
+} from "./sync/bling.js";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-6";
+} from "./sync/yampi.js";
 
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
@@ -49,7 +49,7 @@ window.onerror = function(message, source, lineno, colno, error) {
   captureError(error || new Error(String(message)), { source, lineno, colno });
 };
 
-document.addEventListener("DOMContentLoaded",function(){
+(function(){
   if(window.Chart){
     Chart.defaults.font.family="'Plus Jakarta Sans',system-ui,sans-serif";
     Chart.defaults.color="#585f78";
@@ -62,7 +62,7 @@ document.addEventListener("DOMContentLoaded",function(){
     Chart.defaults.plugins.tooltip.padding=10;
     Chart.defaults.plugins.tooltip.cornerRadius=8;
   }
-});
+})();
 
 /* ═══════════════════════════════════════════
    FUNÇÕES UTILITÁRIAS — CORREÇÃO DE ERROS
@@ -209,7 +209,7 @@ window.CRMStore = CRMStore;
 // ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", async ()=>{
+(async function _tryAutoLogin(){
   const shell = document.getElementById("app-shell");
   if(shell && shell.classList.contains("visible")) return;
 
@@ -250,7 +250,7 @@ document.addEventListener("DOMContentLoaded", async ()=>{
   if(!loggedIn) return;
   const email = localStorage.getItem(STORAGE_KEYS.sessionEmail) || "admin@chivafit.com";
   enterApp(email);
-});
+})();
 
 try{
   (()=>{
@@ -531,15 +531,19 @@ async function handleLoginSubmit(e){
   
   const emailEl = document.getElementById("login-email");
   const passEl = document.getElementById("login-pass");
+  const urlEl = document.getElementById("cfg-url");
+  const keyEl = document.getElementById("cfg-key");
   const errEl = document.getElementById("login-error");
   const btnEl = e?.target?.querySelector('button[type="submit"]');
-  
-  const email = emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
-  const pass = passEl ? String(passEl.value||"").trim() : "";
   
   if(errEl){ errEl.textContent=""; errEl.style.color=""; }
   
   try {
+    const email = emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
+    const pass = passEl ? String(passEl.value||"").trim() : "";
+    const inputUrl = urlEl ? String(urlEl.value || "").trim() : "";
+    const inputKey = keyEl ? String(keyEl.value || "").trim() : "";
+
     if(!email || !pass){
       if(errEl) errEl.textContent = "Informe e-mail e senha.";
       return false;
@@ -550,15 +554,25 @@ async function handleLoginSubmit(e){
       btnEl.innerHTML = '<span>Entrando...</span>';
     }
 
+    // Se o usuário preencheu URL/Key no form, salva no LS ANTES de tentar conectar
+    if(inputUrl) localStorage.setItem("crm_supa_url", inputUrl);
+    if(inputKey) localStorage.setItem("crm_supa_key", inputKey);
+
     const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
     const isAdmin = ADMIN_EMAILS.has(email);
     const canonicalEmail = (email === "admin" || email === "admin@chivafit.com.br") ? "admin@chivafit.com" : email;
 
-    const url = getSupabaseProjectUrl();
-    const key = getSupabaseAnonKey();
-    const hasSupabase = !!(url && key);
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
 
-    if(hasSupabase){
+  if(!url || !key){
+    if(errEl) errEl.textContent = "Supabase não configurado. Preencha URL e Chave.";
+    return false;
+  }
+
+  const hasSupabase = true;
+
+  if(hasSupabase){
       try{
         supaClient = getSupabaseClient(url, key);
         try{
@@ -604,7 +618,13 @@ async function handleLoginSubmit(e){
 
       const connected = await initSupabase();
       if(!connected){
-        if(errEl) errEl.textContent = "Supabase não está conectado. Verifique a URL, a chave (anon) e as políticas (RLS).";
+        // Se falhou o initSupabase, tentamos pegar o erro que ele logou no st
+        const st = document.getElementById("supa-status");
+        if(errEl) errEl.textContent = (st && st.textContent.includes("⚠")) ? st.textContent.replace("⚠ ","") : "Supabase não está conectado. Verifique a URL e a Chave.";
+        if(btnEl){
+          btnEl.disabled = false;
+          btnEl.innerHTML = '<span>Entrar</span>';
+        }
         return false;
       }
 
@@ -657,7 +677,7 @@ async function handleLoginSubmit(e){
   }
   return false;
 }
-window.handleLoginSubmit = handleLoginSubmit;
+
 function enterApp(userEmail){
   setSentryUser({ email: userEmail || "admin" });
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
@@ -667,6 +687,9 @@ function enterApp(userEmail){
   const shell = document.getElementById("app-shell");
   if(shell){
     shell.style.display="flex";
+    // Força o navegador a reconhecer o display:flex antes de iniciar a transição
+    void shell.offsetWidth; 
+    shell.style.opacity="1";
     shell.classList.add("visible");
   }
   const emojiEl = document.getElementById("user-emoji");
@@ -722,16 +745,7 @@ function enterApp(userEmail){
     }
   })();
 }
-window.enterApp = enterApp;
-window.saveCurrentFilter = saveCurrentFilter;
-window.applyFilter = applyFilter;
-window.deleteSavedFilter = deleteSavedFilter;
-window.toggleClienteSelection = toggleClienteSelection;
-window.toggleSelectAll = toggleSelectAll;
-window.clearSelection = clearSelection;
-window.bulkExportCSV = bulkExportCSV;
-window.bulkCopyWhatsApp = bulkCopyWhatsApp;
-window.bulkMarkContacted = bulkMarkContacted;
+// EXPORTS removidos daqui e movidos para o final do arquivo para evitar ReferenceError (Temporal Dead Zone)
 
 /* ═══════════════════════════════════════════════════
    C — ALERTAS DE CARRINHOS QUENTES EM TEMPO REAL
@@ -787,8 +801,7 @@ function checkCarrinhosQuentes(){
   }catch(_){}
 }
 
-// Exposto globalmente para ser chamado após sync
-window.checkCarrinhosQuentes = checkCarrinhosQuentes;
+// EXPORTS removidos daqui e movidos para o final do arquivo para evitar ReferenceError (Temporal Dead Zone)
 
 /* ═══════════════════════════════════════════════════
    I — EXPORTAR CSV DE CARRINHOS ABANDONADOS
@@ -1016,7 +1029,6 @@ function closeCarrinhoHistorico(){
   if(modal) modal.style.display = "none";
 }
 
-window.openCarrinhoHistorico = openCarrinhoHistorico;
 window.closeCarrinhoHistorico = closeCarrinhoHistorico;
 
 // Marca
@@ -1025,41 +1037,33 @@ function toggleDegustFields(){
   var el=document.getElementById('ev-degust-fields');
   if(el) el.style.display=(tipo==='degustacao'||tipo==='feira')?'':'none';
 }
-window.toggleDegustFields = toggleDegustFields;
-window.irParaHoje = irParaHoje;
-
-window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
-window.toggleCarrinhoSelection = toggleCarrinhoSelection;
-window.toggleAllCarrinhos = toggleAllCarrinhos;
-window.openWaModalCarrinho = openWaModalCarrinho;
-window.openCarrinhoBatchWa = openCarrinhoBatchWa;
-window.closeCarrinhoBatchModal = closeCarrinhoBatchModal;
-window.batchCopyOne = batchCopyOne;
-window.batchOpenWa = batchOpenWa;
-window.batchCopyAllCarrinhos = batchCopyAllCarrinhos;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
-  const c = allCustomers.find(x=>x.id===clienteId);
-  if(!c) return;
+  try{
+    const cid = String(clienteId ?? "");
+    const c = (allCustomers||[]).find(x=>String(x?.id ?? "")===cid);
+    if(!c) return;
 
-  const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
-  const fmtN = v => v!=null ? Number(v).toLocaleString("pt-BR") : "—";
+    const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
+    const fmtN = v => v!=null ? Number(v).toLocaleString("pt-BR") : "—";
 
-  // Get orders for this client
-  const orders = allOrders.filter(o=>o.cliente_id===clienteId).sort((a,b)=>new Date(b.data_pedido)-new Date(a.data_pedido));
+    const orders = (allOrders||[])
+      .filter(o=>String(o?.cliente_id ?? "")===cid)
+      .slice()
+      .sort((a,b)=>new Date(b?.data_pedido||0)-new Date(a?.data_pedido||0));
 
-  const statusColor = {ativo:"var(--green)",inativo:"var(--text-3)",vip:"var(--ai)",risco:"var(--amber)"};
-  const sc = statusColor[c.status||""] || "var(--text-3)";
+    const statusColor = {ativo:"var(--green)",inativo:"var(--text-3)",vip:"var(--ai)",risco:"var(--amber)"};
+    const sc = statusColor[c.status||""] || "var(--text-3)";
 
-  const kpis = `
+    const kpis = `
     <div class="drawer-kpi-row">
       <div class="drawer-kpi"><div class="drawer-kpi-val">${fmtN(c.total_pedidos)}</div><div class="drawer-kpi-label">Pedidos</div></div>
       <div class="drawer-kpi"><div class="drawer-kpi-val" style="font-size:13px">${fmt(c.total_gasto)}</div><div class="drawer-kpi-label">Total Gasto</div></div>
       <div class="drawer-kpi"><div class="drawer-kpi-val" style="font-size:13px">${fmt(c.ticket_medio)}</div><div class="drawer-kpi-label">Ticket Médio</div></div>
     </div>`;
 
-  const infoRows = [
+    const infoRows = [
     c.doc ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(c.doc)}</span></div>` : "",
     c.email ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(c.email)}</span></div>` : "",
     c.telefone ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(c.telefone)}</span></div>` : "",
@@ -1069,7 +1073,7 @@ function openClienteDrawer(clienteId){
     `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Score recompra</span><span style="color:var(--chiva-primary-light);font-weight:600">${c.score_recompra!=null ? c.score_recompra+"%" : "—"}</span></div>`,
   ].filter(Boolean).join("");
 
-  const ordersHtml = orders.length ? orders.slice(0,8).map(o=>
+    const ordersHtml = orders.length ? orders.slice(0,8).map(o=>
     `<div class="drawer-order-row" onclick="openPedidoDrawer('${o.id}')">
       <div>
         <div class="drawer-order-num">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</div>
@@ -1080,7 +1084,7 @@ function openClienteDrawer(clienteId){
     </div>`
   ).join("") : `<div style="font-size:12px;color:var(--text-3);padding:12px 0">Nenhum pedido encontrado.</div>`;
 
-  const bodyHTML = `
+    const bodyHTML = `
     ${kpis}
     <div class="drawer-section">
       <div class="drawer-section-title">Informações</div>
@@ -1093,22 +1097,27 @@ function openClienteDrawer(clienteId){
     ${c.notas ? `<div class="drawer-section"><div class="drawer-section-title">Notas</div><p style="font-size:12px;color:var(--text-2);line-height:1.6">${escapeHTML(c.notas)}</p></div>` : ""}
   `;
 
-  const phone = (c.telefone||"").replace(/\D/g,"");
-  const actionsHTML = phone ? `
+    const phone = (c.telefone||"").replace(/\D/g,"");
+    const actionsHTML = phone ? `
     <button class="drawer-btn drawer-btn-primary" onclick="openWaModal('${c.id}')">💬 WhatsApp</button>
     <button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>
   ` : `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`;
 
-  const badge = c.status||"";
-  openDrawer(c.nome||"Cliente", `${badge} · ${c.cidade||""} ${c.uf||""}`, bodyHTML, actionsHTML);
+    const badge = c.status||"";
+    openDrawer(c.nome||"Cliente", `${badge} · ${c.cidade||""} ${c.uf||""}`, bodyHTML, actionsHTML);
+  }catch(e){
+    openDrawer("Erro", "Não foi possível abrir detalhes do cliente", `<div style="font-size:12px;color:var(--text-3)">Erro: ${escapeHTML(String(e?.message||e))}</div>`, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }
 }
 
 // ─── PEDIDO DRAWER ────────────────────────────────────────────
 function openPedidoDrawer(pedidoId){
-  const o = allOrders.find(x=>x.id===pedidoId);
-  if(!o) return;
-  const c = allCustomers.find(x=>x.id===o.cliente_id);
-  const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
+  try{
+    const oid = String(pedidoId ?? "");
+    const o = (allOrders||[]).find(x=>String(x?.id ?? "")===oid) || (allOrders||[]).find(x=>String(x?.numero_pedido ?? "")===oid);
+    if(!o) return;
+    const c = (allCustomers||[]).find(x=>String(x?.id ?? "")===String(o?.cliente_id ?? ""));
+    const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
 
   const infoRows = [
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Número</span><span class="chiva-table-mono">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</span></div>`,
@@ -1131,8 +1140,11 @@ function openPedidoDrawer(pedidoId){
     </div>` : ""}
   `;
 
-  openDrawer(`Pedido #${o.numero_pedido||o.id.slice(0,8)}`, o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "", bodyHTML,
-    `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+    openDrawer(`Pedido #${o.numero_pedido||String(o.id||"").slice(0,8)}`, o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "", bodyHTML,
+      `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }catch(e){
+    openDrawer("Erro", "Não foi possível abrir detalhes do pedido", `<div style="font-size:12px;color:var(--text-3)">Erro: ${escapeHTML(String(e?.message||e))}</div>`, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }
 }
 
 // ─── PEDIDOS PAGE ─────────────────────────────────────────────
@@ -1700,7 +1712,7 @@ function copySupabaseShareLink(){
   }
 }
 // Load supa config into form on page open
-document.addEventListener("DOMContentLoaded", ()=>{
+(function(){
   bindDateMasks(document);
   const u =
     localStorage.getItem("crm_supa_url") ||
@@ -1733,7 +1745,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
       toEl.value = fmtDate(new Date().toISOString().slice(0,10));
     }
   }catch(_e){}
-});
+})();
 
 function saveAIKey(){
   toast("A chave da IA agora é gerenciada com segurança no servidor.");
@@ -2708,13 +2720,13 @@ function showPage(id){
   // Skeleton no dashboard enquanto dados não carregaram
   if(id==="dashboard"){
     const kpisEl = document.getElementById("dash-kpis");
-    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = renderDashKpiSkeletons();
+    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = typeof renderDashKpiSkeletons === "function" ? renderDashKpiSkeletons() : "";
   }
   // Skeleton na lista de clientes ao entrar na página
   if(id==="clientes"){
     const listEl = document.getElementById("client-list");
     if(listEl && !listEl.querySelector(".client-card") && !listEl.querySelector(".client-card-skeleton"))
-      listEl.innerHTML = renderClienteSkeletons(7);
+      listEl.innerHTML = typeof renderClienteSkeletons === "function" ? renderClienteSkeletons(7) : "";
   }
 
   // Close mobile sidebar
@@ -2733,17 +2745,26 @@ function closeMobileSidebar(){
 
 // Drawer controls
 function openDrawer(title, subtitle, bodyHTML, actionsHTML){
-  document.getElementById("drawer-title").textContent = title || "";
-  document.getElementById("drawer-subtitle").textContent = subtitle || "";
-  document.getElementById("drawer-body").innerHTML = bodyHTML || "";
-  document.getElementById("drawer-actions").innerHTML = actionsHTML || "";
-  document.getElementById("detail-drawer").classList.add("open");
-  document.getElementById("drawer-overlay").classList.add("visible");
+  const titleEl = document.getElementById("drawer-title");
+  const subEl = document.getElementById("drawer-subtitle");
+  const bodyEl = document.getElementById("drawer-body");
+  const actionsEl = document.getElementById("drawer-actions");
+  const drawerEl = document.getElementById("detail-drawer");
+  const overlayEl = document.getElementById("drawer-overlay");
+  if(!titleEl || !subEl || !bodyEl || !actionsEl || !drawerEl || !overlayEl) return;
+  titleEl.textContent = title || "";
+  subEl.textContent = subtitle || "";
+  bodyEl.innerHTML = bodyHTML || "";
+  actionsEl.innerHTML = actionsHTML || "";
+  drawerEl.classList.add("open");
+  overlayEl.classList.add("visible");
   document.body.style.overflow = "hidden";
 }
 function closeDrawer(){
-  document.getElementById("detail-drawer").classList.remove("open");
-  document.getElementById("drawer-overlay").classList.remove("visible");
+  const drawerEl = document.getElementById("detail-drawer");
+  const overlayEl = document.getElementById("drawer-overlay");
+  if(drawerEl) drawerEl.classList.remove("open");
+  if(overlayEl) overlayEl.classList.remove("visible");
   document.body.style.overflow = "";
 }
 
@@ -3482,23 +3503,6 @@ function fmtDate(d){
   const dt = new Date(s);
   return isNaN(dt) ? "—" : dt.toLocaleDateString("pt-BR");
 }
-function parseDateToIso(v){
-  const s = String(v || "").trim();
-  if(!s) return "";
-  const onlyDigits = s.replace(/\D/g,"");
-  if(/^\d{8}$/.test(onlyDigits) && !s.includes("-")){
-    const dd = onlyDigits.slice(0,2);
-    const mm = onlyDigits.slice(2,4);
-    const yyyy = onlyDigits.slice(4,8);
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(iso) return s;
-  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if(br) return `${br[3]}-${br[2]}-${br[1]}`;
-  return "";
-}
-
 function formatDateMaskValue(raw){
   const digits = String(raw || "").replace(/\D/g,"").slice(0,8);
   if(!digits) return "";
@@ -4581,7 +4585,7 @@ function renderDashProductsMini(ordersSales, ordersPrevSales){
     const cls = show ? (up ? "pos" : "neg") : "";
     const txt = show ? ((up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%") : "";
     const icon = (String(p.name).match(/[A-Za-zÀ-ÿ]/) ? String(p.name).trim()[0] : "★").toUpperCase();
-    return `<div class="dash-prod-row">
+    return `<div class="dash-prod-row" onclick="showPage('produtos'); document.getElementById('search-prod').value='${escapeJsSingleQuote(p.name)}'; renderProdutos();" style="cursor:pointer">
       <div class="dash-prod-rank">${escapeHTML(String(i+1))}</div>
       <div class="dash-prod-img">${escapeHTML(icon)}</div>
       <div class="dash-prod-main">
@@ -4705,7 +4709,7 @@ function renderDashVipMini(_ordersSales){
   }
   el.innerHTML = clis.map(x=>{
     const nm = dashSafeName(x.c.nome || "VIP");
-    return `<div class="dash-vip-row">
+    return `<div class="dash-vip-row" onclick="openClientePage('${x.c.id}')" style="cursor:pointer">
       <div class="dash-vip-left">
         <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
         <div class="dash-vip-main">
@@ -5223,8 +5227,8 @@ async function renderDashExtraLists(ctx){
           riskEl.innerHTML = (Array.isArray(rowsReatPre) ? rowsReatPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "Cliente");
-            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            const dias = c?.dias_sem_comprar == null ? "" : (String(c.dias_sem_comprar) + "d");
+            const ltv = fmtBRL(Number(c?.ltv_medio ?? c?.receita_total ?? 0) || 0);
             return `<div class="top-item" onclick="openClientePage('${id}')">
               <div class="top-rank">${idx+1}</div>
               <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
@@ -5261,8 +5265,8 @@ async function renderDashExtraLists(ctx){
           vipRiskEl.innerHTML = (Array.isArray(rowsVipPre) ? rowsVipPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "VIP");
-            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            const dias = c?.dias_sem_comprar == null ? "" : (String(c.dias_sem_comprar) + "d");
+            const ltv = fmtBRL(Number(c?.ltv_medio ?? c?.receita_total ?? 0) || 0);
             return `<div class="top-item" onclick="openClientePage('${id}')">
               <div class="top-rank">${idx+1}</div>
               <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
@@ -5808,7 +5812,7 @@ function renderDashV2TopProdutos(rows){
     const pctNum = pct == null ? null : (Number(pct) || 0);
     const right = pctNum == null ? `${unidades}` : `${unidades} · ${pctNum.toFixed(0)}%`;
     const sub = clientes ? `${clientes} clientes` : "—";
-    return `<div class="top-item">
+    return `<div class="top-item" onclick="showPage('produtos'); document.getElementById('search-prod').value='${escapeJsSingleQuote(nome)}'; renderProdutos();" style="cursor:pointer">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(sub)}</span></div>
       <div class="top-val">${escapeHTML(right)}</div>
@@ -5830,7 +5834,7 @@ function renderDashV2TopCidades(rows){
     const label = [cidade, uf].filter(Boolean).join(" / ");
     const fat = fmtBRL(Number(r?.faturamento ?? r?.receita ?? r?.total ?? 0) || 0);
     const pedidos = Number(r?.pedidos ?? r?.total_pedidos ?? 0) || 0;
-    return `<div class="top-item">
+    return `<div class="top-item" onclick="showPage('cidades'); document.getElementById('search-cidade').value='${escapeJsSingleQuote(cidade)}'; renderCidades();" style="cursor:pointer">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(label)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(String(pedidos))} pedidos</span></div>
       <div class="top-val">${escapeHTML(fat)}</div>
@@ -5850,7 +5854,7 @@ function renderDashV2SemContato(rows){
     const id = escapeJsSingleQuote(String(r?.cliente_id || r?.id || ""));
     const nome = String(r?.nome || "Cliente").trim();
     const motivo = String(r?.motivo || r?.reason || "sem whatsapp/email").trim();
-    const ltv = fmtBRL(Number(r?.ltv ?? r?.total_gasto ?? 0) || 0);
+    const ltv = fmtBRL(Number(r?.ltv_medio ?? r?.ltv ?? r?.receita_total ?? r?.total_gasto ?? 0) || 0);
     return `<div class="top-item" onclick="openClientePage('${id}')">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(motivo)}</span></div>
@@ -12003,7 +12007,6 @@ function openWaModalCarrinho(checkoutId){
   tplsEl.innerHTML = tpls.map((t,i)=>`
     <div class="wa-tpl${i===recIdx?" selected":""}" onclick="selectTpl(${i})" style="cursor:pointer">
       <strong style="font-size:10px;display:block;margin-bottom:4px;opacity:.6">${escapeHTML(t.titulo)}</strong>
-      ${escapeHTML(t.texto)}
     </div>`).join("");
 
   customEl.value = tpls[recIdx].texto;
@@ -12025,6 +12028,8 @@ function openWaModalCarrinho(checkoutId){
     }
     window.sendWa = origSendWa; // restore
   };
+
+  modalEl.style.display = "flex";
 }
 
 // E — Lote personalizado
@@ -12463,11 +12468,11 @@ function deletarEvento(){
 }
 
 function fecharModal(id){ var el=document.getElementById(id); if(el) el.classList.remove('open'); }
-document.addEventListener('DOMContentLoaded',function(){
+(function(){
   document.querySelectorAll('.mod-overlay').forEach(function(el){
     el.addEventListener('click',function(e){ if(e.target===el) el.classList.remove('open'); });
   });
-});
+})();
 
 function renderChartEstoque(){
   var ctx=document.getElementById("chart-estoque"); if(!ctx || !ctx.getContext) return;
@@ -12546,19 +12551,22 @@ function renderChartsCom(){
 }
 
 Object.assign(window,{
+  handleLoginSubmit,
+  goLogout,
+  enterApp,
+  showPage,
   closeMobileSidebar,
   openMobileSidebar,
-  showPage,
+  toggleSidebarCollapse,
   toggleTheme,
-  goLogout,
-  handleLoginSubmit,
-  enterApp,
   hydrateConfigPage,
   addAccessUser,
   removeAccessUser,
   renderAccessUsers,
   openClienteDrawer,
   openClientePage,
+  openCRMOrderDrawer,
+  openPedidoDrawer,
   renderClientePage,
   backToClientes,
   clienteWhatsApp,
@@ -12567,10 +12575,11 @@ Object.assign(window,{
   clienteAddNegotiation,
   openInteractionModal,
   saveInteraction,
-  openCRMOrderDrawer,
-  openPedidoDrawer,
   filterClientesByCity,
   handleTopbarSearch,
+  handleTopbarSearchDebounced,
+  renderClientesDebounced,
+  renderPedidosPageDebounced,
   toggleNotif,
   closeWa,
   openWa,
@@ -12585,12 +12594,16 @@ Object.assign(window,{
   openTaskModal,
   saveTask,
   deleteTask,
+  toggleTask,
   runAI,
   renderIADashboard,
   computeCustomerIntelligence,
   renderInteligencia,
   renderDash,
   setDashRange,
+  openDashActionsModal,
+  toggleDashCompare,
+  toggleDashMA,
   renderClientes,
   selectSegment,
   setChCli,
@@ -12601,6 +12614,7 @@ Object.assign(window,{
   openProdutoDrawer,
   renderCidades,
   renderPedidosPage,
+  exportPedidosCSV,
   recarregar,
   oppLoadMore,
   radarToggleOppFilter,
@@ -12612,6 +12626,7 @@ Object.assign(window,{
   renderAlertas,
   saveSupabaseConfig,
   auditSupabaseSchema,
+  copySupabaseShareLink,
   syncInsumosToSupabase,
   syncReceitasToSupabase,
   syncOrdensProducaoToSupabase,
@@ -12624,12 +12639,14 @@ Object.assign(window,{
   syncCarrinhosAbandonadosYampi,
   fetchYampiAbandoned,
   renderCarrinhosAbandonados,
+  toggleCarrinhosFunil,
   openWhatsAppCarrinho,
   openCarrinhoLinkFromRadar,
   openCarrinhoInComercialFromRadar,
   openRadarVisitouDrawer,
   saveAIKey,
   saveTemplates,
+  openDrawer,
   closeDrawer,
   abrirModalCampanha,
   setComTab,
@@ -12638,11 +12655,13 @@ Object.assign(window,{
   setMarcaTab,
   mudarMes,
   filtrarDia,
+  irParaHoje,
   fecharModal,
   deletarCampanha,
   salvarCampanha,
   deletarEvento,
   salvarEvento,
+  toggleDegustFields,
   installApp,
   gerarMensagemIA,
   copyWhatsAppMessageForCustomer,
@@ -12655,7 +12674,43 @@ Object.assign(window,{
   recalculateSegments,
   openSegmentDetail,
   renderSegmentCustomers,
-  exportSegmentData
+  exportSegmentData,
+  saveCurrentFilter,
+  applyFilter,
+  deleteSavedFilter,
+  openWaModalCarrinho,
+  toggleCarrinhoSelection,
+  marcarCarrinhoPerdido,
+  openCarrinhoBatchWa,
+  closeCarrinhoBatchModal,
+  batchCopyOne,
+  batchOpenWa,
+  batchCopyAllCarrinhos,
+  toggleClienteSelection,
+  toggleSelectAll,
+  clearSelection,
+  bulkExportCSV,
+  bulkCopyWhatsApp,
+  bulkMarkContacted,
+  checkCarrinhosQuentes,
+  exportCarrinhosCSV,
+  openCarrinhoHistorico,
+  closeCarrinhoHistorico,
+  atribuirResponsavelCarrinho,
+  toggleAllCarrinhos,
+  abrirModalInsumo,
+  abrirNovaOrdem,
+  setProdTab,
+  renderInsumos,
+  calcularSimulador,
+  renderReceitaDetalhe,
+  novoProdutoReceita,
+  deletarInsumo,
+  salvarInsumo,
+  registrarEntradaInsumo,
+  deletarOrdem,
+  salvarOrdem,
+  abrirMovimentosDoLote
 });
 
 export {

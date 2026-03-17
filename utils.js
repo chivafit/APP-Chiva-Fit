@@ -90,10 +90,18 @@ export async function withRetry(fn, maxAttempts = 3, baseDelayMs = 1000){
  * Retorna string vazia se não reconhecer o formato.
  */
 export function parseDateToIso(v){
-  const s = String(v||"").trim();
+  const s = String(v || "").trim();
   if(!s) return "";
-  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const onlyDigits = s.replace(/\D/g,"");
+  if(/^\d{8}$/.test(onlyDigits) && !s.includes("-")){
+    const dd = onlyDigits.slice(0,2);
+    const mm = onlyDigits.slice(2,4);
+    const yyyy = onlyDigits.slice(4,8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso) return s;
+  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if(br) return `${br[3]}-${br[2]}-${br[1]}`;
   return "";
 }

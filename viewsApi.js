@@ -16,6 +16,25 @@ function firstKey(obj, keys){
   return null;
 }
 
+function normalizeSbError(error){
+  if(!error || typeof error !== "object") return { message: String(error || "") };
+  return {
+    message: String(error.message || ""),
+    details: error.details != null ? String(error.details) : "",
+    hint: error.hint != null ? String(error.hint) : "",
+    code: error.code != null ? String(error.code) : ""
+  };
+}
+
+function logDashQueryError(ctx){
+  const view = String(ctx?.view || "");
+  const op = String(ctx?.op || "query");
+  const select = String(ctx?.select || "*");
+  const extra = ctx?.extra && typeof ctx.extra === "object" ? ctx.extra : {};
+  const err = normalizeSbError(ctx?.error);
+  console.error("[dashboard][supabase] falha", { op, view, select, ...extra, ...err });
+}
+
 async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, selectCols, extra){
   const cols = selectCols || "*";
   const opts = extra && typeof extra === "object" ? extra : {};
@@ -56,13 +75,29 @@ async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, sel
   }
 }
 
-const DASHBOARD_KPI_COLS = "faturamento_total,faturamento_mes,faturamento_ontem,pedidos_total,pedidos_mes,pedidos_ontem,ticket_medio,ticket_medio_mes,clientes_ativos,clientes_novos_mes,clientes_churn,taxa_recompra,ltv_medio";
+const DASHBOARD_ANALYTICS_VIEW = "vw_dashboard_analytics";
+const DASHBOARD_KPI_COLS = "kpi_receita_total,kpi_total_pedidos,kpi_ticket_medio,kpi_total_clientes,kpi_ltv_medio,kpi_percentual_recompra";
 
 export async function getDashboardKpis(client){
   try{
-    const { data, error } = await client.from("vw_dashboard_kpis").select(DASHBOARD_KPI_COLS).maybeSingle();
-    if(error) return null;
-    return data || null;
+    const { data, error } = await client
+      .from(DASHBOARD_ANALYTICS_VIEW)
+      .select(DASHBOARD_KPI_COLS)
+      .limit(1)
+      .maybeSingle();
+    if(error){
+      logDashQueryError({ op: "getDashboardKpis", view: DASHBOARD_ANALYTICS_VIEW, select: DASHBOARD_KPI_COLS, error });
+      return null;
+    }
+    if(!data) return null;
+    return {
+      faturamento_total: asNum(data.kpi_receita_total),
+      total_pedidos: asNum(data.kpi_total_pedidos),
+      ticket_medio: asNum(data.kpi_ticket_medio),
+      total_clientes: asNum(data.kpi_total_clientes),
+      ltv_medio: asNum(data.kpi_ltv_medio),
+      percentual_recompra: asNum(data.kpi_percentual_recompra)
+    };
   }catch(_e){
     return null;
   }
@@ -106,9 +141,35 @@ export async function getNewCustomersDaily(client, fromIso, toIso){
 
 export async function getFunilRecompra(client){
   try{
-    const { data, error } = await client.from("vw_funil_recompra").select("etapa,clientes,percentual").limit(50);
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    const select = "dias_sem_comprar";
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    if(error){
+      logDashQueryError({ op: "getFunilRecompra", view: DASHBOARD_ANALYTICS_VIEW, select, error });
+      return [];
+    }
+    const rows = Array.isArray(data) ? data : [];
+    const buckets = new Map();
+    const add = (ordem, etapa)=>{
+      const key = String(ordem) + "::" + etapa;
+      buckets.set(key, (buckets.get(key) || 0) + 1);
+    };
+    rows.forEach(r=>{
+      const dias = r?.dias_sem_comprar == null ? null : (Number(r.dias_sem_comprar) || 0);
+      if(dias == null){
+        add(5, "Sem compra");
+        return;
+      }
+      if(dias <= 30) add(1, "Ativos (0–30d)");
+      else if(dias <= 60) add(2, "Atencao (31–60d)");
+      else if(dias <= 120) add(3, "Risco (61–120d)");
+      else add(4, "Churn (121+d)");
+    });
+    const out = Array.from(buckets.entries()).map(([k, clientes])=>{
+      const parts = k.split("::");
+      return { ordem: Number(parts[0] || 0) || 0, etapa: parts[1] || "—", clientes: Number(clientes || 0) || 0 };
+    });
+    out.sort((a,b)=>a.ordem-b.ordem);
+    return out;
   }catch(_e){
     return [];
   }
@@ -117,9 +178,36 @@ export async function getFunilRecompra(client){
 export async function getTopCidades(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_top_cidades").select("cidade,uf,clientes,faturamento,pedidos").limit(n);
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    const select = "cidade,uf,cliente_id,receita_total,total_pedidos";
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    if(error){
+      logDashQueryError({ op: "getTopCidades", view: DASHBOARD_ANALYTICS_VIEW, select, error });
+      return [];
+    }
+    const rows = Array.isArray(data) ? data : [];
+    const agg = new Map();
+    rows.forEach(r=>{
+      const cidade = asText(r?.cidade);
+      if(!cidade) return;
+      const uf = asText(r?.uf).toUpperCase();
+      const key = cidade + "::" + uf;
+      if(!agg.has(key)){
+        agg.set(key, { cidade, uf, pedidos: 0, faturamento: 0, total_clientes: 0 });
+      }
+      const it = agg.get(key);
+      it.pedidos += asNum(r?.total_pedidos);
+      it.faturamento += asNum(r?.receita_total);
+      it.total_clientes += 1;
+    });
+    const out = Array.from(agg.values()).map(x=>({
+      cidade: x.cidade,
+      uf: x.uf,
+      pedidos: x.pedidos,
+      faturamento: x.faturamento,
+      total_clientes: x.total_clientes
+    }));
+    out.sort((a,b)=>(b.faturamento||0)-(a.faturamento||0));
+    return out.slice(0, n);
   }catch(_e){
     return [];
   }
@@ -128,22 +216,77 @@ export async function getTopCidades(client, limit){
 export async function getProdutosFavoritos(client, limit){
   const n = Math.max(1, Math.min(100, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_produtos_favoritos").select("produto,sku,quantidade,faturamento,clientes").limit(n);
-    if(error) return [];
+    const select = "produto,unidades_vendidas,faturamento,total_clientes";
+    const { data, error } = await client.from("vw_produtos_favoritos").select(select).limit(n);
+    if(error){
+      logDashQueryError({ op: "getProdutosFavoritos", view: "vw_produtos_favoritos", select, error });
+      return [];
+    }
     return Array.isArray(data) ? data : [];
   }catch(_e){
     return [];
   }
 }
 
-const CLIENTES_CARD_COLS = "cliente_id,nome,email,telefone,canal_principal,status,segmento_crm,ltv,score_recompra,risco_churn,dias_desde_ultima_compra,total_pedidos,uf,cidade,next_best_action";
+const CLIENTES_CARD_COLS = "cliente_id,nome,email,telefone,celular,cidade,uf,canal_principal,total_pedidos,receita_total,ticket_medio,ltv_medio,score_recompra,risco_churn,dias_sem_comprar,segmento_crm,next_best_action,last_contact_at,responsible_user";
+
+function normalizeClienteCardRow(r){
+  const cliente_id = asText(firstKey(r, ["cliente_id","id"]));
+  const nome = asText(r?.nome);
+  const email = asText(r?.email);
+  const telefone = asText(firstKey(r, ["celular","telefone"]));
+  const cidade = asText(r?.cidade);
+  const uf = asText(r?.uf).toUpperCase();
+  const canal_principal = asText(r?.canal_principal);
+  const total_pedidos = asNum(r?.total_pedidos);
+  const receita_total = asNum(firstKey(r, ["receita_total","total_gasto","ltv"]));
+  const ticket_medio = asNum(r?.ticket_medio);
+  const ltv_medio = asNum(firstKey(r, ["ltv_medio","ltv"]));
+  const score_recompra = asNum(r?.score_recompra);
+  const risco_churn = asNum(r?.risco_churn);
+  const dias_sem_comprar = r?.dias_sem_comprar == null ? null : (Number(r.dias_sem_comprar) || 0);
+  const segmento_crm = asText(r?.segmento_crm);
+  const next_best_action = asText(r?.next_best_action);
+  const last_contact_at = r?.last_contact_at || null;
+  const responsible_user = asText(r?.responsible_user);
+  return {
+    cliente_id,
+    nome,
+    email,
+    telefone,
+    celular: asText(r?.celular),
+    cidade,
+    uf,
+    canal_principal,
+    total_pedidos,
+    receita_total,
+    ticket_medio,
+    ltv_medio,
+    score_recompra,
+    risco_churn,
+    dias_sem_comprar,
+    segmento_crm,
+    next_best_action,
+    last_contact_at,
+    responsible_user
+  };
+}
 
 export async function getClientesVipRisco(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_vip_risco").select(CLIENTES_CARD_COLS).limit(n);
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(10000);
+    if(error){
+      logDashQueryError({ op: "getClientesVipRisco", view: DASHBOARD_ANALYTICS_VIEW, select: CLIENTES_CARD_COLS, error });
+      return [];
+    }
+    const rows = (Array.isArray(data) ? data : []).map(normalizeClienteCardRow);
+    const vip = rows
+      .filter(r=>r.cliente_id)
+      .filter(r=>((r.ltv_medio >= 650) || (r.total_pedidos >= 6)))
+      .filter(r=>r.dias_sem_comprar != null && r.dias_sem_comprar >= 30 && r.dias_sem_comprar <= 120)
+      .sort((a,b)=> (Number(b.dias_sem_comprar||0)-Number(a.dias_sem_comprar||0)) || (Number(b.ltv_medio||0)-Number(a.ltv_medio||0)));
+    return vip.slice(0, n);
   }catch(_e){
     return [];
   }
@@ -152,9 +295,17 @@ export async function getClientesVipRisco(client, limit){
 export async function getClientesReativacao(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_reativacao").select(CLIENTES_CARD_COLS).limit(n);
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(10000);
+    if(error){
+      logDashQueryError({ op: "getClientesReativacao", view: DASHBOARD_ANALYTICS_VIEW, select: CLIENTES_CARD_COLS, error });
+      return [];
+    }
+    const rows = (Array.isArray(data) ? data : []).map(normalizeClienteCardRow);
+    const list = rows
+      .filter(r=>r.cliente_id)
+      .filter(r=>r.dias_sem_comprar != null && r.dias_sem_comprar >= 61 && r.dias_sem_comprar <= 120)
+      .sort((a,b)=> (Number(b.ltv_medio||0)-Number(a.ltv_medio||0)) || (Number(b.dias_sem_comprar||0)-Number(a.dias_sem_comprar||0)));
+    return list.slice(0, n);
   }catch(_e){
     return [];
   }
@@ -163,9 +314,32 @@ export async function getClientesReativacao(client, limit){
 export async function getClientesSemContato(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from("vw_clientes_sem_contato").select(CLIENTES_CARD_COLS).limit(n);
-    if(error) return [];
-    return Array.isArray(data) ? data : [];
+    const select = CLIENTES_CARD_COLS;
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
+    if(error){
+      logDashQueryError({ op: "getClientesSemContato", view: DASHBOARD_ANALYTICS_VIEW, select, error });
+      return [];
+    }
+    const rows = (Array.isArray(data) ? data : []).map(normalizeClienteCardRow);
+    const now = Date.now();
+    const day30 = 30 * 86400000;
+    const out = rows
+      .filter(r=>r.cliente_id)
+      .map(r=>{
+        const phone = String(r.celular || r.telefone || "").trim();
+        const hasPhone = !!phone;
+        const hasEmail = !!String(r.email || "").trim();
+        const lc = r.last_contact_at ? new Date(String(r.last_contact_at)).getTime() : NaN;
+        let motivo = "—";
+        if(!hasPhone && !hasEmail) motivo = "sem whatsapp/email";
+        else if(!r.last_contact_at) motivo = "sem contato registrado";
+        else if(Number.isFinite(lc) && (now - lc) > day30) motivo = "30+ dias sem contato";
+        else motivo = "—";
+        return { ...r, motivo };
+      })
+      .filter(r=>r.motivo !== "—")
+      .sort((a,b)=> (Number(b.ltv_medio||0)-Number(a.ltv_medio||0)) || (Number(b.dias_sem_comprar||0)-Number(a.dias_sem_comprar||0)));
+    return out.slice(0, n);
   }catch(_e){
     return [];
   }
