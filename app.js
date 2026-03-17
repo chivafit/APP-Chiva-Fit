@@ -3780,6 +3780,13 @@ function renderDashSalesByDay(orders){
     if(!isFinite(ts)) return;
     byDay[d] = (byDay[d] || 0) + val(o);
   });
+  // Atualiza badge com total do período
+  const totalBadge = document.getElementById("dash-dia-total");
+  if(totalBadge){
+    const total = Object.values(byDay).reduce((s,v)=>s+v,0);
+    totalBadge.textContent = total > 0 ? fmtBRL(total) : "";
+    totalBadge.style.display = total > 0 ? "" : "none";
+  }
   const keys = Object.keys(byDay).sort();
   const state = setDashCanvasState("chart-v2-dia", keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
   if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
@@ -3870,7 +3877,7 @@ function renderDashChannelBreakdown(input){
   }
 
   if(!document.getElementById("chart-vendas-canal")){
-    el.innerHTML = `<div class="chart-wrap" style="height:220px"><canvas id="chart-vendas-canal"></canvas></div>`;
+    el.innerHTML = `<canvas id="chart-vendas-canal" style="max-height:200px"></canvas>`;
   }
   const canvas = document.getElementById("chart-vendas-canal");
   if(!canvas || !canvas.getContext) return;
@@ -3878,35 +3885,42 @@ function renderDashChannelBreakdown(input){
   if(!ctx) return;
   if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
   charts.vendasCanal = new Chart(ctx, {
-    type: "bar",
+    type: "doughnut",
     data: {
       labels: rows.map(r=>CH[r.canal] || r.canal),
       datasets: [{
         data: rows.map(r=>r.total),
         backgroundColor: rows.map(r=>CH_COLOR[r.canal] || "#0FA765"),
-        borderRadius: 6,
-        borderSkipped: false
+        borderColor: "transparent",
+        borderWidth: 0,
+        hoverOffset: 6
       }]
     },
     options: {
-      indexAxis: "y",
       responsive: true,
-      maintainAspectRatio: false,
+      maintainAspectRatio: true,
+      cutout: "68%",
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          position: "right",
+          labels: { color: "rgba(160,168,190,0.85)", font: { size: 10, weight: 600 }, boxWidth: 10, padding: 10 }
+        },
         tooltip: {
+          backgroundColor: "#0e1018",
+          borderColor: "rgba(15,167,101,.35)",
+          borderWidth: 1,
+          titleColor: "#edeef4",
+          bodyColor: "#a0a8be",
+          padding: 12,
+          cornerRadius: 10,
           callbacks: {
             label: (c)=>{
-              const idx = c.dataIndex;
-              const row = rows[idx] || {};
-              return ` ${fmtBRL(row.total || 0)} · ${Number(row.pedidos||0)} pedidos`;
+              const row = rows[c.dataIndex] || {};
+              return ` ${fmtBRL(row.total||0)} · ${Number(row.pedidos||0)} pedidos`;
             }
           }
         }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.8)", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
-        y: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.9)", font: { size: 11, weight: 800 } } }
       }
     }
   });
@@ -4492,8 +4506,8 @@ function renderDashV2NovosClientes(series){
 }
 
 function renderDashV2Funil(rows){
-  const canvas = document.getElementById("chart-v2-funil");
-  if(!canvas || !canvas.getContext || !globalThis.Chart) return;
+  const el = document.getElementById("dash-funil-bars");
+  if(!el) return;
   const list = Array.isArray(rows) ? rows : [];
   const mapped = list.map(r=>{
     const label = String(r?.etapa || r?.stage || r?.funil || r?.label || "").trim() || "Etapa";
@@ -4502,38 +4516,24 @@ function renderDashV2Funil(rows){
     return { label, value, ord };
   });
   mapped.sort((a,b)=>a.ord-b.ord);
-  const labels = mapped.map(x=>x.label);
-  const values = mapped.map(x=>x.value);
-  const state = setDashCanvasState("chart-v2-funil", values.some(v=>Number(v||0)>0), "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
-  if(!state.shouldRender || !state.canvas) return;
-  const ctx = state.canvas.getContext("2d");
-  if(!ctx) return;
-  if(charts.v2funil) charts.v2funil.destroy();
-  charts.v2funil = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        label: "Clientes",
-        data: values,
-        backgroundColor: "rgba(164,233,107,.25)",
-        borderColor: "rgba(164,233,107,.45)",
-        borderWidth: 1,
-        borderRadius: 10,
-        borderSkipped: false
-      }]
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>String(c.parsed.x||0) + " clientes" } } },
-      scales: {
-        x: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
-        y: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
-      }
-    }
-  });
+  if(!mapped.length || !mapped.some(x=>x.value>0)){
+    el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+    return;
+  }
+  const max = Math.max(...mapped.map(x=>x.value), 1);
+  const first = mapped[0]?.value || 1;
+  el.innerHTML = mapped.map((x,i)=>{
+    const pct = Math.round((x.value / max) * 100);
+    const conv = i === 0 ? 100 : Math.round((x.value / first) * 100);
+    const convColor = conv >= 60 ? "var(--chiva-primary)" : conv >= 30 ? "#f59e0b" : "#ef4444";
+    return `<div class="funil-bar-item">
+      <div class="funil-bar-label">
+        <span class="funil-bar-name">${escapeHTML(x.label)}</span>
+        <span class="funil-bar-val">${x.value.toLocaleString("pt-BR")} <span class="funil-bar-pct" style="color:${convColor}">${conv}%</span></span>
+      </div>
+      <div class="funil-bar-track"><div class="funil-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
 }
 
 function renderDashTopCidadesFromOrders(orders){
@@ -4821,30 +4821,42 @@ function renderChartMes(ordersOverride){
   const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   charts.mes=new Chart(ctx,{
-    type:"bar",
+    type:"line",
     data:{
       labels:sk.map(k=>{ const[y,m]=k.split("-"); return m+"/"+y.slice(2); }),
       datasets:[{
         data:sk.map(k=>bm[k]),
-        backgroundColor:"#0FA765",
-        hoverBackgroundColor:"#13c97e",
-        borderWidth:0,
-        borderRadius:4,
-        borderSkipped:false
+        tension:0.4,
+        fill:true,
+        borderColor:"#0FA765",
+        backgroundColor:(c)=>{
+          const g=c.chart.ctx.createLinearGradient(0,0,0,c.chart.height);
+          g.addColorStop(0,"rgba(15,167,101,0.28)");
+          g.addColorStop(1,"rgba(15,167,101,0)");
+          return g;
+        },
+        borderWidth:2.5,
+        pointRadius:4,
+        pointHoverRadius:7,
+        pointBackgroundColor:"#0FA765",
+        pointBorderColor:"var(--surface,#181f2e)",
+        pointBorderWidth:2
       }]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        tooltip:{backgroundColor:"#0e1018",borderColor:"#1d2235",borderWidth:1,
-          titleColor:"#edeef4",bodyColor:"#a0a8be",padding:10,
-          callbacks:{label:c=>" "+fmtBRL(c.raw)}}
+        tooltip:{
+          backgroundColor:"#0e1018",borderColor:"rgba(15,167,101,.35)",borderWidth:1,
+          titleColor:"#edeef4",bodyColor:"#a0a8be",padding:12,cornerRadius:10,
+          callbacks:{label:c=>" "+fmtBRL(c.raw)}
+        }
       },
       scales:{
-        x:{grid:{display:false},ticks:{color:"rgba(160, 168, 190, 0.8)",font:{size:9,family:"Plus Jakarta Sans"},maxRotation:0,autoSkip:true,maxTicksLimit:6}},
-        y:{grid:{display:false},
-          ticks:{color:"rgba(160, 168, 190, 0.8)",font:{size:9,family:"Plus Jakarta Sans"},callback:v=>v>=1000?(v/1000).toFixed(0)+"k":v}}
+        x:{grid:{display:false},ticks:{color:"rgba(160,168,190,0.7)",font:{size:10},maxRotation:0,maxTicksLimit:8}},
+        y:{grid:{color:"rgba(255,255,255,0.04)",drawBorder:false},
+          ticks:{color:"rgba(160,168,190,0.7)",font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+"k":v}}
       }
     }
   })

@@ -240,28 +240,35 @@
     <span class="dash-section-line"></span>
   </div>
 
-  <!-- Hero: Vendas por Dia -->
+  <!-- Hero: Receita por Dia -->
   <div class="chart-card dash-hero-chart">
     <div class="chart-card-header">
-      <div class="chart-title">Vendas por Dia</div>
+      <div class="chart-title">Receita por Dia</div>
+      <span class="chart-card-badge" id="dash-dia-total"></span>
     </div>
-    <div class="chart-wrap" style="height:300px"><canvas id="chart-v2-dia"></canvas></div>
+    <div class="chart-wrap" style="height:280px"><canvas id="chart-v2-dia"></canvas></div>
   </div>
 
-  <!-- Vendas por Mês + Funil -->
-  <div class="dash-grid-2">
+  <!-- Grid 3 col: Mês + Canais + Funil -->
+  <div class="dash-grid-3">
     <div class="chart-card">
       <div class="chart-card-header">
-        <div class="chart-title">Vendas por Mês</div>
+        <div class="chart-title">Receita por Mês</div>
       </div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-mes"></canvas></div>
-      <div id="dash-channel-breakdown" style="margin-top:14px"></div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-mes"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-title">Canais de Venda</div>
+      </div>
+      <div id="dash-channel-breakdown" style="height:200px"></div>
     </div>
     <div class="chart-card">
       <div class="chart-card-header">
         <div class="chart-title">Funil de Recompra</div>
+        <span class="chart-card-badge">clientes</span>
       </div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-v2-funil"></canvas></div>
+      <div id="dash-funil-bars" class="funil-bars-wrap"></div>
     </div>
   </div>
 
