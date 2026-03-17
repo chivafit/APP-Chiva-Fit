@@ -689,6 +689,9 @@ function enterApp(userEmail){
   setSentryUser({ email: userEmail || "admin" });
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
   try{ localStorage.removeItem("crm_bootstrap_pass_ts"); }catch(_e){}
+  // Reset filtros de canal e tipo a cada sessão para não filtrar dados por padrão
+  try{ localStorage.removeItem("crm_dash_canal"); }catch(_e){}
+  try{ localStorage.removeItem("crm_dash_tipo"); }catch(_e){}
   const loginEl = document.getElementById("login-screen");
   if(loginEl) loginEl.style.display="none";
   const shell = document.getElementById("app-shell");
@@ -2735,6 +2738,23 @@ function showPage(id){
     const listEl = document.getElementById("client-list");
     if(listEl && !listEl.querySelector(".client-card") && !listEl.querySelector(".client-card-skeleton"))
       listEl.innerHTML = typeof renderClienteSkeletons === "function" ? renderClienteSkeletons(7) : "";
+  }
+
+  // Retry de renderização: se o container ainda estiver vazio após 100ms, renderiza novamente
+  const retryMap = {
+    "dashboard":    { sel: "#dash-kpis",        fn: "renderDash" },
+    "clientes":     { sel: "#client-list",       fn: "renderClientes" },
+    "pedidos-page": { sel: "#pedidos-list-wrap", fn: "renderPedidosPage" }
+  };
+  if(retryMap[id]){
+    const { sel, fn } = retryMap[id];
+    setTimeout(()=>{
+      const el = document.querySelector(sel);
+      if(el && !el.children.length){
+        console.log('DEBUG RETRY: container', sel, 'vazio após render inicial — tentando novamente');
+        safeInvokeName(fn);
+      }
+    }, 100);
   }
 
   // Close mobile sidebar
@@ -6838,6 +6858,7 @@ function renderClientes(){
     document.getElementById("client-list").innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
     return;
   }
+  console.log('DEBUG: Injetando HTML em client-list. Total de linhas:', clis.length);
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
 }
 
@@ -12625,6 +12646,7 @@ Object.assign(window,{
   computeCustomerIntelligence,
   renderInteligencia,
   renderDash,
+  renderDashNow,
   setDashRange,
   openDashActionsModal,
   toggleDashCompare,
