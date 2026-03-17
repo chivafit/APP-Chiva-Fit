@@ -1,8 +1,8 @@
 const { defineConfig } = require("vite");
 const path = require("path");
 
-module.exports = defineConfig({
-  base: "./",
+module.exports = defineConfig(({ command }) => ({
+  base: command === "serve" ? "/" : "/APP-Chiva-Fit/",
   build: {
     rollupOptions: {
       input: {
@@ -11,4 +11,4 @@ module.exports = defineConfig({
       },
     },
   },
-});
+}));
