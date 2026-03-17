@@ -17,7 +17,7 @@ const corsHeaders = {
   Vary: 'Origin',
 };
 
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 function base64FromBytes(bytes: Uint8Array): string {
   let binary = '';
@@ -89,18 +89,24 @@ serve(async (req: Request) => {
     return new Response('Unauthorized', { status: 401, headers: corsHeaders });
   }
 
-  let payload: any;
+  let payloadRaw: unknown;
   try {
-    payload = JSON.parse(bodyText);
+    payloadRaw = JSON.parse(bodyText);
   } catch {
     return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
   }
 
-  if (!payload || typeof payload !== 'object') {
+  if (!payloadRaw || typeof payloadRaw !== 'object') {
     return new Response('Invalid payload', { status: 400, headers: corsHeaders });
   }
 
-  const { event, resource, time, topic } = payload;
+  const payload = payloadRaw as Record<string, unknown>;
+  const event = payload.event;
+  const time = payload.time;
+  const topic = payload.topic;
+  const resource = (payload.resource && typeof payload.resource === 'object'
+    ? payload.resource
+    : null) as Record<string, unknown> | null;
   const finalEvent = event || topic;
 
   if (!finalEvent) {
@@ -116,6 +122,13 @@ serve(async (req: Request) => {
     finalEvent === 'checkout.abandoned' ||
     finalEvent === 'abandoned_cart';
 
+  const customer = (resource?.customer && typeof resource.customer === 'object'
+    ? resource.customer
+    : {}) as Record<string, unknown>;
+  const shippingAddress = (resource?.shipping_address && typeof resource.shipping_address === 'object'
+    ? resource.shipping_address
+    : {}) as Record<string, unknown>;
+
   const order = {
     external_id: String(resource?.id ?? resource?.code ?? payload?.id ?? ''),
     canal: 'yampi',
@@ -125,11 +138,11 @@ serve(async (req: Request) => {
     created_at: resource?.created_at ?? time ?? new Date().toISOString(),
     updated_at: resource?.updated_at ?? new Date().toISOString(),
     is_abandoned_cart: isAbandonedCart,
-    customer_name: resource?.customer?.name ?? '',
-    customer_email: resource?.customer?.email ?? '',
-    customer_phone: resource?.customer?.phone ?? '',
-    city: resource?.shipping_address?.city ?? '',
-    state: resource?.shipping_address?.state ?? '',
+    customer_name: customer?.name ?? '',
+    customer_email: customer?.email ?? '',
+    customer_phone: customer?.phone ?? '',
+    city: shippingAddress?.city ?? '',
+    state: shippingAddress?.state ?? '',
     raw: resource ?? payload,
   };
 

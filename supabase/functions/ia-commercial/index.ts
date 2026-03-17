@@ -4,7 +4,7 @@ import { readBearerToken } from '../_shared/auth.ts';
 import { checkRateLimit } from '../_shared/rate_limit.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
 
@@ -15,7 +15,7 @@ const corsHeaders: Record<string, string> = {
   Vary: 'Origin',
 };
 
-function jsonResponse(obj: any, status = 200) {
+function jsonResponse(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -49,7 +49,7 @@ serve(async (req: Request) => {
     if (jwt && supabaseUrl && serviceRoleKey) {
       const supabase = createClient(supabaseUrl, serviceRoleKey);
       const { data } = await supabase.auth.getUser(jwt);
-      userEmail = String((data?.user as any)?.email || 'anonymous')
+      userEmail = String((data?.user as Record<string, unknown>)?.email || 'anonymous')
         .toLowerCase()
         .trim();
     }
@@ -76,7 +76,7 @@ serve(async (req: Request) => {
   const bodyText = await req.text().catch(() => '');
   const parsed = safeJsonParse(bodyText);
   if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
-  const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
+  const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
 
   const pergunta = String(body?.pergunta ?? '').trim();
   const maxTokens = Math.min(

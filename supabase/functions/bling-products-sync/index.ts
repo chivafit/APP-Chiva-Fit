@@ -4,7 +4,7 @@ import { captureToSentry } from '../_shared/sentry.ts';
 import { requireUserAuth } from '../_shared/auth.ts';
 import { safeJsonParse, nowIso, sleep } from '../_shared/utils.ts';
 
-declare const Deno: any;
+declare const Deno: { env: { get(key: string): string | undefined } };
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
 
@@ -135,7 +135,7 @@ async function blingFetchJson(
   supabaseUrl: string,
   serviceRoleKey: string,
   retry = true,
-): Promise<any> {
+): Promise<unknown> {
   const maxAttempts = 6;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await rateLimitWait();
@@ -173,18 +173,21 @@ async function blingFetchJson(
   throw new Error('Bling API error: 429 Too Many Requests');
 }
 
-function mapBlingProduct(row: any) {
-  const data = row?.data ?? row ?? {};
+function mapBlingProduct(row: Record<string, unknown>) {
+  const rawData = (row?.data ?? row) as Record<string, unknown>;
+  const data: Record<string, unknown> = rawData && typeof rawData === 'object' ? rawData : {};
   const id = String(data?.id ?? '').trim();
   const codigo = String(
     data?.codigo ?? data?.codigoItem ?? data?.codigoProduto ?? data?.sku ?? '',
   ).trim();
   const nome = String(data?.nome ?? data?.descricao ?? data?.descricaoCurta ?? '').trim();
-  const situacao = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? '').trim();
+  const situacaoObj = data?.situacao as Record<string, unknown> | null | undefined;
+  const situacao = String(situacaoObj?.nome ?? data?.situacao ?? data?.status ?? '').trim();
   const preco = data?.preco ?? data?.precoVenda ?? data?.valor ?? data?.precoVenda1;
+  const estoqueObj = data?.estoque as Record<string, unknown> | null | undefined;
   const estoqueRaw =
-    data?.estoque?.saldo ??
-    data?.estoque?.saldoFisico ??
+    estoqueObj?.saldo ??
+    estoqueObj?.saldoFisico ??
     data?.saldo ??
     data?.saldoFisico ??
     data?.estoque ??
@@ -205,7 +208,19 @@ function mapBlingProduct(row: any) {
   };
 }
 
-async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, products: any[]) {
+interface MappedProduct {
+  id: string;
+  codigo: string | null;
+  nome: string | null;
+  estoque: number | null;
+  preco: number | null;
+  situacao: string | null;
+  origem: string;
+  updated_at: string;
+  raw: Record<string, unknown>;
+}
+
+async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, products: MappedProduct[]) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = nowIso();
   const rows = products
@@ -250,7 +265,7 @@ serve(async (req: Request) => {
     const bodyText = await req.text().catch(() => '');
     const parsed = safeJsonParse(bodyText);
     if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
-    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
 
     const persist = body?.persist === true;
     if (persist) {
@@ -268,14 +283,15 @@ serve(async (req: Request) => {
     const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
     const base = 'https://api.bling.com.br/Api/v3/produtos';
 
-    const out: any[] = [];
+    const out: MappedProduct[] = [];
     for (let page = 1; page <= maxPages; page++) {
       const url = `${base}?pagina=${page}&limite=${limit}`;
       const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
-      const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+      const jsonObj = json as Record<string, unknown>;
+      const data: unknown[] = Array.isArray(jsonObj?.data) ? (jsonObj.data as unknown[]) : Array.isArray(json) ? (json as unknown[]) : [];
       if (!data.length) break;
-      data.forEach((r: any) => {
-        const mapped = mapBlingProduct(r);
+      data.forEach((r) => {
+        const mapped = mapBlingProduct(r as Record<string, unknown>);
         if (mapped.id) out.push(mapped);
       });
       if (data.length < limit) break;
@@ -289,8 +305,7 @@ serve(async (req: Request) => {
     return jsonResponse({ products: out, count: out.length }, 200);
   } catch (e) {
     await captureToSentry(e, { function: 'bling-products-sync' }).catch(() => {});
-    const err = e as any;
-    const msg = String(err?.message || String(err) || '');
+    const msg = String(e instanceof Error ? e.message : String(e) || '');
     if (msg.startsWith('BLING_REAUTH_REQUIRED:')) {
       return jsonResponse(
         {

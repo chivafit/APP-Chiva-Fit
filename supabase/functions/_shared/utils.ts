@@ -34,11 +34,16 @@ export function sleep(ms: number): Promise<void> {
 /**
  * Extrai o primeiro texto da resposta da API Anthropic.
  */
-export function firstTextFromAnthropic(respJson: any): string {
-  const content = Array.isArray(respJson?.content) ? respJson.content : [];
+export function firstTextFromAnthropic(respJson: unknown): string {
+  if (!respJson || typeof respJson !== 'object') return '';
+  const resp = respJson as Record<string, unknown>;
+  const content = Array.isArray(resp.content) ? resp.content : [];
   for (const c of content) {
-    if (c?.type === 'text' && typeof c?.text === 'string') return c.text;
+    if (c && typeof c === 'object') {
+      const entry = c as Record<string, unknown>;
+      if (entry.type === 'text' && typeof entry.text === 'string') return entry.text;
+    }
   }
-  const txt = respJson?.text;
+  const txt = resp.text;
   return typeof txt === 'string' ? txt : '';
 }

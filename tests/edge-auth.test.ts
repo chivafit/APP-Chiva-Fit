@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock the Supabase dependency from esm.sh so the module can be imported
 // in a Node/Vitest environment without network access.
