@@ -549,24 +549,30 @@ async function handleLoginSubmit(e){
       return false;
     }
 
-    // Se o usuário preencheu URL/Key no form, salva no LS ANTES de tentar conectar
-    if(inputUrl) localStorage.setItem("crm_supa_url", inputUrl);
-    if(inputKey) localStorage.setItem("crm_supa_key", inputKey);
-
     if(btnEl){
       btnEl.disabled = true;
       btnEl.innerHTML = '<span>Entrando...</span>';
     }
 
+    // Se o usuário preencheu URL/Key no form, salva no LS ANTES de tentar conectar
+    if(inputUrl) localStorage.setItem("crm_supa_url", inputUrl);
+    if(inputKey) localStorage.setItem("crm_supa_key", inputKey);
+
     const ADMIN_EMAILS = new Set(["admin@chivafit.com","admin@chivafit.com.br","admin"]);
     const isAdmin = ADMIN_EMAILS.has(email);
     const canonicalEmail = (email === "admin" || email === "admin@chivafit.com.br") ? "admin@chivafit.com" : email;
 
-    const url = getSupabaseProjectUrl();
-    const key = getSupabaseAnonKey();
-    const hasSupabase = !!(url && key);
+  const url = getSupabaseProjectUrl();
+  const key = getSupabaseAnonKey();
 
-    if(hasSupabase){
+  if(!url || !key){
+    if(errEl) errEl.textContent = "Supabase não configurado. Preencha URL e Chave.";
+    return false;
+  }
+
+  const hasSupabase = true;
+
+  if(hasSupabase){
       try{
         supaClient = getSupabaseClient(url, key);
         try{
