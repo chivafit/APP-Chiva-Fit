@@ -9,7 +9,7 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-4";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-5";
 import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
 import { CRMStore } from "./store.js?v=20260316-6";
 import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
@@ -3482,23 +3482,6 @@ function fmtDate(d){
   const dt = new Date(s);
   return isNaN(dt) ? "—" : dt.toLocaleDateString("pt-BR");
 }
-function parseDateToIso(v){
-  const s = String(v || "").trim();
-  if(!s) return "";
-  const onlyDigits = s.replace(/\D/g,"");
-  if(/^\d{8}$/.test(onlyDigits) && !s.includes("-")){
-    const dd = onlyDigits.slice(0,2);
-    const mm = onlyDigits.slice(2,4);
-    const yyyy = onlyDigits.slice(4,8);
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(iso) return s;
-  const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if(br) return `${br[3]}-${br[2]}-${br[1]}`;
-  return "";
-}
-
 function formatDateMaskValue(raw){
   const digits = String(raw || "").replace(/\D/g,"").slice(0,8);
   if(!digits) return "";
