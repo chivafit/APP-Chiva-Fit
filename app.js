@@ -9,7 +9,8 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-2";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-3";
+import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
 import { CRMStore } from "./store.js?v=20260316-6";
 import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
@@ -38,6 +39,15 @@ import {
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
 } from "./sync/yampi.js?v=20260316-6";
+
+// ── Sentry: inicializa e registra handlers globais ──
+initSentry();
+window.addEventListener("unhandledrejection", function(event) {
+  captureError(event.reason, { type: "unhandledrejection" });
+});
+window.onerror = function(message, source, lineno, colno, error) {
+  captureError(error || new Error(String(message)), { source, lineno, colno });
+};
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -629,6 +639,7 @@ async function handleLoginSubmit(e){
       if(errEl) errEl.textContent = "Credenciais inválidas. Use o admin ou um usuário cadastrado.";
     }
   } catch(err) {
+    captureError(err, { context: "login" });
     console.error("Login error:", err);
     if(!window.isSecureContext){
       if(errEl) errEl.textContent = "Este login precisa de HTTPS (ou servidor local). Evite abrir o arquivo via file://";
@@ -645,6 +656,7 @@ async function handleLoginSubmit(e){
 }
 window.handleLoginSubmit = handleLoginSubmit;
 function enterApp(userEmail){
+  setSentryUser({ email: userEmail || "admin" });
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
   try{ localStorage.removeItem("crm_bootstrap_pass_ts"); }catch(_e){}
   const loginEl = document.getElementById("login-screen");
@@ -682,6 +694,7 @@ function enterApp(userEmail){
       try{ scheduleAutoCarrinhosSync(); }catch(_e){}
       localStorage.setItem('crm_last_bling_sync', new Date().toISOString());
     }catch(e){
+      captureError(e, { context: "bootstrap", userEmail });
       console.warn("Erro no bootstrap, usando cache local:", e.message);
       // Fallback: usar dados locais se existirem
       if(!blingOrders.length){

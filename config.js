@@ -30,8 +30,12 @@
     readLS("supabase_key") ||
     FIXED_KEY;
 
+  // SENTRY: preencha com o DSN do seu projeto em https://sentry.io
+  var sentryDsn = String(existing.sentryDsn || "").trim() || readLS("crm_sentry_dsn") || "";
+
   window.APP_CONFIG = {
     supabaseUrl: supabaseUrl,
     supabaseAnonKey: supabaseAnonKey,
+    sentryDsn: sentryDsn,
   };
 })();

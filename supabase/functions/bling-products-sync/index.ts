@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { captureToSentry } from "../_shared/sentry.ts";
 
 declare const Deno: any;
 
@@ -350,6 +351,7 @@ serve(async (req: Request) => {
 
     return jsonResponse({ products: out, count: out.length }, 200);
   } catch (e) {
+    await captureToSentry(e, { function: "bling-products-sync" }).catch(() => {});
     const err = e as any;
     const msg = String(err?.message || String(err) || "");
     if (msg.startsWith("BLING_REAUTH_REQUIRED:")) {

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { captureToSentry } from "../_shared/sentry.ts";
 
 declare const Deno: any;
 
@@ -1429,6 +1430,7 @@ serve(async (req: Request) => {
       console.log("[bling-sync] internal error", { message: err?.message || String(err) });
       if (err?.stack) console.log(String(err.stack).slice(0, 5000));
     } catch (_e) {}
+    await captureToSentry(e, { function: "bling-sync" }).catch(() => {});
     const msg = String(err?.message || String(err) || "");
     if (msg.startsWith("BLING_REAUTH_REQUIRED:")) {
       return jsonResponse(

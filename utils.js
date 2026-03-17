@@ -1,3 +1,11 @@
+function _sentryCapture(error, context) {
+  try {
+    if (typeof window !== "undefined" && typeof window.Sentry !== "undefined" && window.APP_CONFIG && window.APP_CONFIG.sentryDsn) {
+      window.Sentry.captureException(error, context ? { extra: context } : undefined);
+    }
+  } catch (_e) {}
+}
+
 export function escapeHTML(str){
   if(str === null || str === undefined) return "";
   const s = String(str);
@@ -65,7 +73,10 @@ export async function withRetry(fn, maxAttempts = 3, baseDelayMs = 1000){
       const isRetryable = !e?.message?.includes("Unauthorized") &&
                           !e?.message?.includes("invalid_grant") &&
                           !e?.message?.includes("Supabase não configurado");
-      if(!isRetryable || attempt === maxAttempts) throw e;
+      if(!isRetryable || attempt === maxAttempts){
+        _sentryCapture(e, { withRetry: true, attempt, maxAttempts });
+        throw e;
+      }
       const delay = baseDelayMs * Math.pow(2, attempt - 1);
       console.warn(`[retry] tentativa ${attempt}/${maxAttempts} falhou, aguardando ${delay}ms:`, e?.message);
       await new Promise(r => setTimeout(r, delay));
