@@ -1,4 +1,8 @@
-project_id = "chivafit"
+# Supabase project config
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+
+[project]
+id = "chivafit"
 
 # ── Edge Functions ──────────────────────────────────────────────────────────
 # verify_jwt = false → funções públicas (webhooks, sync Bling/Yampi)

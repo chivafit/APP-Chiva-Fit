@@ -9,7 +9,8 @@ import {
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
 } from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-6";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-3";
+import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
 import { CRMStore } from "./store.js?v=20260316-6";
 import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
 import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
@@ -38,6 +39,15 @@ import {
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
 } from "./sync/yampi.js?v=20260316-6";
+
+// ── Sentry: inicializa e registra handlers globais ──
+initSentry();
+window.addEventListener("unhandledrejection", function(event) {
+  captureError(event.reason, { type: "unhandledrejection" });
+});
+window.onerror = function(message, source, lineno, colno, error) {
+  captureError(error || new Error(String(message)), { source, lineno, colno });
+};
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -167,6 +177,9 @@ let allCustomers = [];
 let customerIntel = [];
 let customerIntelligence = [];
 let activeCh = "all";
+let savedFilters = safeJsonParse("crm_filtros_salvos", []);
+let selectedClientes = new Set();
+let selectedCarrinhos = new Set();
 let charts   = {};
 let activeSegment = null;
 let syncTimer = null;
@@ -441,17 +454,23 @@ function getSupaFnBase(){
   return url + "/functions/v1";
 }
 
+let _sessionRefreshInFlight = null;
 async function refreshSupabaseSession(){
   if(!supaClient || !supaClient.auth || typeof supaClient.auth.getSession !== "function") return null;
-  try{
-    const { data, error } = await supaClient.auth.getSession();
-    if(error) return null;
-    supaSession = data?.session || null;
-    supaAccessToken = supaSession?.access_token ? String(supaSession.access_token) : "";
-    return supaSession;
-  }catch(_e){
-    return null;
-  }
+  // Singleton: se já há um refresh em andamento, aguardar o mesmo resultado
+  if(_sessionRefreshInFlight) return _sessionRefreshInFlight;
+  _sessionRefreshInFlight = (async()=>{
+    try{
+      const { data, error } = await supaClient.auth.getSession();
+      if(error) return null;
+      supaSession = data?.session || null;
+      supaAccessToken = supaSession?.access_token ? String(supaSession.access_token) : "";
+      return supaSession;
+    }catch(_e){
+      return null;
+    }
+  })().finally(()=>{ _sessionRefreshInFlight = null; });
+  return _sessionRefreshInFlight;
 }
 
 async function supaFnHeadersAsync(){
@@ -479,8 +498,21 @@ function supaFnHeaders(){
 async function bootstrapFromSupabase(){
   try{
     const connected = await initSupabase();
-    if(connected) await loadSupabaseData();
-
+    if(connected){
+      await loadSupabaseData();
+      // Verificar erro de token Bling e alertar o usuário no boot
+      try{
+        const { data: tokenErrRow } = await supaClient.from("configuracoes")
+          .select("valor_texto").eq("chave","bling_token_error").maybeSingle();
+        const tokenErr = String(tokenErrRow?.valor_texto || "").trim();
+        if(tokenErr){
+          const parsed = JSON.parse(tokenErr);
+          if(parsed?.type && parsed?.message){
+            setTimeout(()=> toast(`⚠ Bling: ${parsed.message}`, "error"), 3500);
+          }
+        }
+      }catch(_e){}
+    }
     CRM_BOOTSTRAPPED = true;
     CRM_BOOTSTRAP_ERROR = null;
   }catch(e){
@@ -610,6 +642,7 @@ async function handleLoginSubmit(e){
       if(errEl) errEl.textContent = "Credenciais inválidas. Use o admin ou um usuário cadastrado.";
     }
   } catch(err) {
+    captureError(err, { context: "login" });
     console.error("Login error:", err);
     if(!window.isSecureContext){
       if(errEl) errEl.textContent = "Este login precisa de HTTPS (ou servidor local). Evite abrir o arquivo via file://";
@@ -626,6 +659,7 @@ async function handleLoginSubmit(e){
 }
 window.handleLoginSubmit = handleLoginSubmit;
 function enterApp(userEmail){
+  setSentryUser({ email: userEmail || "admin" });
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
   try{ localStorage.removeItem("crm_bootstrap_pass_ts"); }catch(_e){}
   const loginEl = document.getElementById("login-screen");
@@ -663,6 +697,7 @@ function enterApp(userEmail){
       try{ scheduleAutoCarrinhosSync(); }catch(_e){}
       localStorage.setItem('crm_last_bling_sync', new Date().toISOString());
     }catch(e){
+      captureError(e, { context: "bootstrap", userEmail });
       console.warn("Erro no bootstrap, usando cache local:", e.message);
       // Fallback: usar dados locais se existirem
       if(!blingOrders.length){
@@ -688,6 +723,320 @@ function enterApp(userEmail){
   })();
 }
 window.enterApp = enterApp;
+window.saveCurrentFilter = saveCurrentFilter;
+window.applyFilter = applyFilter;
+window.deleteSavedFilter = deleteSavedFilter;
+window.toggleClienteSelection = toggleClienteSelection;
+window.toggleSelectAll = toggleSelectAll;
+window.clearSelection = clearSelection;
+window.bulkExportCSV = bulkExportCSV;
+window.bulkCopyWhatsApp = bulkCopyWhatsApp;
+window.bulkMarkContacted = bulkMarkContacted;
+
+/* ═══════════════════════════════════════════════════
+   C — ALERTAS DE CARRINHOS QUENTES EM TEMPO REAL
+═══════════════════════════════════════════════════ */
+const CARRINHO_ALERTA_KEY = "crm_carrinhos_alertados_ids";
+const CARRINHO_HOT_MIN = 20; // janela em minutos considerada "quente"
+
+function getCarrinhosAlertados(){
+  try{ return new Set(JSON.parse(localStorage.getItem(CARRINHO_ALERTA_KEY)||"[]")); }catch(_){ return new Set(); }
+}
+function setCarrinhosAlertados(s){
+  try{ localStorage.setItem(CARRINHO_ALERTA_KEY, JSON.stringify([...s].slice(-300))); }catch(_){}
+}
+
+function checkCarrinhosQuentes(){
+  const lista = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>c.checkout_id);
+  const quentes = lista.filter(c=>!c.recuperado && !c.perdido && minutosDesdeIso(c.criado_em) != null && minutosDesdeIso(c.criado_em) < CARRINHO_HOT_MIN);
+
+  // Atualizar badge nav
+  const badge = document.getElementById("badge-comercial");
+  if(badge){
+    if(quentes.length){
+      badge.textContent = String(quentes.length);
+      badge.style.display = "";
+      badge.classList.add("hot");
+    } else {
+      badge.style.display = "none";
+      badge.classList.remove("hot");
+    }
+  }
+
+  // Alertar apenas carrinhos ainda não avisados
+  const jaAlertados = getCarrinhosAlertados();
+  const novos = quentes.filter(c=>!jaAlertados.has(String(c.checkout_id)));
+  if(!novos.length) return;
+
+  novos.forEach(c=>jaAlertados.add(String(c.checkout_id)));
+  setCarrinhosAlertados(jaAlertados);
+
+  const nomes = novos.slice(0,3).map(c=>String(c.cliente_nome||"").split(" ")[0]||"Cliente").join(", ");
+  const extras = novos.length > 3 ? ` +${novos.length-3}` : "";
+  const plural = novos.length>1 ? "carrinhos quentes" : "carrinho quente";
+  toast(`🔥 ${novos.length} novo${novos.length>1?"s":""} ${plural}: ${nomes}${extras}`, "warning");
+
+  // Tenta navegação via Notification API como fallback silencioso
+  try{
+    if("Notification" in window && Notification.permission === "granted"){
+      new Notification("🔥 Carrinho quente — Chiva Fit", {
+        body: `${novos.length} novo${novos.length>1?"s":""} ${plural} nos últimos ${CARRINHO_HOT_MIN} min.`,
+        silent: true
+      });
+    }
+  }catch(_){}
+}
+
+// Exposto globalmente para ser chamado após sync
+window.checkCarrinhosQuentes = checkCarrinhosQuentes;
+
+/* ═══════════════════════════════════════════════════
+   I — EXPORTAR CSV DE CARRINHOS ABANDONADOS
+═══════════════════════════════════════════════════ */
+function exportCarrinhosCSV(){
+  const lookup = buildClienteLookupParaCarrinhos();
+  const q  = String((document.getElementById("car-search")||{}).value||"").trim().toLowerCase();
+  const st = String((document.getElementById("car-status")||{}).value||"");
+  const resp = String((document.getElementById("car-responsavel")||{}).value||"");
+
+  const list = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>{
+    if(!c.checkout_id) return false;
+    if(st==="abertos"    && (c.recuperado||c.perdido)) return false;
+    if(st==="recuperados" && !c.recuperado) return false;
+    if(st==="perdidos"   && !c.perdido) return false;
+    if(st==="quentes"    && (c.recuperado||c.perdido||(minutosDesdeIso(c.criado_em)==null||minutosDesdeIso(c.criado_em)>=120))) return false;
+    if(resp && (c.responsavel||"")!==resp) return false;
+    if(q){
+      const hit=String(c.cliente_nome||"").toLowerCase().includes(q)||String(c.email||"").toLowerCase().includes(q)||rawPhone(c.telefone||"").includes(rawPhone(q));
+      if(!hit) return false;
+    }
+    return true;
+  }).map(c=>{
+    const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+    const score = c.score_recuperacao==null ? calc.score : Number(c.score_recuperacao||0);
+    const prio  = prioridadePorScore(score);
+    const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+    const itens = Array.isArray(c.produtos)?c.produtos:[];
+    const prodTxt = itens.slice(0,5).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join("; ");
+    const pipeline = c.recuperado?"Recuperado":c.perdido?"Perdido":c.last_etapa_enviada?"Contatado":"Novo";
+    const dtCriado = c.criado_em ? new Date(c.criado_em).toLocaleString("pt-BR") : "";
+    const dtRec    = c.recuperado_em ? new Date(c.recuperado_em).toLocaleString("pt-BR") : "";
+    return [c.cliente_nome||"", c.telefone||"", c.email||"", Number(c.valor||0).toFixed(2).replace(".",","), String(Math.round(score)), prio.label, pipeline, etapa.label||"", prodTxt, dtCriado, dtRec, c.recuperado_pedido_id||"", c.link_finalizacao||"", c.responsavel||""];
+  });
+
+  const header = ["Nome","Telefone","Email","Valor (R$)","Score","Prioridade","Pipeline","Próxima etapa","Produtos","Criado em","Recuperado em","Pedido recuperado","Link finalização","Responsável"];
+  const rows = [header, ...list].map(r=>r.map(csvEscape).join(",")).join("\r\n");
+  downloadCSV(`carrinhos_abandonados_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  toast(`✓ ${list.length} carrinho${list.length!==1?"s":""} exportado${list.length!==1?"s":""}!`, "success");
+}
+
+/* ═══════════════════════════════════════════════════
+   G — FUNIL DE CONVERSÃO POR ETAPA
+═══════════════════════════════════════════════════ */
+let carrinhosFunilVisible = false;
+
+function toggleCarrinhosFunil(){
+  carrinhosFunilVisible = !carrinhosFunilVisible;
+  const el = document.getElementById("carrinhos-funil");
+  const btn = document.getElementById("car-funil-btn");
+  if(el) el.style.display = carrinhosFunilVisible ? "" : "none";
+  if(btn) btn.style.fontWeight = carrinhosFunilVisible ? "800" : "";
+  if(carrinhosFunilVisible) renderCarrinhosFunil();
+}
+
+function renderCarrinhosFunil(enrichedList){
+  const el = document.getElementById("carrinhos-funil");
+  if(!el || !carrinhosFunilVisible) return;
+  const list = enrichedList || (carrinhosAbandonados||[]).map(c=>{
+    const n = normalizeCarrinhoAbandonado(c);
+    const calc = calcularScoreRecuperacaoCarrinho(n, buildClienteLookupParaCarrinhos());
+    return Object.assign({}, n, {tempo_min: calc.mins});
+  });
+
+  const total = list.length;
+  if(!total){ el.innerHTML = '<div style="text-align:center;font-size:12px;color:var(--text-3);padding:12px">Sem dados.</div>'; return; }
+
+  const stages = [
+    { id:"novo",      label:"Novo",            color:"#64748b", count: list.filter(c=>!c.recuperado&&!c.perdido&&!c.last_etapa_enviada).length },
+    { id:"ajuda",     label:"Ajuda enviada",   color:"#3b82f6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="ajuda").length },
+    { id:"link",      label:"Link enviado",    color:"#8b5cf6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="link").length },
+    { id:"incentivo", label:"Incentivo",       color:"#f59e0b", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="incentivo").length },
+    { id:"recuperado",label:"Recuperado ✓",    color:"#10b981", count: list.filter(c=>c.recuperado).length },
+    { id:"perdido",   label:"Perdido ✗",       color:"#ef4444", count: list.filter(c=>c.perdido&&!c.recuperado).length },
+  ];
+
+  const max = Math.max(...stages.map(s=>s.count), 1);
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'+
+      '<span style="font-size:13px;font-weight:800">📊 Funil de conversão</span>'+
+      '<span style="font-size:11px;color:var(--text-3)">'+ escapeHTML(String(total))+' carrinho'+( total!==1?"s":"")+'</span>'+
+    '</div>'+
+    stages.map(s=>{
+      const pct = total ? Math.round(s.count/total*100) : 0;
+      const barW = max ? Math.round(s.count/max*100) : 0;
+      return '<div class="car-funil-row">'+
+        '<div class="car-funil-label">'+escapeHTML(s.label)+'</div>'+
+        '<div class="car-funil-bar-wrap"><div class="car-funil-bar-fill" style="width:'+barW+'%;background:'+s.color+'"></div></div>'+
+        '<div class="car-funil-count">'+escapeHTML(String(s.count))+'</div>'+
+        '<div class="car-funil-pct">'+escapeHTML(String(pct))+'%</div>'+
+      '</div>';
+    }).join("");
+}
+
+/* ═══════════════════════════════════════════════════
+   H — ATRIBUIÇÃO DE RESPONSÁVEL
+═══════════════════════════════════════════════════ */
+function populateCarRespFilter(){
+  const sel = document.getElementById("car-responsavel");
+  if(!sel) return;
+  const users = loadAccessUsers();
+  const current = sel.value;
+  // Manter opção padrão
+  sel.innerHTML = '<option value="">Responsável</option>';
+  // Usuários cadastrados
+  users.forEach(u=>{
+    const label = String(u.email||"").split("@")[0] || String(u.email||"");
+    const opt = document.createElement("option");
+    opt.value = String(u.email||"");
+    opt.textContent = label;
+    if(u.email===current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Responsáveis já atribuídos mas não mais cadastrados
+  const existentes = [...new Set((carrinhosAbandonados||[]).map(c=>String(c.responsavel||"")).filter(Boolean))];
+  existentes.forEach(r=>{
+    if(!users.find(u=>u.email===r)){
+      const opt = document.createElement("option");
+      opt.value = r; opt.textContent = r;
+      if(r===current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function atribuirResponsavelCarrinho(checkoutId, responsavel){
+  const cid = String(checkoutId||"");
+  const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+  if(idx<0) return;
+  carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), { responsavel: responsavel||null });
+  safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
+}
+
+window.exportCarrinhosCSV = exportCarrinhosCSV;
+window.toggleCarrinhosFunil = toggleCarrinhosFunil;
+window.renderCarrinhosFunil = renderCarrinhosFunil;
+window.atribuirResponsavelCarrinho = atribuirResponsavelCarrinho;
+window.populateCarRespFilter = populateCarRespFilter;
+
+/* ═══════════════════════════════════════════════════
+   F — HISTÓRICO DE INTERAÇÕES POR CARRINHO
+═══════════════════════════════════════════════════ */
+async function openCarrinhoHistorico(checkoutId){
+  const modal  = document.getElementById("car-history-modal");
+  const body   = document.getElementById("car-hist-body");
+  const metaEl = document.getElementById("car-hist-meta");
+  if(!modal || !body) return;
+
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c){ toast("Carrinho não encontrado.","error"); return; }
+
+  const nome  = escapeHTML(c.cliente_nome||"—");
+  const valor = escapeHTML(fmtBRL(c.valor||0));
+  if(metaEl) metaEl.textContent = `${c.cliente_nome||"—"} · ${valor}`;
+  body.innerHTML = '<div style="text-align:center;padding:20px 0;color:var(--text-3);font-size:12px">Carregando...</div>';
+  modal.style.display = "";
+
+  if(!supaConnected || !supaClient){
+    body.innerHTML = '<div style="padding:16px 0;text-align:center;font-size:12px;color:var(--text-3)">Conexão com Supabase necessária para ver o histórico.</div>';
+    return;
+  }
+
+  try{
+    const customerKey = String(c.email||"").trim().toLowerCase() || rawPhone(c.telefone||"") || "";
+    let rows = [];
+
+    if(customerKey){
+      const uuid = await resolveCustomerUuid(customerKey).catch(()=>null);
+      if(uuid){
+        const {data} = await supaClient
+          .from("interactions")
+          .select("id,type,description,created_at,user_responsible,metadata")
+          .eq("customer_id", uuid)
+          .order("created_at", {ascending:false})
+          .limit(50);
+        rows = data || [];
+      }
+    }
+
+    // Filtrar para este carrinho especificamente (metadata.checkout_id) ou tipo recovery
+    const local = rows.filter(r=>
+      (r.metadata && String(r.metadata.checkout_id||"")===cid) ||
+      String(r.type||"").includes("carrinho") ||
+      String(r.description||"").toLowerCase().includes("carrinho")
+    );
+    // Mostrar local-specific primeiro, depois o resto se < 5 total
+    const display = local.length ? local : rows.slice(0,20);
+
+    if(!display.length){
+      body.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-3)">Nenhuma interação registrada. O histórico é criado ao enviar mensagens pelo CRM.</div>';
+      return;
+    }
+
+    const typeIcon = t=>{
+      if(t==="mensagem_enviada") return "💬";
+      if(t==="ligacao") return "📞";
+      if(t==="nota") return "📝";
+      if(t==="compra") return "🛒";
+      return "📌";
+    };
+
+    body.innerHTML = display.map(r=>{
+      const dt = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+      const desc = escapeHTML(String(r.description||"").slice(0,200));
+      const etapa = r.metadata?.etapa ? ` · ${escapeHTML(r.metadata.etapa)}` : "";
+      const resp  = r.user_responsible ? ` · ${escapeHTML(r.user_responsible)}` : "";
+      return `<div class="car-hist-item">
+        <div class="car-hist-icon">${typeIcon(r.type)}</div>
+        <div>
+          <div class="car-hist-type">${escapeHTML(r.type||"interação")}${etapa}</div>
+          ${desc ? `<div class="car-hist-desc">${desc}</div>` : ""}
+          <div class="car-hist-time">${escapeHTML(dt)}${resp}</div>
+        </div>
+      </div>`;
+    }).join("");
+  }catch(e){
+    body.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--text-3)">Erro ao carregar histórico: ${escapeHTML(String(e?.message||e))}</div>`;
+  }
+}
+
+function closeCarrinhoHistorico(){
+  const modal = document.getElementById("car-history-modal");
+  if(modal) modal.style.display = "none";
+}
+
+window.openCarrinhoHistorico = openCarrinhoHistorico;
+window.closeCarrinhoHistorico = closeCarrinhoHistorico;
+
+// Marca
+function toggleDegustFields(){
+  var tipo=(document.getElementById('ev-tipo')||{}).value||'';
+  var el=document.getElementById('ev-degust-fields');
+  if(el) el.style.display=(tipo==='degustacao'||tipo==='feira')?'':'none';
+}
+window.toggleDegustFields = toggleDegustFields;
+window.irParaHoje = irParaHoje;
+
+window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
+window.toggleCarrinhoSelection = toggleCarrinhoSelection;
+window.toggleAllCarrinhos = toggleAllCarrinhos;
+window.openWaModalCarrinho = openWaModalCarrinho;
+window.openCarrinhoBatchWa = openCarrinhoBatchWa;
+window.closeCarrinhoBatchModal = closeCarrinhoBatchModal;
+window.batchCopyOne = batchCopyOne;
+window.batchOpenWa = batchOpenWa;
+window.batchCopyAllCarrinhos = batchCopyAllCarrinhos;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
@@ -1430,17 +1779,46 @@ function scheduleAutoBlingSync(){
 }
 
 async function syncBling(){
-  const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
-  checkEstoqueCritico();
-  try{ refreshBlingAutoCard(); }catch(_e){}
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando Bling…";
+  const opts = arguments?.[0];
+  try{
+    const res = await withRetry(()=> syncBlingImpl(getSyncCtx(), opts), 3, 2000);
+    checkEstoqueCritico();
+    try{ refreshBlingAutoCard(); }catch(_e){}
+    if(barTxt) barTxt.textContent = "✓ Bling sincronizado";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Verifique as configurações do Bling";
+    if(barTxt) barTxt.textContent = "⚠ Bling: " + msg;
+    toast("⚠ Bling: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 async function syncBlingProdutos(){
-  const res = await syncBlingProdutosImpl(getSyncCtx());
-  checkEstoqueCritico();
-  try{ refreshBlingAutoCard(); }catch(_e){}
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando produtos Bling…";
+  try{
+    const res = await syncBlingProdutosImpl(getSyncCtx());
+    checkEstoqueCritico();
+    try{ refreshBlingAutoCard(); }catch(_e){}
+    if(barTxt) barTxt.textContent = "✓ Produtos sincronizados";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Erro ao sincronizar produtos";
+    if(barTxt) barTxt.textContent = "⚠ Produtos: " + msg;
+    toast("⚠ Produtos Bling: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 async function backfillBlingEnderecos(){
@@ -1455,9 +1833,23 @@ function scheduleAutoCarrinhosSync(){
 }
 
 async function syncYampi(){
-  const res = await syncYampiImpl(getSyncCtx());
-  checkEstoqueCritico();
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando Yampi…";
+  try{
+    const res = await withRetry(()=> syncYampiImpl(getSyncCtx()), 3, 2000);
+    checkEstoqueCritico();
+    if(barTxt) barTxt.textContent = "✓ Yampi sincronizado";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Verifique as configurações do Yampi";
+    if(barTxt) barTxt.textContent = "⚠ Yampi: " + msg;
+    toast("⚠ Yampi: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 function normalizeYampiOrder(o){
@@ -1528,6 +1920,9 @@ function normalizeCarrinhoAbandonado(raw){
   const lastEtapa = String(c.last_etapa_enviada || c.last_whatsapp_stage || "").trim() || null;
   const lastAtRaw = c.last_mensagem_at || c.last_whatsapp_at || null;
   const lastAt = lastAtRaw ? new Date(lastAtRaw).toISOString() : null;
+  const responsavel = String(c.responsavel || c.assigned_to || "").trim() || null;
+  const perdido = !!(c.perdido || c.lost);
+  const perdidoEm = c.perdido_em || null;
   return {
     checkout_id: checkoutId,
     cliente_nome: nome,
@@ -1542,7 +1937,10 @@ function normalizeCarrinhoAbandonado(raw){
     link_finalizacao: linkFinalizacao,
     score_recuperacao: score,
     last_etapa_enviada: lastEtapa,
-    last_mensagem_at: lastAt
+    last_mensagem_at: lastAt,
+    responsavel,
+    perdido,
+    perdido_em: perdidoEm
   };
 }
 
@@ -2287,6 +2685,7 @@ function showPage(id){
 
   if(id==='oportunidades') setTimeout(()=>safeInvokeName("renderOportunidades"),50);
   if(id==='tarefas') setTimeout(()=>safeInvokeName("renderTarefas"),50);
+  if(id==="alertas") safeInvokeName("renderAlertas");
   if(id==="producao"){ safeInvokeName("renderProdKpis"); safeInvokeName("renderInsumos"); }
   if(id==="comercial"){ safeInvokeName("renderComKpis"); safeInvokeName("renderComPedidos"); setTimeout(()=>safeInvokeName("renderChartsCom"),100); }
   if(id==="marca"){ safeInvokeName("renderMarcaKpis"); safeInvokeName("renderCalendario"); }
@@ -2306,6 +2705,17 @@ function showPage(id){
     safeInvokeName("renderProdutos");
   },50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
+  // Skeleton no dashboard enquanto dados não carregaram
+  if(id==="dashboard"){
+    const kpisEl = document.getElementById("dash-kpis");
+    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = renderDashKpiSkeletons();
+  }
+  // Skeleton na lista de clientes ao entrar na página
+  if(id==="clientes"){
+    const listEl = document.getElementById("client-list");
+    if(listEl && !listEl.querySelector(".client-card") && !listEl.querySelector(".client-card-skeleton"))
+      listEl.innerHTML = renderClienteSkeletons(7);
+  }
 
   // Close mobile sidebar
   closeMobileSidebar();
@@ -2338,6 +2748,10 @@ function closeDrawer(){
 }
 
 // Topbar search
+const handleTopbarSearchDebounced = debounce(function(q){ handleTopbarSearch(q); }, 300);
+const renderClientesDebounced = debounce(function(){ renderClientes(); }, 250);
+const renderPedidosPageDebounced = debounce(function(){ renderPedidosPage(); }, 250);
+
 function handleTopbarSearch(q){
   if(!q||q.length<2) return;
   const lower = q.toLowerCase();
@@ -3817,8 +4231,8 @@ function renderDashNow(){
       { key: "orders", label: "Pedidos", value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev), icon: "📦", iconCls: "dash-kpi-icon--amber", spark: "kpi-spark-orders" },
       { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" }
     ];
-    dashKpisEl.innerHTML = items.map(s=>`
-      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}">
+    dashKpisEl.innerHTML = items.map((s,i)=>`
+      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}" style="--i:${i}">
         <div class="dash-kpi-top">
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">${escapeHTML(s.label)}</div>
@@ -4416,6 +4830,13 @@ function renderDashSalesByDay(orders, prevOrders){
 
   const cur = buildByDay(list);
   const prev = buildByDay(prevList);
+  // Atualiza badge com total do período
+  const totalBadge = document.getElementById("dash-dia-total");
+  if(totalBadge){
+    const total = cur.values.reduce((s,v)=>s+v,0);
+    totalBadge.textContent = total > 0 ? fmtBRL(total) : "";
+    totalBadge.style.display = total > 0 ? "" : "none";
+  }
   const state = setDashCanvasState("chart-v2-dia", cur.keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
   if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
   const ctx = state.canvas.getContext("2d");
@@ -4661,7 +5082,7 @@ function renderDashChannelBreakdown(input){
   }
 
   if(!document.getElementById("chart-vendas-canal")){
-    el.innerHTML = `<div class="chart-wrap" style="height:220px"><canvas id="chart-vendas-canal"></canvas></div>`;
+    el.innerHTML = `<canvas id="chart-vendas-canal" style="max-height:200px"></canvas>`;
   }
   const canvas = document.getElementById("chart-vendas-canal");
   if(!canvas || !canvas.getContext) return;
@@ -4669,35 +5090,42 @@ function renderDashChannelBreakdown(input){
   if(!ctx) return;
   if(charts.vendasCanal){ try{ charts.vendasCanal.destroy(); }catch(_e){} charts.vendasCanal = null; }
   charts.vendasCanal = new Chart(ctx, {
-    type: "bar",
+    type: "doughnut",
     data: {
       labels: rows.map(r=>CH[r.canal] || r.canal),
       datasets: [{
         data: rows.map(r=>r.total),
         backgroundColor: rows.map(r=>CH_COLOR[r.canal] || "#0FA765"),
-        borderRadius: 6,
-        borderSkipped: false
+        borderColor: "transparent",
+        borderWidth: 0,
+        hoverOffset: 6
       }]
     },
     options: {
-      indexAxis: "y",
       responsive: true,
-      maintainAspectRatio: false,
+      maintainAspectRatio: true,
+      cutout: "68%",
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          position: "right",
+          labels: { color: "rgba(160,168,190,0.85)", font: { size: 10, weight: 600 }, boxWidth: 10, padding: 10 }
+        },
         tooltip: {
+          backgroundColor: "#0e1018",
+          borderColor: "rgba(15,167,101,.35)",
+          borderWidth: 1,
+          titleColor: "#edeef4",
+          bodyColor: "#a0a8be",
+          padding: 12,
+          cornerRadius: 10,
           callbacks: {
             label: (c)=>{
-              const idx = c.dataIndex;
-              const row = rows[idx] || {};
-              return ` ${fmtBRL(row.total || 0)} · ${Number(row.pedidos||0)} pedidos`;
+              const row = rows[c.dataIndex] || {};
+              return ` ${fmtBRL(row.total||0)} · ${Number(row.pedidos||0)} pedidos`;
             }
           }
         }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.8)", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } },
-        y: { grid: { display: false }, ticks: { color: "rgba(160, 168, 190, 0.9)", font: { size: 11, weight: 800 } } }
       }
     }
   });
@@ -5305,8 +5733,8 @@ function renderDashV2NovosClientes(series){
 }
 
 function renderDashV2Funil(rows){
-  const canvas = document.getElementById("chart-v2-funil");
-  if(!canvas || !canvas.getContext || !globalThis.Chart) return;
+  const el = document.getElementById("dash-funil-bars");
+  if(!el) return;
   const list = Array.isArray(rows) ? rows : [];
   const mapped = list.map(r=>{
     const label = String(r?.etapa || r?.stage || r?.funil || r?.label || "").trim() || "Etapa";
@@ -5315,38 +5743,24 @@ function renderDashV2Funil(rows){
     return { label, value, ord };
   });
   mapped.sort((a,b)=>a.ord-b.ord);
-  const labels = mapped.map(x=>x.label);
-  const values = mapped.map(x=>x.value);
-  const state = setDashCanvasState("chart-v2-funil", values.some(v=>Number(v||0)>0), "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
-  if(!state.shouldRender || !state.canvas) return;
-  const ctx = state.canvas.getContext("2d");
-  if(!ctx) return;
-  if(charts.v2funil) charts.v2funil.destroy();
-  charts.v2funil = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        label: "Clientes",
-        data: values,
-        backgroundColor: "rgba(164,233,107,.25)",
-        borderColor: "rgba(164,233,107,.45)",
-        borderWidth: 1,
-        borderRadius: 10,
-        borderSkipped: false
-      }]
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>String(c.parsed.x||0) + " clientes" } } },
-      scales: {
-        x: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } },
-        y: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 } } }
-      }
-    }
-  });
+  if(!mapped.length || !mapped.some(x=>x.value>0)){
+    el.innerHTML = `<div class="empty">Sem dados no período</div>`;
+    return;
+  }
+  const max = Math.max(...mapped.map(x=>x.value), 1);
+  const first = mapped[0]?.value || 1;
+  el.innerHTML = mapped.map((x,i)=>{
+    const pct = Math.round((x.value / max) * 100);
+    const conv = i === 0 ? 100 : Math.round((x.value / first) * 100);
+    const convColor = conv >= 60 ? "var(--chiva-primary)" : conv >= 30 ? "#f59e0b" : "#ef4444";
+    return `<div class="funil-bar-item">
+      <div class="funil-bar-label">
+        <span class="funil-bar-name">${escapeHTML(x.label)}</span>
+        <span class="funil-bar-val">${x.value.toLocaleString("pt-BR")} <span class="funil-bar-pct" style="color:${convColor}">${conv}%</span></span>
+      </div>
+      <div class="funil-bar-track"><div class="funil-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
 }
 
 function renderDashTopCidadesFromOrders(orders){
@@ -5640,30 +6054,42 @@ function renderChartMes(ordersOverride){
   const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   charts.mes=new Chart(ctx,{
-    type:"bar",
+    type:"line",
     data:{
       labels:sk.map(k=>{ const[y,m]=k.split("-"); return m+"/"+y.slice(2); }),
       datasets:[{
         data:sk.map(k=>bm[k]),
-        backgroundColor:"#0FA765",
-        hoverBackgroundColor:"#13c97e",
-        borderWidth:0,
-        borderRadius:4,
-        borderSkipped:false
+        tension:0.4,
+        fill:true,
+        borderColor:"#0FA765",
+        backgroundColor:(c)=>{
+          const g=c.chart.ctx.createLinearGradient(0,0,0,c.chart.height);
+          g.addColorStop(0,"rgba(15,167,101,0.28)");
+          g.addColorStop(1,"rgba(15,167,101,0)");
+          return g;
+        },
+        borderWidth:2.5,
+        pointRadius:4,
+        pointHoverRadius:7,
+        pointBackgroundColor:"#0FA765",
+        pointBorderColor:"var(--surface,#181f2e)",
+        pointBorderWidth:2
       }]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        tooltip:{backgroundColor:"#0e1018",borderColor:"#1d2235",borderWidth:1,
-          titleColor:"#edeef4",bodyColor:"#a0a8be",padding:10,
-          callbacks:{label:c=>" "+fmtBRL(c.raw)}}
+        tooltip:{
+          backgroundColor:"#0e1018",borderColor:"rgba(15,167,101,.35)",borderWidth:1,
+          titleColor:"#edeef4",bodyColor:"#a0a8be",padding:12,cornerRadius:10,
+          callbacks:{label:c=>" "+fmtBRL(c.raw)}
+        }
       },
       scales:{
-        x:{grid:{display:false},ticks:{color:"rgba(160, 168, 190, 0.8)",font:{size:9,family:"Plus Jakarta Sans"},maxRotation:0,autoSkip:true,maxTicksLimit:6}},
-        y:{grid:{display:false},
-          ticks:{color:"rgba(160, 168, 190, 0.8)",font:{size:9,family:"Plus Jakarta Sans"},callback:v=>v>=1000?(v/1000).toFixed(0)+"k":v}}
+        x:{grid:{display:false},ticks:{color:"rgba(160,168,190,0.7)",font:{size:10},maxRotation:0,maxTicksLimit:8}},
+        y:{grid:{color:"rgba(255,255,255,0.04)",drawBorder:false},
+          ticks:{color:"rgba(160,168,190,0.7)",font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+"k":v}}
       }
     }
   })
@@ -6028,7 +6454,238 @@ function appendClienteCards(html){
   else listEl.insertAdjacentHTML("beforeend", html);
 }
 
+/* ═══════════════════════════════════════════════════
+   AVATAR COM INICIAIS
+═══════════════════════════════════════════════════ */
+const AVATAR_PALETTES = [
+  { bg:"rgba(15,167,101,.18)",  color:"#4ade80" },
+  { bg:"rgba(59,130,246,.18)",  color:"#93c5fd" },
+  { bg:"rgba(245,158,11,.18)",  color:"#fcd34d" },
+  { bg:"rgba(244,63,94,.18)",   color:"#fda4af" },
+  { bg:"rgba(139,92,246,.18)",  color:"#c4b5fd" },
+  { bg:"rgba(6,182,212,.18)",   color:"#67e8f9" },
+  { bg:"rgba(234,88,12,.18)",   color:"#fb923c" },
+  { bg:"rgba(16,185,129,.18)",  color:"#6ee7b7" },
+];
+function clienteAvatar(nome){
+  const n = String(nome||"?").trim();
+  const initials = n.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join("") || "?";
+  let hash = 0;
+  for(let i=0;i<n.length;i++){ hash = ((hash<<5)-hash) + n.charCodeAt(i); hash |= 0; }
+  const palette = AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length];
+  return `<div class="cli-avatar" style="background:${palette.bg};color:${palette.color}">${escapeHTML(initials)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════
+   SKELETON LOADERS
+═══════════════════════════════════════════════════ */
+function renderClienteSkeletons(n){
+  return Array.from({length:n||6},()=>`
+    <div class="client-card-skeleton">
+      <div class="sk-row">
+        <div class="skeleton" style="width:34px;height:34px;border-radius:50%;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div class="skeleton" style="height:11px;width:52%"></div>
+          <div class="skeleton" style="height:9px;width:35%"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+          <div class="skeleton" style="height:13px;width:58px"></div>
+          <div class="skeleton" style="height:9px;width:40px"></div>
+        </div>
+      </div>
+      <div class="skeleton" style="height:9px;width:70%"></div>
+      <div class="skeleton" style="height:9px;width:45%"></div>
+    </div>`).join("");
+}
+
+function renderDashKpiSkeletons(){
+  return Array.from({length:3},()=>`
+    <div class="dash-kpi-skeleton">
+      <div class="skeleton" style="height:10px;width:40%"></div>
+      <div class="skeleton" style="height:22px;width:65%;margin-top:2px"></div>
+      <div class="skeleton" style="height:9px;width:30%"></div>
+    </div>`).join("");
+}
+
+/* ═══════════════════════════════════════════════════
+   FILTROS SALVOS
+═══════════════════════════════════════════════════ */
+function getSavedFilterState(){
+  return {
+    q: document.getElementById("search-cli")?.value || "",
+    statusFil: document.getElementById("fil-cli-status")?.value || "",
+    segFil: document.getElementById("fil-cli-seg")?.value || "",
+    canalFil: document.getElementById("fil-cli-canal")?.value || "",
+    uf: document.getElementById("fil-estado")?.value || "",
+    ch: activeCh,
+  };
+}
+
+function saveCurrentFilter(){
+  const state = getSavedFilterState();
+  const isEmpty = !state.q && !state.statusFil && !state.segFil && !state.canalFil && !state.uf && state.ch === "all";
+  if(isEmpty){ toast("Nenhum filtro ativo para salvar.", "warning"); return; }
+  const nome = window.prompt("Nome do filtro salvo:");
+  if(!nome || !nome.trim()) return;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+  savedFilters.push({ id, nome: nome.trim(), criado_em: new Date().toISOString().slice(0,10), filtros: state });
+  safeSetItem("crm_filtros_salvos", JSON.stringify(savedFilters));
+  renderSavedFilterChips();
+  toast(`Filtro "${nome.trim()}" salvo!`, "success");
+}
+
+function applyFilter(id){
+  const f = savedFilters.find(f=>f.id===id);
+  if(!f) return;
+  const { q, statusFil, segFil, canalFil, uf, ch } = f.filtros;
+  const sv = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = val||""; };
+  sv("search-cli", q);
+  sv("fil-cli-status", statusFil);
+  sv("fil-cli-seg", segFil);
+  sv("fil-cli-canal", canalFil);
+  sv("fil-estado", uf);
+  activeCh = ch || "all";
+  clearSelection();
+  renderClientes();
+}
+
+function deleteSavedFilter(id){
+  savedFilters = savedFilters.filter(f=>f.id!==id);
+  safeSetItem("crm_filtros_salvos", JSON.stringify(savedFilters));
+  renderSavedFilterChips();
+}
+
+function renderSavedFilterChips(){
+  const row = document.getElementById("saved-filter-row");
+  const container = document.getElementById("saved-filter-chips");
+  if(!row || !container) return;
+  if(!savedFilters.length){ row.classList.remove("visible"); return; }
+  row.classList.add("visible");
+  container.innerHTML = savedFilters.map(f=>`
+    <div class="saved-filter-chip" onclick="applyFilter('${escapeJsSingleQuote(f.id)}')" title="${escapeHTML(f.criado_em||"")}">
+      <span>${escapeHTML(f.nome)}</span>
+      <button class="saved-filter-chip-del" onclick="event.stopPropagation();deleteSavedFilter('${escapeJsSingleQuote(f.id)}')" title="Remover filtro">×</button>
+    </div>
+  `).join("");
+}
+
+/* ═══════════════════════════════════════════════════
+   AÇÕES EM LOTE
+═══════════════════════════════════════════════════ */
+function toggleClienteSelection(id, checked){
+  const cid = String(id||"");
+  if(checked) selectedClientes.add(cid);
+  else selectedClientes.delete(cid);
+  const card = document.getElementById("cli-sel-"+cid);
+  if(card) card.classList.toggle("selected", checked);
+  renderBulkActionBar();
+  updateSelectAllCheckbox();
+}
+
+function toggleSelectAll(checked){
+  document.querySelectorAll(".cli-check").forEach(cb=>{
+    cb.checked = checked;
+    const cid = String(cb.dataset.id||"");
+    if(checked) selectedClientes.add(cid);
+    else selectedClientes.delete(cid);
+    const card = document.getElementById("cli-sel-"+cid);
+    if(card) card.classList.toggle("selected", checked);
+  });
+  renderBulkActionBar();
+}
+
+function updateSelectAllCheckbox(){
+  const cbs = document.querySelectorAll(".cli-check");
+  const sa = document.getElementById("select-all-cli");
+  if(!sa || !cbs.length) return;
+  const checkedCount = Array.from(cbs).filter(cb=>cb.checked).length;
+  sa.checked = checkedCount === cbs.length;
+  sa.indeterminate = checkedCount > 0 && checkedCount < cbs.length;
+}
+
+function clearSelection(){
+  selectedClientes.clear();
+  document.querySelectorAll(".cli-check").forEach(cb=>{ cb.checked=false; });
+  document.querySelectorAll(".client-card.selected").forEach(el=>el.classList.remove("selected"));
+  const sa = document.getElementById("select-all-cli");
+  if(sa){ sa.checked=false; sa.indeterminate=false; }
+  renderBulkActionBar();
+}
+
+function renderBulkActionBar(){
+  const bar = document.getElementById("bulk-action-bar");
+  const countEl = document.getElementById("bulk-count");
+  const selCountEl = document.getElementById("cli-selected-count");
+  const selectAllRow = document.getElementById("cli-select-all-row");
+  const n = selectedClientes.size;
+  if(bar){ if(n>0){ bar.classList.add("visible"); } else { bar.classList.remove("visible"); } }
+  if(countEl) countEl.textContent = `${n} selecionado${n!==1?"s":""}`;
+  if(selCountEl) selCountEl.textContent = n>0 ? `(${n} selecionado${n!==1?"s":""})` : "";
+  if(selectAllRow) selectAllRow.style.display = clientesIntelCache.length > 0 ? "" : "none";
+  // Adiciona classe cli-selecting no container para mostrar checkboxes
+  const listEl = document.getElementById("client-list");
+  if(listEl) listEl.classList.toggle("cli-selecting", n>0);
+}
+
+function bulkExportCSV(){
+  const selected = clientesIntelCache.filter(c=>selectedClientes.has(String(c.cliente_id||c.id||"")));
+  if(!selected.length){ toast("Nenhum cliente selecionado.", "warning"); return; }
+  const cols = ["Nome","E-mail","Telefone","Canal","Status","UF","Cidade","LTV","Risco Churn","Dias sem comprar"];
+  const rows = selected.map(c=>[
+    c.nome, c.email, c.telefone||c.celular, c.canal_principal, c.status, c.uf, c.cidade,
+    (Number(c.ltv||c.total_gasto||0)).toFixed(2),
+    c.risco_churn, c.dias_desde_ultima_compra
+  ].map(v=>`"${String(v||"").replace(/"/g,'""')}"`).join(","));
+  const csv = [cols.join(","), ...rows].join("\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download=`clientes_selecionados_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast(`${selected.length} cliente${selected.length!==1?"s":""} exportado${selected.length!==1?"s":""}!`, "success");
+  clearSelection();
+}
+
+function bulkCopyWhatsApp(){
+  const selected = clientesIntelCache.filter(c=>selectedClientes.has(String(c.cliente_id||c.id||"")));
+  const numbers = selected.map(c=>String(c.celular||c.telefone||"").replace(/\D/g,"")).filter(Boolean);
+  if(!numbers.length){ toast("Nenhum número encontrado nos selecionados.", "warning"); return; }
+  const txt = numbers.join("\n");
+  const msg = `${numbers.length} número${numbers.length!==1?"s":""} copiado${numbers.length!==1?"s":""}!`;
+  if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(()=>toast(msg,"success")).catch(()=>{ fallbackCopy(txt); toast(msg,"success"); }); }
+  else { fallbackCopy(txt); toast(msg,"success"); }
+  clearSelection();
+}
+
+function fallbackCopy(text){
+  const ta = document.createElement("textarea");
+  ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+}
+
+function bulkMarkContacted(){
+  const n = selectedClientes.size;
+  if(!n){ toast("Nenhum cliente selecionado.", "warning"); return; }
+  // Persiste interação do tipo "contato" para cada cliente selecionado
+  if(!supaClient){ toast("Sem conexão com Supabase.", "error"); return; }
+  const ids = Array.from(selectedClientes);
+  const now = new Date().toISOString();
+  const rows = ids.map(id=>({
+    customer_id: id,
+    type: "contato",
+    description: "Contato registrado em lote via CRM",
+    source: "crm_bulk",
+    created_at: now,
+  }));
+  supaClient.from("interactions").insert(rows).then(({error})=>{
+    if(error){ toast("Erro ao registrar contatos.", "error"); return; }
+    toast(`${n} cliente${n!==1?"s":""} marcado${n!==1?"s":""} como contatado${n!==1?"s":""}!`, "success");
+    clearSelection();
+  }).catch(e=>{ captureError(e,{context:"bulkMarkContacted"}); toast("Erro ao registrar contatos.","error"); });
+}
+
 function renderClientes(){
+  renderSavedFilterChips();
   const usingViews = !!(supaConnected && supaClient);
   const q=(document.getElementById("search-cli")?.value||"").toLowerCase();
   const statusFil=document.getElementById("fil-cli-status")?.value||"";
@@ -6036,12 +6693,14 @@ function renderClientes(){
   const canalFil=document.getElementById("fil-cli-canal")?.value||"";
   const uf=document.getElementById("fil-estado")?.value||"";
   const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === "all";
+  // Limpa seleção sempre que os filtros são reaplicados
+  if(selectedClientes.size) clearSelection();
 
   if(usingViews){
     if(!clientesIntelCache.length){
       loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(()=>{});
-      document.getElementById("cli-label").textContent = "Carregando…";
-      document.getElementById("client-list").innerHTML = `<div class="empty">Carregando inteligência de clientes…</div>`;
+      document.getElementById("cli-label").textContent = "";
+      document.getElementById("client-list").innerHTML = renderClienteSkeletons(7);
       document.getElementById("ch-pills-cli").innerHTML = "";
       return;
     }
@@ -6120,7 +6779,7 @@ function renderClientes(){
       }
       const next = rows.slice(clientesIntelDomCount);
       if(next.length){
-        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i))).join("");
+        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i),i)).join("");
         appendClienteCards(html);
         clientesIntelDomCount += next.length;
       }
@@ -6129,7 +6788,7 @@ function renderClientes(){
       clientesIntelDomMode = "filtered";
       clientesIntelDomCount = 0;
       if(rows.length){
-        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i,i)).join("");
       }else{
         const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
         const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
@@ -6169,7 +6828,7 @@ function renderClientes(){
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
 }
 
-function renderCliIntelCard(c, eid){
+function renderCliIntelCard(c, eid, idx){
   const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
   const nome = String(c?.nome || "Cliente").trim();
   const canal = String(c?.canal_principal || "outros").toLowerCase().trim() || "outros";
@@ -6214,8 +6873,16 @@ function renderCliIntelCard(c, eid){
   if(churn) line3Parts.push(`Risco ${Number(churn||0).toFixed(0)}`);
   const line3 = line3Parts.join(" · ");
 
-  return `<div class="client-card" id="${eid}">
-    <div class="client-head" onclick="openClientePage('${id}')">
+  const cardId = "cli-sel-"+id;
+  const iStyle = idx != null ? ` style="--i:${Math.min(idx,20)}"` : "";
+  const avatar = clienteAvatar(nome);
+  return `<div class="client-card" id="${eid}" data-cid="${escapeHTML(id)}"${iStyle}>
+    <div class="cli-check-wrap" onclick="event.stopPropagation()">
+      <input type="checkbox" class="cli-check" id="${cardId}" data-id="${escapeHTML(id)}"
+        onchange="toggleClienteSelection('${escapeJsSingleQuote(id)}', this.checked)"/>
+    </div>
+    <div class="client-head" onclick="openClientePage('${id}')" style="padding-left:28px;grid-template-columns:auto 1fr auto;gap:10px">
+      ${avatar}
       <div>
         <div class="client-name-row" style="align-items:flex-start">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
@@ -9122,9 +9789,77 @@ function renderAlertas(){
 }
 
 // ═══════════════════════════════════════════════════
+//  EXPORT CSV
+// ═══════════════════════════════════════════════════
+function csvEscape(v){
+  const s = String(v ?? "").replace(/"/g, '""');
+  return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s}"` : s;
+}
+
+function downloadCSV(filename, rows){
+  const blob = new Blob(["\uFEFF" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportClientesCSV(){
+  const source = clientesIntelCache.length ? clientesIntelCache : Object.values(buildCli(allOrders));
+  if(!source.length){ toast("Nenhum cliente para exportar", "warning"); return; }
+  const header = ["Nome","E-mail","Telefone","Documento","Canal","Status","Segmento","UF","Cidade","LTV (R$)","Total Pedidos","Dias desde última compra","Score Recompra","Risco Churn","Próxima Ação"];
+  const rows = source.map(c => [
+    c.nome || "",
+    c.email || "",
+    c.telefone || c.celular || "",
+    c.doc || "",
+    c.canal_principal || "",
+    c.status || "",
+    c.segmento_crm || "",
+    c.uf || "",
+    c.cidade || "",
+    (c.ltv ?? c.total_gasto ?? c.orders?.reduce((s,o)=>s+val(o),0) ?? 0).toFixed(2),
+    c.total_pedidos ?? c.orders?.length ?? 0,
+    c.dias_desde_ultima_compra ?? "",
+    c.score_recompra ?? "",
+    c.risco_churn ?? "",
+    c.next_best_action || ""
+  ]);
+  const today = new Date().toISOString().slice(0,10);
+  downloadCSV(`clientes-chivafit-${today}.csv`, [header, ...rows]);
+  toast(`✓ ${source.length} clientes exportados`, "success");
+}
+
+function exportPedidosCSV(){
+  const orders = [...allOrders].sort((a,b) => String(b.data||"").localeCompare(String(a.data||"")));
+  if(!orders.length){ toast("Nenhum pedido para exportar", "warning"); return; }
+  const header = ["Número","Data","Canal","Cliente","E-mail","Telefone","Status","Total (R$)"];
+  const rows = orders.map(o => [
+    o.numero || o.numero_pedido || o.id || "",
+    (o.data || "").slice(0,10),
+    o._source || o._canal || detectCh(o) || "",
+    o.contato?.nome || "",
+    o.contato?.email || "",
+    o.contato?.telefone || "",
+    o.situacao?.nome || o.status || "",
+    val(o).toFixed(2)
+  ]);
+  const today = new Date().toISOString().slice(0,10);
+  downloadCSV(`pedidos-chivafit-${today}.csv`, [header, ...rows]);
+  toast(`✓ ${orders.length} pedidos exportados`, "success");
+}
+
+// ═══════════════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════════════
-function toast(m){ const e=document.getElementById("toast"); e.textContent=m; e.classList.add("show"); setTimeout(()=>e.classList.remove("show"),2500); }
+function toast(m, type){
+  const e = document.getElementById("toast");
+  if(!e) return;
+  e.textContent = m;
+  e.className = "show" + (type === "error" ? " toast-error" : type === "success" ? " toast-success" : type === "warning" ? " toast-warning" : "");
+  clearTimeout(e._toastTimer);
+  e._toastTimer = setTimeout(() => e.classList.remove("show"), type === "error" ? 5000 : 2500);
+}
 const PENDING_OPS_KEY = "crm_pending_ops_v1";
 let pendingOpsTimer = null;
 
@@ -10019,6 +10754,10 @@ async function loadClientesInteligenciaCache(forceReset=false){
     clientesIntelHasMore = hasMore;
     clientesIntelLoadedAt = Date.now();
     updateClientesIntelFiltersOptions();
+    // Avisar se atingiu o limite da página (dados podem estar incompletos)
+    if(!hasMore && clientesIntelCache.length > 0 && clientesIntelCache.length % pageSize === 0){
+      console.warn(`[Clientes] Total carregado (${clientesIntelCache.length}) é múltiplo exato do pageSize — pode haver mais registros.`);
+    }
   }catch(_e){}finally{
     clientesIntelInFlight = false;
   }
@@ -11137,104 +11876,329 @@ function renderCampanhas(){
   }).join('');
 }
 
+/* ═══════════════════════════════════════════════════
+   CARRINHO ABANDONADO — FUNIL, PIPELINE & LOTE
+═══════════════════════════════════════════════════ */
+
+function renderCarrinhosKpis(list){
+  const el = document.getElementById("carrinhos-kpis");
+  if(!el) return;
+  const agora = Date.now();
+  const abertos = list.filter(c=>!c.recuperado && !c.perdido);
+  const quentes = abertos.filter(c=>{ const m = c.tempo_min; return m != null && m < 120; });
+  const recuperados = list.filter(c=>c.recuperado);
+  const valorRisco = abertos.reduce((s,c)=>s+Number(c.valor||0),0);
+  const valorRec   = recuperados.reduce((s,c)=>s+Number(c.valor||0),0);
+  const pctRec     = list.length ? Math.round(recuperados.length/list.length*100) : 0;
+  const ticketMed  = abertos.length ? valorRisco/abertos.length : 0;
+  el.innerHTML = [
+    {icon:"💰", value:fmtBRL(valorRisco), label:"Valor em risco", sub:`${abertos.length} carrinho${abertos.length!==1?"s":""} aberto${abertos.length!==1?"s":""}`, cls:"", i:0},
+    {icon:"🔥", value:String(quentes.length), label:"Quentes (< 2h)", sub:"Janela de maior conversão", cls:" hot", i:1},
+    {icon:"✅", value:`${pctRec}%`, label:"Taxa de recuperação", sub:fmtBRL(valorRec)+" recuperado", cls:" green", i:2},
+    {icon:"🎯", value:fmtBRL(ticketMed), label:"Ticket médio", sub:"Média dos carrinhos abertos", cls:"", i:3},
+  ].map(k=>`
+    <div class="car-kpi-card${k.cls}" style="--i:${k.i}">
+      <div class="car-kpi-icon">${k.icon}</div>
+      <div class="car-kpi-value">${escapeHTML(k.value)}</div>
+      <div class="car-kpi-label">${escapeHTML(k.label)}</div>
+      <div class="car-kpi-sub">${escapeHTML(k.sub)}</div>
+    </div>`).join("");
+}
+
+function pipelineBadge(c){
+  if(c.recuperado) return `<span class="pipe-badge pipe-recuperado">✓ Recuperado</span>`;
+  if(c.perdido)    return `<span class="pipe-badge pipe-perdido">✗ Perdido</span>`;
+  const etapa = String(c.last_etapa_enviada||"").trim();
+  if(etapa && etapa !== "aguardar") return `<span class="pipe-badge pipe-contatado">💬 Contatado</span>`;
+  return `<span class="pipe-badge pipe-novo">Novo</span>`;
+}
+
+function buildRespSelect(safeId, currentResp){
+  const users = (typeof loadAccessUsers==="function") ? loadAccessUsers() : [];
+  const cur = String(currentResp||"");
+  let opts = '<option value="">'+(cur?'–':'Atribuir')+'</option>';
+  users.forEach(function(u){
+    const val = String(u.email||"");
+    const label = val.split("@")[0]||val;
+    opts += '<option value="'+escapeHTML(val)+'"'+(val===cur?' selected':'')+'>'+escapeHTML(label)+'</option>';
+  });
+  // Se responsável atual não está nos usuários cadastrados
+  if(cur && !users.find(function(u){ return String(u.email||"")===cur; })){
+    opts += '<option value="'+escapeHTML(cur)+'" selected>'+escapeHTML(cur)+'</option>';
+  }
+  return '<select class="car-resp-select" onchange="atribuirResponsavelCarrinho(\''+safeId+'\',this.value)">'+opts+'</select>';
+}
+
+function marcarCarrinhoPerdido(checkoutId){
+  const cid = String(checkoutId||"");
+  const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+  if(idx<0){ toast("Carrinho não encontrado.","error"); return; }
+  carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), { perdido: true, perdido_em: new Date().toISOString() });
+  safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
+  toast("Carrinho marcado como perdido.", "success");
+  renderCarrinhosAbandonados();
+}
+
+function toggleCarrinhoSelection(id, checked){
+  const cid = String(id||"");
+  if(checked) selectedCarrinhos.add(cid); else selectedCarrinhos.delete(cid);
+  const n = selectedCarrinhos.size;
+  const btn = document.getElementById("car-lote-btn");
+  const count = document.getElementById("car-lote-count");
+  if(btn){ btn.style.display = n>0 ? "" : "none"; }
+  if(count) count.textContent = String(n);
+}
+
+// D — Modal WA com templates específicos para carrinho
+function openWaModalCarrinho(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c){ toast("⚠ Carrinho não encontrado"); return; }
+  const digits = rawPhone(c.telefone||"");
+  if(!digits){ toast("⚠ Carrinho sem telefone"); return; }
+
+  const lookup = buildClienteLookupParaCarrinhos();
+  const calc   = calcularScoreRecuperacaoCarrinho(c, lookup);
+  const etapa  = sugerirEtapaParaCarrinho(c, calc.mins);
+  const prio   = prioridadePorScore(c.score_recuperacao == null ? calc.score : c.score_recuperacao);
+
+  const nome = String(c.cliente_nome||"").trim() || "cliente";
+  const itens = Array.isArray(c.produtos) ? c.produtos : [];
+  const prodTxt = itens.slice(0,3).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join(", ");
+  const valorTxt = Number(c.valor||0) ? fmtBRL(Number(c.valor||0)) : "";
+  const link = c.link_finalizacao ? String(c.link_finalizacao) : "";
+
+  const tpls = [
+    {
+      titulo: "🆘 Ajuda (10-120 min)",
+      texto: [`Oi ${nome}!`, "Vi que você estava finalizando seu pedido e ele ficou pendente.", prodTxt ? `Carrinho: ${prodTxt}` : "", "Quer que eu te ajude a concluir por aqui? 😊"].filter(Boolean).join(" "),
+    },
+    {
+      titulo: "🔗 Link de recuperação (2-24h)",
+      texto: [`Oi ${nome}!`, "Passando pra te ajudar a finalizar seu pedido.", prodTxt ? `Itens: ${prodTxt}` : "", valorTxt ? `Total: ${valorTxt}` : "", link ? `Link pra finalizar: ${link}` : "Posso te mandar o link pra finalizar rapidinho 👇"].filter(Boolean).join(" "),
+    },
+    {
+      titulo: "🎁 Incentivo leve (24-72h)",
+      texto: [`Oi ${nome}!`, "Só passando pra lembrar do seu carrinho que ficou por aqui.", prodTxt ? `${prodTxt}` : "", valorTxt ? `Total: ${valorTxt}` : "", prio.id==="alta" ? "Se precisar de ajuda pra fechar, me fala 🙂" : "Se fizer sentido pra você, consigo verificar o que posso fazer!", link ? `Link: ${link}` : ""].filter(Boolean).join(" "),
+    },
+  ];
+
+  const recIdx = etapa.id==="ajuda" ? 0 : etapa.id==="link" ? 1 : etapa.id==="incentivo" ? 2 : 0;
+
+  // Reutiliza o modal WA existente, injetando templates de carrinho
+  const phone = digits.startsWith("55") ? digits : "55"+digits;
+  waPhone = phone;
+  waName  = nome;
+  waCustomerId = null; // não é cliente cadastrado, é carrinho
+
+  const modalEl = document.getElementById("wa-modal");
+  const nameEl  = document.getElementById("wa-modal-name");
+  const tplsEl  = document.getElementById("wa-templates");
+  const customEl= document.getElementById("wa-custom");
+  if(!modalEl || !tplsEl || !customEl) return;
+
+  if(nameEl) nameEl.textContent = `${nome}${valorTxt ? " · "+valorTxt : ""}${prodTxt ? " · "+prodTxt : ""}`;
+
+  tplsEl.innerHTML = tpls.map((t,i)=>`
+    <div class="wa-tpl${i===recIdx?" selected":""}" onclick="selectTpl(${i})" style="cursor:pointer">
+      <strong style="font-size:10px;display:block;margin-bottom:4px;opacity:.6">${escapeHTML(t.titulo)}</strong>
+      ${escapeHTML(t.texto)}
+    </div>`).join("");
+
+  customEl.value = tpls[recIdx].texto;
+  modalEl.classList.add("open");
+
+  // Após envio registrar etapa no carrinho
+  const origSendWa = window.sendWa;
+  window.sendWa = function(){
+    origSendWa && origSendWa();
+    // Registrar etapa enviada
+    const etapaId = ["ajuda","link","incentivo"][recIdx] || "ajuda";
+    const nowIso = new Date().toISOString();
+    const idx2 = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+    if(idx2>=0){
+      carrinhosAbandonados[idx2] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx2]), { last_etapa_enviada: etapaId, last_mensagem_at: nowIso });
+      safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+      if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx2]]).catch(()=>{});
+      if(typeof window.renderCarrinhosAbandonados==="function") window.renderCarrinhosAbandonados();
+    }
+    window.sendWa = origSendWa; // restore
+  };
+}
+
+// E — Lote personalizado
+function openCarrinhoBatchWa(){
+  const modal = document.getElementById("car-batch-modal");
+  const listEl = document.getElementById("car-batch-list");
+  if(!modal || !listEl) return;
+  const selected = (carrinhosAbandonados||[]).filter(c=>selectedCarrinhos.has(String(c.checkout_id||"")));
+  if(!selected.length){ toast("Nenhum carrinho selecionado.","warning"); return; }
+
+  const lookup = buildClienteLookupParaCarrinhos();
+  listEl.innerHTML = selected.map(raw=>{
+    const c = normalizeCarrinhoAbandonado(raw);
+    const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+    const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+    const prio  = prioridadePorScore(c.score_recuperacao == null ? calc.score : c.score_recuperacao);
+    const msg   = buildCarrinhoWaMessage(c, {etapa, prioridade: prio});
+    const phone = rawPhone(c.telefone||"");
+    const safeId = escapeJsSingleQuote(String(c.checkout_id||""));
+    return `<div class="car-batch-item" id="cbi-${escapeHTML(String(c.checkout_id||""))}">
+      <div class="car-batch-header">
+        <div>
+          <div class="car-batch-name">${escapeHTML(c.cliente_nome||"—")}</div>
+          <div class="car-batch-meta">${phone ? "📱 "+escapeHTML(fmtPhone(phone)) : "sem telefone"} · ${escapeHTML(fmtBRL(c.valor||0))} · ${escapeHTML(etapa.label||"—")}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="opp-mini-btn" onclick="batchCopyOne('${safeId}')">📋 Copiar</button>
+          ${phone ? `<button class="opp-mini-btn" onclick="batchOpenWa('${safeId}')">↗ WA</button>` : ""}
+        </div>
+      </div>
+      <textarea class="car-batch-msg" id="cbmsg-${escapeHTML(String(c.checkout_id||""))}">${escapeHTML(msg)}</textarea>
+    </div>`;
+  }).join("");
+
+  modal.style.display = "";
+}
+
+function closeCarrinhoBatchModal(){
+  const modal = document.getElementById("car-batch-modal");
+  if(modal) modal.style.display = "none";
+}
+
+function batchCopyOne(checkoutId){
+  const ta = document.getElementById("cbmsg-"+checkoutId);
+  if(!ta) return;
+  const txt = ta.value;
+  if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(()=>toast("Mensagem copiada!","success")).catch(()=>{ fallbackCopy(txt); toast("Mensagem copiada!","success"); }); }
+  else { fallbackCopy(txt); toast("Mensagem copiada!","success"); }
+}
+
+function batchOpenWa(checkoutId){
+  const cid = String(checkoutId||"");
+  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);
+  if(!c) return;
+  const digits = rawPhone(c.telefone||"");
+  if(!digits){ toast("⚠ Sem telefone","warning"); return; }
+  const ta = document.getElementById("cbmsg-"+cid);
+  const msg = ta ? ta.value : buildCarrinhoWaMessage(c,{});
+  const phone = digits.startsWith("55") ? digits : "55"+digits;
+  window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(msg),"_blank");
+}
+
+function batchCopyAllCarrinhos(){
+  const items = document.querySelectorAll(".car-batch-msg");
+  if(!items.length){ toast("Nenhuma mensagem para copiar.","warning"); return; }
+  const all = Array.from(items).map(ta=>ta.value).join("\n\n---\n\n");
+  if(navigator.clipboard){ navigator.clipboard.writeText(all).then(()=>toast(`${items.length} mensagens copiadas!`,"success")).catch(()=>{ fallbackCopy(all); toast(`${items.length} mensagens copiadas!`,"success"); }); }
+  else { fallbackCopy(all); toast(`${items.length} mensagens copiadas!`,"success"); }
+}
+
 function renderCarrinhosAbandonados(){
   var el=document.getElementById('carrinhos-list'); if(!el) return;
-  try{
-    carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || [];
-  }catch(_e){}
-  var q=String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
-  var st=String((document.getElementById('car-status')||{}).value||'');
-
+  try{ carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || []; }catch(_e){}
+  var q    = String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
+  var st   = String((document.getElementById('car-status')||{}).value||'');
+  var resp = String((document.getElementById('car-responsavel')||{}).value||'');
   var lookup = buildClienteLookupParaCarrinhos();
-  var list=[].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){
-    if(!c.checkout_id) return false;
-    if(st==='abertos' && c.recuperado) return false;
-    if(st==='recuperados' && !c.recuperado) return false;
-    if(q){
-      var hit = String(c.cliente_nome||'').toLowerCase().includes(q) ||
-        String(c.email||'').toLowerCase().includes(q) ||
-        rawPhone(c.telefone||'').includes(rawPhone(q));
-      if(!hit) return false;
-    }
-    return true;
-  }).map(function(c){
+  // H — popular select de responsáveis
+  try{ populateCarRespFilter(); }catch(_){}
+
+  // Enriquecer todos para KPIs (antes do filtro)
+  var enriched = [].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){ return !!c.checkout_id; }).map(function(c){
     var calc = calcularScoreRecuperacaoCarrinho(c, lookup);
     var score = c.score_recuperacao == null ? calc.score : (Number(c.score_recuperacao||0)||0);
     var mins = calc.mins;
-    var tempo = fmtTempoDesde(mins);
     var etapa = sugerirEtapaParaCarrinho(c, mins);
-    var prioridade = prioridadePorScore(score);
+    var prio  = prioridadePorScore(score);
     var lastMins = minutosDesdeIso(c.last_mensagem_at);
-    var lastLabel = lastMins == null ? "" : fmtTempoDesde(lastMins);
-    return Object.assign({}, c, {score_calc: score, tempo_min: mins, tempo_label: tempo, etapa_id: etapa.id, etapa_label: etapa.label, prioridade_id: prioridade.id, prioridade_label: prioridade.label, cli_status: calc.cli ? calc.cli.status : "", last_tempo_label: lastLabel});
-  }).sort(function(a,b){
-    if(a.recuperado !== b.recuperado) return a.recuperado ? 1 : -1;
-    if((b.score_calc||0) !== (a.score_calc||0)) return (b.score_calc||0) - (a.score_calc||0);
-    return new Date(b.criado_em||0) - new Date(a.criado_em||0);
+    return Object.assign({}, c, {score_calc:score, tempo_min:mins, tempo_label:fmtTempoDesde(mins), etapa_id:etapa.id, etapa_label:etapa.label, prioridade_id:prio.id, prioridade_label:prio.label, last_tempo_label: lastMins==null?"":fmtTempoDesde(lastMins)});
   });
 
-  if(!list.length){
-    el.innerHTML='<div class="empty" style="padding:40px 0">Nenhum carrinho encontrado.</div>';
-    return;
-  }
+  renderCarrinhosKpis(enriched);
+  // G — atualiza funil se visível
+  try{ renderCarrinhosFunil(enriched); }catch(_){}
 
-  el.innerHTML =
-    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
-      '<table class="chiva-table">'+
-        '<thead><tr>'+
-          '<th>Tempo</th>'+
-          '<th>Cliente</th>'+
-          '<th>Prioridade</th>'+
-          '<th style="text-align:right">Score</th>'+
-          '<th style="text-align:right">Valor</th>'+
-          '<th>Mensagem</th>'+
-          '<th></th>'+
-        '</tr></thead>'+
-        '<tbody>'+
-          list.map(function(c){
-            var safeId = escapeJsSingleQuote(String(c.checkout_id||''));
-            var name = escapeHTML(c.cliente_nome||'—');
-            var contato = [c.telefone?fmtPhone(c.telefone):'', c.email?escapeHTML(c.email):''].filter(Boolean).join(' · ') || '—';
-            var dt = c.tempo_label || '—';
-            var prioridadeLabel = c.prioridade_label || '—';
-            var prioridadeIcon = c.prioridade_id==='alta' ? '🔥' : (c.prioridade_id==='media' ? '⚡' : '🧊');
-            var prioridadeTxt = prioridadeIcon+' '+prioridadeLabel;
-            var scoreTxt = String(Math.round(c.score_calc||0));
-            var msgLabel = c.recuperado ? '—' : (c.etapa_label || '—');
-            var lastStageLabel = (function(id){
-              if(id==='ajuda') return 'Ajuda';
-              if(id==='link') return 'Link';
-              if(id==='incentivo') return 'Incentivo';
-              return id || '';
-            })(String(c.last_etapa_enviada||''));
-            var lastInfo = (!c.recuperado && c.last_etapa_enviada) ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(lastStageLabel)+(c.last_tempo_label?(' · '+escapeHTML(c.last_tempo_label)):'')+'</div>') : '';
-            var btnLabel = (function(id){
-              if(id==='ajuda') return 'WhatsApp (ajuda)';
-              if(id==='link') return 'WhatsApp (link)';
-              if(id==='incentivo') return 'WhatsApp (24h)';
-              if(id==='aguardar') return 'WhatsApp';
-              return 'WhatsApp';
-            })(String(c.etapa_id||''));
-            var btn = c.recuperado ? '' : ('<button class="opp-mini-btn" onclick="openWhatsAppCarrinho(\''+safeId+'\')">'+escapeHTML(btnLabel)+'</button> ');
-            var itens = Array.isArray(c.produtos) ? c.produtos : [];
-            var resumo = itens.slice(0,3).map(function(it){ return String(it?.nome||it?.title||it?.descricao||it?.name||'').trim(); }).filter(Boolean).join(', ');
-            var subtitle = resumo ? ('<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>') : '';
-            return '<tr>'+
-              '<td class="chiva-table-mono">'+escapeHTML(dt)+'</td>'+
-              '<td><div style="font-weight:800;color:var(--text)">'+name+'</div>'+subtitle+'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(contato)+'</div></td>'+
-              '<td>'+escapeHTML(prioridadeTxt)+'</td>'+
-              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(scoreTxt)+'</td>'+
-              '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
-              '<td>'+escapeHTML(msgLabel)+lastInfo+'</td>'+
-              '<td style="text-align:right;white-space:nowrap">'+
-                btn+
-                '<button class="opp-mini-btn" onclick="copyCarrinhoId(\''+safeId+'\')">Copiar ID</button>'+
-              '</td>'+
-            '</tr>';
-          }).join('')+
-        '</tbody>'+
-      '</table>'+
-    '</div>';
+  var list = enriched.filter(function(c){
+    if(st==='abertos'    && (c.recuperado||c.perdido)) return false;
+    if(st==='recuperados' && !c.recuperado) return false;
+    if(st==='perdidos'   && !c.perdido) return false;
+    if(st==='quentes'    && (c.recuperado||c.perdido||(c.tempo_min==null||c.tempo_min>=120))) return false;
+    if(resp && (c.responsavel||'')!==resp) return false;
+    if(q){
+      var hit = String(c.cliente_nome||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q)||rawPhone(c.telefone||'').includes(rawPhone(q));
+      if(!hit) return false;
+    }
+    return true;
+  }).sort(function(a,b){
+    if(a.recuperado!==b.recuperado) return a.recuperado?1:-1;
+    if(a.perdido!==b.perdido) return a.perdido?1:-1;
+    if((b.score_calc||0)!==(a.score_calc||0)) return (b.score_calc||0)-(a.score_calc||0);
+    return new Date(b.criado_em||0)-new Date(a.criado_em||0);
+  });
+
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:40px 0">Nenhum carrinho encontrado.</div>'; return; }
+
+  el.innerHTML='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px">'+
+    '<table class="chiva-table">'+
+      '<thead><tr>'+
+        '<th style="width:28px"><input type="checkbox" class="car-check" id="car-select-all" title="Selecionar todos" onchange="toggleAllCarrinhos(this.checked)"/></th>'+
+        '<th>Tempo</th>'+
+        '<th>Cliente</th>'+
+        '<th>Pipeline</th>'+
+        '<th style="text-align:right">Score</th>'+
+        '<th style="text-align:right">Valor</th>'+
+        '<th>Próxima ação</th>'+
+        '<th>Responsável</th>'+
+        '<th></th>'+
+      '</tr></thead>'+
+      '<tbody>'+
+        list.map(function(c){
+          var safeId = escapeJsSingleQuote(String(c.checkout_id||''));
+          var name   = escapeHTML(c.cliente_nome||'—');
+          var contato= [c.telefone?escapeHTML(fmtPhone(c.telefone)):'', c.email?escapeHTML(c.email):''].filter(Boolean).join(' · ')||'—';
+          var itens  = Array.isArray(c.produtos)?c.produtos:[];
+          var resumo = itens.slice(0,2).map(function(it){ return String(it?.nome||it?.title||it?.descricao||it?.name||'').trim(); }).filter(Boolean).join(', ');
+          var subtitle = resumo?'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+escapeHTML(resumo)+'</div>':'';
+          var lastInfo = (!c.recuperado&&!c.perdido&&c.last_etapa_enviada)?('<div style="font-size:10px;color:var(--text-3);margin-top:2px">Última: '+escapeHTML(c.last_etapa_enviada)+(c.last_tempo_label?' · '+escapeHTML(c.last_tempo_label):'')+'</div>'):'';
+          var badge  = pipelineBadge(c);
+          var btnWa   = (!c.recuperado&&!c.perdido&&rawPhone(c.telefone||''))?'<button class="opp-mini-btn" onclick="openWaModalCarrinho(\''+safeId+'\')">💬 WA</button> ':'';
+          var btnHist = '<button class="opp-mini-btn" onclick="openCarrinhoHistorico(\''+safeId+'\')" title="Ver histórico de interações">📋</button> ';
+          var btnPer = (!c.recuperado&&!c.perdido)?'<button class="opp-mini-btn" style="color:var(--red,#f87171)" onclick="marcarCarrinhoPerdido(\''+safeId+'\')">✗</button>':'';
+          var prioIcon = c.prioridade_id==='alta'?'🔥':c.prioridade_id==='media'?'⚡':'';
+          var nextAcao = c.recuperado?'—':c.perdido?'—':(c.etapa_label?(prioIcon+' '+c.etapa_label):'—');
+          var checked  = selectedCarrinhos.has(String(c.checkout_id||''));
+          return '<tr>'+
+            '<td><input type="checkbox" class="car-check car-row-check" data-id="'+escapeHTML(String(c.checkout_id||''))+'" '+(checked?'checked':'')+' onchange="toggleCarrinhoSelection(\''+safeId+'\',this.checked)"/></td>'+
+            '<td class="chiva-table-mono" style="white-space:nowrap">'+escapeHTML(c.tempo_label||'—')+'</td>'+
+            '<td><div style="font-weight:800;color:var(--text)">'+name+'</div>'+subtitle+'<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+contato+'</div></td>'+
+            '<td>'+badge+lastInfo+'</td>'+
+            '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(String(Math.round(c.score_calc||0)))+'</td>'+
+            '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
+            '<td style="font-size:11px;color:var(--text-2)">'+escapeHTML(nextAcao)+'</td>'+
+            '<td>'+buildRespSelect(safeId, c.responsavel)+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+btnWa+btnHist+btnPer+'</td>'+
+          '</tr>';
+        }).join('')+
+      '</tbody>'+
+    '</table>'+
+  '</div>';
+  // C — atualizar badge + alertar novos quentes após renderizar
+  try{ checkCarrinhosQuentes(); }catch(_){}
+}
+
+function toggleAllCarrinhos(checked){
+  document.querySelectorAll(".car-row-check").forEach(function(cb){
+    cb.checked=checked;
+    var cid=String(cb.dataset.id||"");
+    if(checked) selectedCarrinhos.add(cid); else selectedCarrinhos.delete(cid);
+  });
+  var n=selectedCarrinhos.size;
+  var btn=document.getElementById("car-lote-btn");
+  var count=document.getElementById("car-lote-count");
+  if(btn) btn.style.display=n>0?"":"none";
+  if(count) count.textContent=String(n);
 }
 
 function copyCarrinhoId(checkoutId){
@@ -11302,13 +12266,30 @@ function deletarCampanha(){
 // MÓDULO MARCA
 // ═══════════════════════════════════════════════════════════
 
+// kpiCard — cartão de KPI usado em Comercial e Marca
+function kpiCard(title, value, subtitle, color){
+  return '<div class="car-kpi-card" style="--i:0">'+
+    '<div class="car-kpi-value" style="color:'+escapeHTML(String(color||'var(--text)'))+'">'+escapeHTML(String(value??''))+'</div>'+
+    '<div class="car-kpi-label">'+escapeHTML(String(title||''))+'</div>'+
+    (subtitle?'<div class="car-kpi-sub">'+escapeHTML(String(subtitle))+'</div>':'')+
+  '</div>';
+}
+
+// miniKpi — cartão compacto usado em Degustações e Resultados
+function miniKpi(label, value, color){
+  return '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center">'+
+    '<div style="font-size:14px;font-weight:900;color:'+escapeHTML(String(color||'var(--text)'))+'">'+escapeHTML(String(value??''))+'</div>'+
+    '<div style="font-size:9px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">'+escapeHTML(String(label||''))+'</div>'+
+  '</div>';
+}
+
 var calMesAtual=new Date().getMonth(), calAnoAtual=new Date().getFullYear(), filtroDia=null;
 
 let allEventos = safeJsonParse('crm_eventos', null) || [
-  {id:1,titulo:'Degustação Shopping Iguatemi',tipo:'degustacao',data:'2025-03-29',hora:'10:00',local:'Shopping Iguatemi — BH',responsavel:'Ana',custo:350,amostras:120,conversoes:18,receita:1620,obs:'Ótima receptividade sabor chocolate'},
-  {id:2,titulo:'Feira Natural Expo',tipo:'feira',data:'2025-04-12',hora:'09:00',local:'Expo Center — SP',responsavel:'Carlos',custo:1200,amostras:250,conversoes:0,receita:0,obs:'Montar estande 3x3'},
-  {id:3,titulo:'Live com Nutricionista',tipo:'live',data:'2025-04-05',hora:'19:00',local:'Instagram @chivafit',responsavel:'Marketing',custo:0,amostras:0,conversoes:0,receita:0,obs:'Tema: proteína na dieta feminina'},
-  {id:4,titulo:'Degustação Academia FitLife',tipo:'degustacao',data:'2025-04-19',hora:'07:00',local:'Academia FitLife — BH',responsavel:'Ana',custo:150,amostras:60,conversoes:0,receita:0,obs:''},
+  {id:1,titulo:'Degustação Shopping Iguatemi',tipo:'degustacao',data:'2026-03-22',hora:'10:00',local:'Shopping Iguatemi — BH',responsavel:'Ana',custo:350,amostras:120,conversoes:18,receita:1620,obs:'Ótima receptividade sabor chocolate'},
+  {id:2,titulo:'Feira Natural Expo',tipo:'feira',data:'2026-04-12',hora:'09:00',local:'Expo Center — SP',responsavel:'Carlos',custo:1200,amostras:250,conversoes:0,receita:0,obs:'Montar estande 3x3'},
+  {id:3,titulo:'Live com Nutricionista',tipo:'live',data:'2026-03-28',hora:'19:00',local:'Instagram @chivafit',responsavel:'Marketing',custo:0,amostras:0,conversoes:0,receita:0,obs:'Tema: proteína na dieta feminina'},
+  {id:4,titulo:'Degustação Academia FitLife',tipo:'degustacao',data:'2026-04-05',hora:'07:00',local:'Academia FitLife — BH',responsavel:'Ana',custo:150,amostras:60,conversoes:0,receita:0,obs:''},
 ];
 function saveEventos(){ localStorage.setItem('crm_eventos',JSON.stringify(allEventos)); }
 
@@ -11342,18 +12323,30 @@ function renderCalendario(){
   }
   el.innerHTML=h; renderEventosLista();
 }
-function mudarMes(delta){ calMesAtual+=delta; if(calMesAtual>11){calMesAtual=0;calAnoAtual++;} if(calMesAtual<0){calMesAtual=11;calAnoAtual--;} renderCalendario(); }
+function mudarMes(delta){ calMesAtual+=delta; if(calMesAtual>11){calMesAtual=0;calAnoAtual++;} if(calMesAtual<0){calMesAtual=11;calAnoAtual--;} filtroDia=null; renderCalendario(); }
+function irParaHoje(){ calMesAtual=new Date().getMonth(); calAnoAtual=new Date().getFullYear(); filtroDia=null; renderCalendario(); }
 function filtrarDia(dia){ filtroDia=filtroDia===dia?null:dia; renderEventosLista(); }
 
 function renderEventosLista(){
   var el=document.getElementById('eventos-lista'); if(!el) return;
   var tE={degustacao:'🍫',feira:'🏪',evento:'🎪',reuniao:'🤝',live:'📱'};
   var tC={degustacao:'ev-degustacao',feira:'ev-feira',evento:'ev-evento',reuniao:'ev-reuniao',live:'ev-evento'};
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
   var list=[].concat(allEventos).sort(function(a,b){return a.data.localeCompare(b.data);});
-  if(filtroDia!==null) list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual&&parseInt(e.data.split('-')[2])===filtroDia; });
-  if(!list.length){ el.innerHTML='<div class="empty">Nenhum evento neste período</div>'; return; }
-  el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+(filtroDia?'Eventos dia '+filtroDia:'Próximos eventos')+'</div>'+list.map(function(e){
-    return '<div class="evento-card"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(fmtDate(e.data))+' '+escapeHTML(e.hora)+' · '+escapeHTML(e.local)+' · '+escapeHTML(e.responsavel)+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
+  // Sempre filtrar pelo mês visível (a menos que filtroDia esteja ativo)
+  if(filtroDia!==null){
+    list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual&&parseInt(e.data.split('-')[2])===filtroDia; });
+  } else {
+    list=list.filter(function(e){ var d=new Date(e.data+'T12:00:00'); return d.getMonth()===calMesAtual&&d.getFullYear()===calAnoAtual; });
+  }
+  var titulo=filtroDia?('Eventos — dia '+filtroDia):('Eventos de '+['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][calMesAtual]);
+  if(!list.length){ el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+escapeHTML(titulo)+'</div><div class="empty">Nenhum evento neste período.</div>'; return; }
+  el.innerHTML='<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">'+escapeHTML(titulo)+'</div>'+list.map(function(e){
+    var evData=new Date(e.data+'T12:00:00'); evData.setHours(0,0,0,0);
+    var isPast=evData<hoje;
+    var isHoje=evData.getTime()===hoje.getTime();
+    var badge=isHoje?'<span style="background:var(--indigo);color:#fff;font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">HOJE</span>':isPast?'<span style="background:var(--card);color:var(--text-3);font-size:9px;border-radius:4px;padding:1px 5px;margin-left:6px;border:1px solid var(--border)">Realizado</span>':'<span style="background:var(--chiva-primary-dim);color:var(--chiva-primary);font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">Próximo</span>';
+    return '<div class="evento-card" style="'+(isPast&&!isHoje?'opacity:.7':'')+'"><div class="evento-tipo-dot '+(tC[e.tipo]||'ev-evento')+'">'+(tE[e.tipo]||'📌')+'</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">'+escapeHTML(e.titulo)+badge+'</div><button onclick="abrirModalEvento('+e.id+')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">'+escapeHTML(fmtDate(e.data))+(e.hora?' '+escapeHTML(e.hora):'')+(e.local?' · '+escapeHTML(e.local):'')+(e.responsavel?' · '+escapeHTML(e.responsavel):'')+'</div>'+(e.amostras||e.conversoes||e.receita?'<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">'+(e.amostras?'<span>🧪 '+e.amostras+' amostras</span>':'')+(e.conversoes?'<span style="color:var(--green)">✅ '+e.conversoes+' conv.</span>':'')+(e.receita?'<span style="color:var(--green);font-weight:700">R$'+e.receita.toLocaleString('pt-BR')+'</span>':'')+'</div>':'')+(e.obs?'<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+escapeHTML(e.obs)+'</div>':'')+'</div></div>';
   }).join('');
 }
 
@@ -11373,11 +12366,42 @@ function renderMarcaResultados(){
   var degust=allEventos.filter(function(e){return e.tipo==='degustacao';});
   var tA=degust.reduce(function(s,e){return s+(e.amostras||0);},0);
   var tC=degust.reduce(function(s,e){return s+(e.conversoes||0);},0);
-  var tCusto=degust.reduce(function(s,e){return s+(e.custo||0);},0);
-  var tR=degust.reduce(function(s,e){return s+(e.receita||0);},0);
+  var tCusto=allEventos.reduce(function(s,e){return s+(e.custo||0);},0);
+  var tR=allEventos.reduce(function(s,e){return s+(e.receita||0);},0);
   var roi=tCusto>0?((tR-tCusto)/tCusto*100).toFixed(0):0;
   var taxa=tA>0?(tC/tA*100).toFixed(1):0;
-  el.innerHTML='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">📊 Consolidado Trade Marketing</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+miniKpi('Total Amostras',tA,'var(--blue)')+miniKpi('Conversões',tC,'var(--green)')+miniKpi('Taxa Geral',taxa+'%','var(--indigo-hi)')+miniKpi('Custo Total','R$'+tCusto.toLocaleString('pt-BR'),'var(--red)')+miniKpi('Receita Total','R$'+tR.toLocaleString('pt-BR'),'var(--green)')+miniKpi('ROI Geral',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)')+'</div></div>';
+  // Por tipo
+  var tipoMap={degustacao:{label:'🍫 Degustação'},feira:{label:'🏪 Feira'},evento:{label:'🎪 Evento'},reuniao:{label:'🤝 Reunião'},live:{label:'📱 Live'}};
+  var tipoRows=Object.keys(tipoMap).map(function(t){
+    var evs=allEventos.filter(function(e){return e.tipo===t;});
+    if(!evs.length) return '';
+    var custo=evs.reduce(function(s,e){return s+(e.custo||0);},0);
+    var receita=evs.reduce(function(s,e){return s+(e.receita||0);},0);
+    var roiT=custo>0?((receita-custo)/custo*100).toFixed(0):null;
+    return '<tr>'+
+      '<td>'+escapeHTML(tipoMap[t].label)+'</td>'+
+      '<td style="text-align:center">'+evs.length+'</td>'+
+      '<td style="text-align:right">'+escapeHTML('R$'+custo.toLocaleString('pt-BR'))+'</td>'+
+      '<td style="text-align:right">'+escapeHTML('R$'+receita.toLocaleString('pt-BR'))+'</td>'+
+      '<td style="text-align:right;font-weight:700;color:'+(roiT!==null&&parseInt(roiT)>=0?'var(--green)':'var(--red)')+'">'+escapeHTML(roiT!==null?roiT+'%':'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  el.innerHTML=
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:12px">'+
+      '<div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">📊 Consolidado Geral</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+
+        miniKpi('Total Amostras',tA,'var(--blue)')+miniKpi('Conversões',tC,'var(--green)')+miniKpi('Taxa Conv.',taxa+'%','var(--indigo-hi)')+miniKpi('Custo Total','R$'+tCusto.toLocaleString('pt-BR'),'var(--red)')+miniKpi('Receita Total','R$'+tR.toLocaleString('pt-BR'),'var(--green)')+miniKpi('ROI Geral',roi+'%',parseInt(roi)>=0?'var(--green)':'var(--red)')+
+      '</div>'+
+    '</div>'+
+    (tipoRows?
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px">'+
+        '<div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">Por tipo de evento</div>'+
+        '<table class="chiva-table">'+
+          '<thead><tr><th>Tipo</th><th style="text-align:center">Qtd</th><th style="text-align:right">Custo</th><th style="text-align:right">Receita</th><th style="text-align:right">ROI</th></tr></thead>'+
+          '<tbody>'+tipoRows+'</tbody>'+
+        '</table>'+
+      '</div>'
+    :'');
 }
 
 function setMarcaTab(tab){
@@ -11415,22 +12439,27 @@ function abrirModalEvento(id){
   } else {
     document.getElementById('ev-edit-id').value='';
     document.getElementById('modal-evento-title').textContent='Novo Evento';
+    document.getElementById('ev-tipo').value='degustacao';
     ['ev-titulo','ev-data','ev-hora','ev-local','ev-responsavel','ev-custo','ev-amostras','ev-conversoes','ev-receita','ev-obs'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
     del.style.display='none';
   }
+  toggleDegustFields();
   m.classList.add('open');
 }
 function salvarEvento(){
   var id=document.getElementById('ev-edit-id').value;
-  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:parseDateToIso(document.getElementById('ev-data').value),hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
-  if(!obj.titulo){ toast('⚠️ Informe o título'); return; }
+  var dataRaw=document.getElementById('ev-data').value;
+  var dataIso=parseDateToIso(dataRaw);
+  var obj={id:id?parseInt(id):Date.now(),titulo:document.getElementById('ev-titulo').value.trim(),tipo:document.getElementById('ev-tipo').value,data:dataIso,hora:document.getElementById('ev-hora').value,local:document.getElementById('ev-local').value.trim(),responsavel:document.getElementById('ev-responsavel').value.trim(),custo:parseFloat(document.getElementById('ev-custo').value)||0,amostras:parseInt(document.getElementById('ev-amostras').value)||0,conversoes:parseInt(document.getElementById('ev-conversoes').value)||0,receita:parseFloat(document.getElementById('ev-receita').value)||0,obs:document.getElementById('ev-obs').value.trim()};
+  if(!obj.titulo){ toast('⚠️ Informe o título','warning'); return; }
+  if(!obj.data){ toast('⚠️ Informe a data do evento','warning'); return; }
   if(id){ var idx=allEventos.findIndex(function(x){return x.id===parseInt(id);}); if(idx>=0) allEventos[idx]=obj; } else allEventos.push(obj);
-  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('✅ Evento salvo!');
+  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('✅ Evento salvo!','success');
 }
 function deletarEvento(){
   var id=parseInt(document.getElementById('ev-edit-id').value);
   allEventos=allEventos.filter(function(x){return x.id!==id;});
-  saveEventos(); renderCalendario(); renderMarcaKpis(); fecharModal('modal-evento'); toast('🗑️ Evento excluído');
+  saveEventos(); renderCalendario(); renderDegustacoes(); renderMarcaResultados(); renderMarcaKpis(); fecharModal('modal-evento'); toast('🗑️ Evento excluído');
 }
 
 function fecharModal(id){ var el=document.getElementById(id); if(el) el.classList.remove('open'); }
