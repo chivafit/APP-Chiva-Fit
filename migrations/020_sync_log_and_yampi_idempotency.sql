@@ -25,10 +25,13 @@ CREATE INDEX IF NOT EXISTS idx_sync_log_status      ON sync_log (status, created
 -- Política RLS: apenas usuários autenticados lêem
 ALTER TABLE sync_log ENABLE ROW LEVEL SECURITY;
 
+-- DROP ... IF EXISTS garante idempotência (CREATE POLICY não tem IF NOT EXISTS)
+DROP POLICY IF EXISTS sync_log_select ON sync_log;
 CREATE POLICY sync_log_select ON sync_log
   FOR SELECT TO authenticated USING (true);
 
 -- Service role pode inserir (via Edge Functions)
+DROP POLICY IF EXISTS sync_log_insert ON sync_log;
 CREATE POLICY sync_log_insert ON sync_log
   FOR INSERT TO service_role WITH CHECK (true);
 
