@@ -916,7 +916,7 @@ function enterApp(userEmail) {
       nameEl.textContent = 'Administrador';
     }
   }
-  safeInvokeName('showPage', 'dashboard');
+  safeInvokeName('handleRoute');
 
   const overlay = document.getElementById('app-loader');
   if (overlay) {
@@ -17097,10 +17097,37 @@ function renderChartsCom() {
   }
 }
 
+// ═══════════════════════════════════════════════════
+//  ROUTER & NAVEGAÇÃO
+// ═══════════════════════════════════════════════════
+function handleRoute() {
+  let hash = window.location.hash.replace('#', '').trim();
+  if (!hash) hash = 'dashboard';
+
+  // Tratamento de rotas com nomes divergentes
+  const routeMap = { 'pedidos': 'pedidos-page' };
+  const pageId = routeMap[hash] || hash;
+
+  if (typeof showPage === 'function') showPage(pageId);
+}
+
+function initNavigation() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', function() {
+      const page = this.getAttribute('data-page');
+      if (page) window.location.hash = page;
+    });
+  });
+  window.addEventListener('hashchange', handleRoute);
+}
+document.addEventListener('DOMContentLoaded', initNavigation);
+
 Object.assign(window, {
   handleLoginSubmit,
   goLogout,
   enterApp,
+  initNavigation,
+  handleRoute,
   showPage,
   closeMobileSidebar,
   openMobileSidebar,

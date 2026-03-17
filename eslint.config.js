@@ -40,6 +40,7 @@ const nodeGlobals = {
   module: 'readonly',
   require: 'readonly',
   exports: 'readonly',
+  global: 'readonly',
   console: 'readonly',
   setTimeout: 'readonly',
   clearTimeout: 'readonly',
@@ -62,6 +63,21 @@ module.exports = [
       ecmaVersion: 'latest',
       sourceType: 'module',
       globals: browserGlobals,
+    },
+    rules: {
+      'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...browserGlobals,
+        ...nodeGlobals,
+      },
     },
     rules: {
       'no-unused-vars': unusedVarsWarn,
