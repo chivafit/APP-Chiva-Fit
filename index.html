@@ -75,33 +75,6 @@
           display: none !important;
           pointer-events: none !important;
         }
-
-        /* 2. Garante que o layout principal seja lado a lado */
-        #app-shell {
-          display: flex !important;
-          flex-direction: row !important;
-        }
-
-        /* 3. Coloca a sidebar fixa na esquerda */
-        #sidebar {
-          position: relative !important;
-          transform: none !important;
-          z-index: 10 !important;
-        }
-
-        /* 4. Organiza a área principal e conserta a Topbar flutuante */
-        #main-area {
-          flex: 1 !important;
-          display: flex !important;
-          flex-direction: column !important;
-          width: calc(100% - 260px) !important; /* Ajuste conforme a largura real da sidebar */
-        }
-
-        #topbar {
-          position: sticky !important;
-          top: 0 !important;
-          z-index: 100 !important;
-        }
       }
     </style>
   </head>
