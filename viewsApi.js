@@ -56,7 +56,7 @@ async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, sel
   }
 }
 
-const DASHBOARD_KPI_COLS = "faturamento_total,faturamento_mes,faturamento_ontem,pedidos_total,pedidos_mes,pedidos_ontem,ticket_medio,ticket_medio_mes,clientes_ativos,clientes_novos_mes,clientes_churn,taxa_recompra,ltv_medio";
+const DASHBOARD_KPI_COLS = "faturamento_total,total_pedidos,ticket_medio,total_clientes,ltv_medio";
 
 export async function getDashboardKpis(client){
   try{
@@ -106,7 +106,8 @@ export async function getNewCustomersDaily(client, fromIso, toIso){
 
 export async function getFunilRecompra(client){
   try{
-    const { data, error } = await client.from("vw_funil_recompra").select("etapa,clientes,percentual").limit(50);
+    // Removido 'percentual' pois não existe na View 012, adicionado 'ordem'
+    const { data, error } = await client.from("vw_funil_recompra").select("etapa,ordem,clientes").limit(50);
     if(error) return [];
     return Array.isArray(data) ? data : [];
   }catch(_e){

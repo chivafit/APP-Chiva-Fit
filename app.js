@@ -4558,7 +4558,7 @@ function renderDashProductsMini(ordersSales, ordersPrevSales){
     const cls = show ? (up ? "pos" : "neg") : "";
     const txt = show ? ((up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%") : "";
     const icon = (String(p.name).match(/[A-Za-zÀ-ÿ]/) ? String(p.name).trim()[0] : "★").toUpperCase();
-    return `<div class="dash-prod-row">
+    return `<div class="dash-prod-row" onclick="showPage('produtos'); document.getElementById('search-prod').value='${escapeJsSingleQuote(p.name)}'; renderProdutos();" style="cursor:pointer">
       <div class="dash-prod-rank">${escapeHTML(String(i+1))}</div>
       <div class="dash-prod-img">${escapeHTML(icon)}</div>
       <div class="dash-prod-main">
@@ -4682,7 +4682,7 @@ function renderDashVipMini(_ordersSales){
   }
   el.innerHTML = clis.map(x=>{
     const nm = dashSafeName(x.c.nome || "VIP");
-    return `<div class="dash-vip-row">
+    return `<div class="dash-vip-row" onclick="openClientePage('${x.c.id}')" style="cursor:pointer">
       <div class="dash-vip-left">
         <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
         <div class="dash-vip-main">
@@ -5785,7 +5785,7 @@ function renderDashV2TopProdutos(rows){
     const pctNum = pct == null ? null : (Number(pct) || 0);
     const right = pctNum == null ? `${unidades}` : `${unidades} · ${pctNum.toFixed(0)}%`;
     const sub = clientes ? `${clientes} clientes` : "—";
-    return `<div class="top-item">
+    return `<div class="top-item" onclick="showPage('produtos'); document.getElementById('search-prod').value='${escapeJsSingleQuote(nome)}'; renderProdutos();" style="cursor:pointer">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(sub)}</span></div>
       <div class="top-val">${escapeHTML(right)}</div>
@@ -5807,7 +5807,7 @@ function renderDashV2TopCidades(rows){
     const label = [cidade, uf].filter(Boolean).join(" / ");
     const fat = fmtBRL(Number(r?.faturamento ?? r?.receita ?? r?.total ?? 0) || 0);
     const pedidos = Number(r?.pedidos ?? r?.total_pedidos ?? 0) || 0;
-    return `<div class="top-item">
+    return `<div class="top-item" onclick="showPage('cidades'); document.getElementById('search-cidade').value='${escapeJsSingleQuote(cidade)}'; renderCidades();" style="cursor:pointer">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(label)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(String(pedidos))} pedidos</span></div>
       <div class="top-val">${escapeHTML(fat)}</div>
@@ -12538,6 +12538,8 @@ Object.assign(window,{
   renderAccessUsers,
   openClienteDrawer,
   openClientePage,
+  openCRMOrderDrawer,
+  openPedidoDrawer,
   renderClientePage,
   backToClientes,
   clienteWhatsApp,
@@ -12546,11 +12548,11 @@ Object.assign(window,{
   clienteAddNegotiation,
   openInteractionModal,
   saveInteraction,
-  openCRMOrderDrawer,
-  openPedidoDrawer,
   filterClientesByCity,
   handleTopbarSearch,
   handleTopbarSearchDebounced,
+  renderClientesDebounced,
+  renderPedidosPageDebounced,
   toggleNotif,
   closeWa,
   openWa,
@@ -12565,6 +12567,7 @@ Object.assign(window,{
   openTaskModal,
   saveTask,
   deleteTask,
+  toggleTask,
   runAI,
   renderIADashboard,
   computeCustomerIntelligence,
@@ -12584,6 +12587,7 @@ Object.assign(window,{
   openProdutoDrawer,
   renderCidades,
   renderPedidosPage,
+  exportPedidosCSV,
   recarregar,
   oppLoadMore,
   radarToggleOppFilter,
@@ -12595,6 +12599,7 @@ Object.assign(window,{
   renderAlertas,
   saveSupabaseConfig,
   auditSupabaseSchema,
+  copySupabaseShareLink,
   syncInsumosToSupabase,
   syncReceitasToSupabase,
   syncOrdensProducaoToSupabase,
@@ -12607,12 +12612,14 @@ Object.assign(window,{
   syncCarrinhosAbandonadosYampi,
   fetchYampiAbandoned,
   renderCarrinhosAbandonados,
+  toggleCarrinhosFunil,
   openWhatsAppCarrinho,
   openCarrinhoLinkFromRadar,
   openCarrinhoInComercialFromRadar,
   openRadarVisitouDrawer,
   saveAIKey,
   saveTemplates,
+  openDrawer,
   closeDrawer,
   abrirModalCampanha,
   setComTab,
@@ -12627,6 +12634,7 @@ Object.assign(window,{
   salvarCampanha,
   deletarEvento,
   salvarEvento,
+  toggleDegustFields,
   installApp,
   gerarMensagemIA,
   copyWhatsAppMessageForCustomer,
@@ -12660,7 +12668,22 @@ Object.assign(window,{
   checkCarrinhosQuentes,
   exportCarrinhosCSV,
   openCarrinhoHistorico,
-  closeCarrinhoHistorico
+  closeCarrinhoHistorico,
+  atribuirResponsavelCarrinho,
+  toggleAllCarrinhos,
+  abrirModalInsumo,
+  abrirNovaOrdem,
+  setProdTab,
+  renderInsumos,
+  calcularSimulador,
+  renderReceitaDetalhe,
+  novoProdutoReceita,
+  deletarInsumo,
+  salvarInsumo,
+  registrarEntradaInsumo,
+  deletarOrdem,
+  salvarOrdem,
+  abrirMovimentosDoLote
 });
 
 export {
