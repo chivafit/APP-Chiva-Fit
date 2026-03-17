@@ -2392,6 +2392,17 @@ function showPage(id){
     safeInvokeName("renderProdutos");
   },50);
   if(id==="config") setTimeout(()=>safeInvokeName("hydrateConfigPage"),0);
+  // Skeleton no dashboard enquanto dados não carregaram
+  if(id==="dashboard"){
+    const kpisEl = document.getElementById("dash-kpis");
+    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = renderDashKpiSkeletons();
+  }
+  // Skeleton na lista de clientes ao entrar na página
+  if(id==="clientes"){
+    const listEl = document.getElementById("client-list");
+    if(listEl && !listEl.querySelector(".client-card") && !listEl.querySelector(".client-card-skeleton"))
+      listEl.innerHTML = renderClienteSkeletons(7);
+  }
 
   // Close mobile sidebar
   closeMobileSidebar();
@@ -3907,8 +3918,8 @@ function renderDashNow(){
       { key: "orders", label: "Pedidos", value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev), icon: "📦", iconCls: "dash-kpi-icon--amber", spark: "kpi-spark-orders" },
       { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" }
     ];
-    dashKpisEl.innerHTML = items.map(s=>`
-      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}">
+    dashKpisEl.innerHTML = items.map((s,i)=>`
+      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}" style="--i:${i}">
         <div class="dash-kpi-top">
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">${escapeHTML(s.label)}</div>
@@ -6131,6 +6142,59 @@ function appendClienteCards(html){
 }
 
 /* ═══════════════════════════════════════════════════
+   AVATAR COM INICIAIS
+═══════════════════════════════════════════════════ */
+const AVATAR_PALETTES = [
+  { bg:"rgba(15,167,101,.18)",  color:"#4ade80" },
+  { bg:"rgba(59,130,246,.18)",  color:"#93c5fd" },
+  { bg:"rgba(245,158,11,.18)",  color:"#fcd34d" },
+  { bg:"rgba(244,63,94,.18)",   color:"#fda4af" },
+  { bg:"rgba(139,92,246,.18)",  color:"#c4b5fd" },
+  { bg:"rgba(6,182,212,.18)",   color:"#67e8f9" },
+  { bg:"rgba(234,88,12,.18)",   color:"#fb923c" },
+  { bg:"rgba(16,185,129,.18)",  color:"#6ee7b7" },
+];
+function clienteAvatar(nome){
+  const n = String(nome||"?").trim();
+  const initials = n.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join("") || "?";
+  let hash = 0;
+  for(let i=0;i<n.length;i++){ hash = ((hash<<5)-hash) + n.charCodeAt(i); hash |= 0; }
+  const palette = AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length];
+  return `<div class="cli-avatar" style="background:${palette.bg};color:${palette.color}">${escapeHTML(initials)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════
+   SKELETON LOADERS
+═══════════════════════════════════════════════════ */
+function renderClienteSkeletons(n){
+  return Array.from({length:n||6},()=>`
+    <div class="client-card-skeleton">
+      <div class="sk-row">
+        <div class="skeleton" style="width:34px;height:34px;border-radius:50%;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div class="skeleton" style="height:11px;width:52%"></div>
+          <div class="skeleton" style="height:9px;width:35%"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+          <div class="skeleton" style="height:13px;width:58px"></div>
+          <div class="skeleton" style="height:9px;width:40px"></div>
+        </div>
+      </div>
+      <div class="skeleton" style="height:9px;width:70%"></div>
+      <div class="skeleton" style="height:9px;width:45%"></div>
+    </div>`).join("");
+}
+
+function renderDashKpiSkeletons(){
+  return Array.from({length:3},()=>`
+    <div class="dash-kpi-skeleton">
+      <div class="skeleton" style="height:10px;width:40%"></div>
+      <div class="skeleton" style="height:22px;width:65%;margin-top:2px"></div>
+      <div class="skeleton" style="height:9px;width:30%"></div>
+    </div>`).join("");
+}
+
+/* ═══════════════════════════════════════════════════
    FILTROS SALVOS
 ═══════════════════════════════════════════════════ */
 function getSavedFilterState(){
@@ -6322,8 +6386,8 @@ function renderClientes(){
   if(usingViews){
     if(!clientesIntelCache.length){
       loadClientesInteligenciaCache().then(()=>{ renderClientes(); }).catch(()=>{});
-      document.getElementById("cli-label").textContent = "Carregando…";
-      document.getElementById("client-list").innerHTML = `<div class="empty">Carregando inteligência de clientes…</div>`;
+      document.getElementById("cli-label").textContent = "";
+      document.getElementById("client-list").innerHTML = renderClienteSkeletons(7);
       document.getElementById("ch-pills-cli").innerHTML = "";
       return;
     }
@@ -6402,7 +6466,7 @@ function renderClientes(){
       }
       const next = rows.slice(clientesIntelDomCount);
       if(next.length){
-        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i))).join("");
+        const html = next.map((c,i)=>renderCliIntelCard(c,"cli"+(clientesIntelDomCount+i),i)).join("");
         appendClienteCards(html);
         clientesIntelDomCount += next.length;
       }
@@ -6411,7 +6475,7 @@ function renderClientes(){
       clientesIntelDomMode = "filtered";
       clientesIntelDomCount = 0;
       if(rows.length){
-        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i)).join("");
+        listEl.innerHTML = rows.slice(0,800).map((c,i)=>renderCliIntelCard(c,"cli"+i,i)).join("");
       }else{
         const canalFiltro = normCanalKey(canalFil || (activeCh !== "all" ? activeCh : ""));
         const clearBtn = canalFiltro ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>` : "";
@@ -6451,7 +6515,7 @@ function renderClientes(){
   document.getElementById("client-list").innerHTML=clis.map((c,i)=>renderCliCard(c,"cl"+i)).join("");
 }
 
-function renderCliIntelCard(c, eid){
+function renderCliIntelCard(c, eid, idx){
   const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
   const nome = String(c?.nome || "Cliente").trim();
   const canal = String(c?.canal_principal || "outros").toLowerCase().trim() || "outros";
@@ -6497,12 +6561,15 @@ function renderCliIntelCard(c, eid){
   const line3 = line3Parts.join(" · ");
 
   const cardId = "cli-sel-"+id;
-  return `<div class="client-card" id="${eid}" data-cid="${escapeHTML(id)}">
+  const iStyle = idx != null ? ` style="--i:${Math.min(idx,20)}"` : "";
+  const avatar = clienteAvatar(nome);
+  return `<div class="client-card" id="${eid}" data-cid="${escapeHTML(id)}"${iStyle}>
     <div class="cli-check-wrap" onclick="event.stopPropagation()">
       <input type="checkbox" class="cli-check" id="${cardId}" data-id="${escapeHTML(id)}"
         onchange="toggleClienteSelection('${escapeJsSingleQuote(id)}', this.checked)"/>
     </div>
-    <div class="client-head" onclick="openClientePage('${id}')" style="padding-left:28px">
+    <div class="client-head" onclick="openClientePage('${id}')" style="padding-left:28px;grid-template-columns:auto 1fr auto;gap:10px">
+      ${avatar}
       <div>
         <div class="client-name-row" style="align-items:flex-start">
           <span class="client-name client-name-hero">${escapeHTML(nome)}</span>
