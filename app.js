@@ -1,4 +1,11 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js";
+import {
+  allInsumos, allOrdens, getEstPct, getEstStatus,
+  renderProdKpis, renderInsumos, renderOrdens,
+  calcularSimulador, renderReceitaDetalhe, novoProdutoReceita,
+  deletarInsumo, salvarInsumo, registrarEntradaInsumo,
+  deletarOrdem, salvarOrdem, abrirModalInsumo, abrirNovaOrdem,
+  setProdTab, abrirMovimentosDoLote
+} from "./producao.js";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -9000,11 +9007,6 @@ function renderProdutos(_deferred){
   const now=new Date();
   const m={};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
-  if(allOrders[0]){
-    try{
-      console.log("[Pedido exemplo]", allOrders[0], "itens encontrados:", getPedidoItens(allOrders[0]).length);
-    }catch(_e){}
-  }
 
   if(!allOrders.length){
     if(detailedEl) detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
@@ -10557,6 +10559,7 @@ async function logMovimentoEstoque(mov){
 }
 
 async function initSupabase(){
+  console.debug("[initSupabase] ▶ iniciando conexão com Supabase");
   const url = getSupabaseProjectUrl();
   const key = getSupabaseAnonKey();
   const st = document.getElementById("supa-status");
@@ -10593,6 +10596,7 @@ async function initSupabase(){
     if(error) throw error;
 
     supaConnected = true;
+    console.debug("[initSupabase] ✅ conectado — sessão:", supaSession?.user?.email || "(sem email)");
     if(st){ st.textContent="✓ Conectado"; st.className="setup-status s-ok"; }
     setSyncDot(true);
     ensurePendingOpsPump();
@@ -10621,6 +10625,7 @@ async function loadSupabaseData(){
   if(isLoadingData) return;
   isLoadingData = true;
   dataReady = false;
+  console.debug("[loadSupabaseData] ▶ iniciando carregamento de dados");
   try{
     // configuracoes — campo valor_texto (antigo: config.valor)
     const {data:metaRow} = await supaClient.from('configuracoes').select('valor_texto').eq('chave','meta_mensal').maybeSingle();
@@ -10637,6 +10642,7 @@ async function loadSupabaseData(){
 
     // v2_tarefas — campos: descricao (antigo: desc), vencimento (antigo: data), status 'aberta'→'pendente' para UI
     const {data:tasks} = await supaClient.from('v2_tarefas').select('*').order('created_at',{ascending:false}).limit(500);
+    console.debug("[loadSupabaseData] tarefas:", (tasks||[]).length);
     tarefasCache = (tasks||[]).map(t => ({
       ...t,
       desc: t.descricao||'',
@@ -10676,24 +10682,34 @@ async function loadSupabaseData(){
     }
 
     await loadClienteMetaCache();
+    console.debug("[loadSupabaseData] clienteMeta OK");
     await loadInsumosFromSupabase();
     await loadReceitasProdutosFromSupabase();
     await loadOrdensProducaoFromSupabase();
     await loadMovimentosEstoqueFromSupabase();
     await loadCarrinhosAbandonadosFromSupabase();
     await loadCanalLookup();
+    console.debug("[loadSupabaseData] dados auxiliares OK, carregando pedidos…");
     await loadOrdersFromSupabaseForCRM();
+    console.debug("[loadSupabaseData] pedidos OK — blingOrders:", blingOrders.length, "yampiOrders:", yampiOrders.length);
     await loadClientesInteligenciaCache();
+    console.debug("[loadSupabaseData] clientesIntelCache:", clientesIntelCache.length);
     await loadBlingProductsFromSupabase();
 
     updateBadge();
     mergeOrders();
     populateUFs();
     dataReady = true;
-    console.log("[Load] Bling:", Array.isArray(blingOrders)?blingOrders.length:0, "Yampi:", Array.isArray(yampiOrders)?yampiOrders.length:0, "Total:", Array.isArray(allOrders)?allOrders.length:0, "Clientes:", Array.isArray(allCustomers)?allCustomers.length:0);
+    console.log("[loadSupabaseData] ✅ CONCLUÍDO — allOrders:", allOrders.length, "allCustomers:", allCustomers.length,
+      "| Bling:", blingOrders.filter(o=>o._source==="bling").length,
+      "| Yampi:", yampiOrders.length);
     renderAll();
   }catch(e){
-    console.warn('loadSupabaseData:', e.message);
+    console.error("[loadSupabaseData] ❌ erro inesperado:", e?.message || e, e);
+    captureError(e, { context: "loadSupabaseData" });
+    // Renderiza com dados de cache para não deixar a UI travada em skeleton
+    try{ mergeOrders(); }catch(_e){}
+    try{ renderAll(); }catch(_e){}
   }finally{
     isLoadingData = false;
     if(!dataReady) dataReady = true;
@@ -10762,8 +10778,12 @@ async function loadClientesInteligenciaCache(forceReset=false){
     if(!hasMore && clientesIntelCache.length > 0 && clientesIntelCache.length % pageSize === 0){
       console.warn(`[Clientes] Total carregado (${clientesIntelCache.length}) é múltiplo exato do pageSize — pode haver mais registros.`);
     }
-  }catch(_e){}finally{
+  }catch(e){
+    console.warn("[clientesIntel] falha ao carregar view:", e?.message || e);
+  }finally{
     clientesIntelInFlight = false;
+    // Garante que o cooldown seja setado mesmo em falha, evitando loop de retry
+    if(!clientesIntelLoadedAt) clientesIntelLoadedAt = Date.now();
   }
 }
 
@@ -11192,7 +11212,10 @@ async function loadOrdersFromSupabaseForCRM(){
       }
     }
     return { bling: nextBling.length, yampi: nextYampi.length };
-  }catch(_e){}
+  }catch(e){
+    console.error("[loadOrdersFromSupabaseForCRM] ❌ falha:", e?.message || e, e);
+    captureError(e, { context: "loadOrdersFromSupabaseForCRM" });
+  }
 }
 
 async function sbSetConfig(chave, valor){
