@@ -24,6 +24,7 @@ import {
   getClientesReativacao as getClientesReativacaoView,
   getClientesSemContato as getClientesSemContatoView,
   getClientesInteligencia as getClientesInteligenciaView,
+  getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
 } from "./viewsApi.js?v=20260316-6";
 import {
@@ -140,10 +141,13 @@ function safeInvokeName(name, ...args){
   }
 }
 
-let CID     = localStorage.getItem("crm_cid")||"";
-let CSEC    = localStorage.getItem("crm_csec")||"";
-let SHOP    = localStorage.getItem("crm_shop")||"";
-let SHOPKEY = localStorage.getItem("crm_shopkey")||"";
+let CID="", CSEC="", SHOP="", SHOPKEY="";
+try{
+  CID     = localStorage.getItem("crm_cid")||"";
+  CSEC    = localStorage.getItem("crm_csec")||"";
+  SHOP    = localStorage.getItem("crm_shop")||"";
+  SHOPKEY = localStorage.getItem("crm_shopkey")||"";
+}catch(_e){ console.warn("[init] localStorage indisponível — modo privado?"); }
 
 let cliMeta = safeJsonParse("crm_climeta", {});
 let cliMetaCache = {};
@@ -270,7 +274,9 @@ try{
 function mergeOrders(){
   if(isLoadingData) return;
   const seen = new Set();
-  allOrders.length = 0;
+  // Build into temp arrays first — swap atomically at the end to
+  // avoid renderDash() reading a half-populated allOrders mid-merge.
+  const nextOrders = [];
 
   const normKey = (v)=>String(v ?? "").trim();
   const safeLower = (v)=>String(v ?? "").toLowerCase().trim();
@@ -281,7 +287,7 @@ function mergeOrders(){
     if(seen.has(sk)) return;
     seen.add(sk);
     try{ o._source = "bling"; }catch(_e){}
-    allOrders.push(normalizeOrderForCRM(o, "bling"));
+    nextOrders.push(normalizeOrderForCRM(o, "bling"));
   });
 
   (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((o, idx)=>{
@@ -303,7 +309,7 @@ function mergeOrders(){
     }
 
     try{ o._source = "yampi"; }catch(_e){}
-    allOrders.push(normalizeOrderForCRM(o, "yampi"));
+    nextOrders.push(normalizeOrderForCRM(o, "yampi"));
   });
 
   (Array.isArray(shopifyOrders) ? shopifyOrders : []).forEach((o, idx)=>{
@@ -314,8 +320,12 @@ function mergeOrders(){
     if(seen.has(sk)) return;
     seen.add(sk);
     try{ o._source = "shopify"; }catch(_e){}
-    allOrders.push(normalizeOrderForCRM(o, "shopify"));
+    nextOrders.push(normalizeOrderForCRM(o, "shopify"));
   });
+
+  // Atomic swap: renderDash() reads allOrders — do this in one shot
+  allOrders.length = 0;
+  allOrders.push(...nextOrders);
 
   const nextCustomers = Object.values(buildCli(allOrders)).map(c=>{
     const sc = calcCliScores(c);
@@ -1275,7 +1285,7 @@ function saveSupabaseConfig(){
   setTimeout(async()=>{
     const connected = await initSupabase();
     if(connected){
-      try{ await loadSupabaseData(); }catch(_e){}
+      try{ await loadSupabaseData(); }catch(e){ console.error("[supabase] loadSupabaseData falhou:", e?.message||e); }
       toast("✓ Supabase conectado com sucesso!");
     }
   }, 300);
@@ -1832,18 +1842,18 @@ async function upsertCarrinhosAbandonadosToSupabase(list){
       }
     }
     const useUpdatedAt = !!globalThis.__carrinhosHasUpdatedAt;
-    for(let i=0;i<baseRows.length;i+=200){
+    for(let i=0;i<baseRows.length;i+=1000){
       const {error} = await supaClient
         .from("carrinhos_abandonados")
-        .upsert((useUpdatedAt ? rowsWithUpdatedAt : rowsFallback).slice(i,i+200), { onConflict: "checkout_id" });
+        .upsert((useUpdatedAt ? rowsWithUpdatedAt : rowsFallback).slice(i,i+1000), { onConflict: "checkout_id" });
       if(error && useUpdatedAt){
         globalThis.__carrinhosHasUpdatedAt = false;
-        const {error: e2} = await supaClient.from("carrinhos_abandonados").upsert(rowsFallback.slice(i,i+200), { onConflict: "checkout_id" });
+        const {error: e2} = await supaClient.from("carrinhos_abandonados").upsert(rowsFallback.slice(i,i+1000), { onConflict: "checkout_id" });
         if(e2){
-          await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+200), { onConflict: "checkout_id" });
+          await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+1000), { onConflict: "checkout_id" });
         }
       }else if(error){
-        await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+200), { onConflict: "checkout_id" });
+        await supaClient.from("carrinhos_abandonados").upsert(rowsFallbackCore.slice(i,i+1000), { onConflict: "checkout_id" });
       }
     }
   }catch(_e){}
@@ -2171,7 +2181,10 @@ async function syncShopify(){
 // ═══════════════════════════════════════════════════
 function startTimers(){
   if(syncTimer) clearInterval(syncTimer);
-  syncTimer=setInterval(async()=>{ try{ await recarregar(true); }catch(e){} },6*60*60*1000);
+  syncTimer=setInterval(async()=>{
+    try{ await recarregar(true); }
+    catch(e){ console.error("[sync-timer] Falha ao sincronizar:", e?.message||e); }
+  },6*60*60*1000);
 }
 async function recarregar(silent=false){
   const icon=document.getElementById("ri"); icon.classList.add("spinning");
@@ -2402,7 +2415,8 @@ function toggleTask(id, done){
     // Sincronizar com v2_tarefas
     if(supaConnected && supaClient && t._supaId){
       const sbStatus = done ? 'concluida' : 'aberta';
-      supaClient.from('v2_tarefas').update({status:sbStatus}).eq('id',t._supaId).then(()=>{});
+      supaClient.from('v2_tarefas').update({status:sbStatus}).eq('id',t._supaId)
+        .then(()=>{}).catch(e=>console.warn("[tarefas] update falhou:", e?.message||e));
     }
   }
 }
@@ -2411,7 +2425,8 @@ function deleteTask(id){
   const t=allTasks.find(t=>t.id===id);
   // Remover do Supabase se tiver UUID
   if(supaConnected && supaClient && t?._supaId){
-    supaClient.from('v2_tarefas').delete().eq('id',t._supaId).then(()=>{});
+    supaClient.from('v2_tarefas').delete().eq('id',t._supaId)
+      .then(()=>{}).catch(e=>console.warn("[tarefas] delete falhou:", e?.message||e));
   }
   allTasks=allTasks.filter(t=>t.id!==id);
   saveTasks(); renderTarefas();
@@ -2419,6 +2434,8 @@ function deleteTask(id){
 }
 
 function openTaskModal(id, cliente, customerId){
+  // Remove qualquer modal anterior antes de inserir novo (evita acúmulo no DOM)
+  document.getElementById("task-modal-overlay")?.remove();
   const t = id ? allTasks.find(t=>t.id===id) : null;
   const html=`
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px" id="task-modal-overlay">
@@ -3251,8 +3268,8 @@ function populateUFs(){
     const s = document.getElementById(id);
     if(!s) return;
     const v = s.value;
-    s.innerHTML = `<option value="">Todos estados</option>`;
-    [...ufs].sort().forEach(uf=>s.innerHTML += `<option>${escapeHTML(uf)}</option>`);
+    s.innerHTML = `<option value="">Todos estados</option>` +
+      [...ufs].sort().map(uf=>`<option>${escapeHTML(uf)}</option>`).join("");
     s.value = v;
   });
 }
@@ -3912,14 +3929,20 @@ async function updateDashSecondaryFromSupabase(){
     elCli.textContent = String(list.length);
     return;
   }
+  // KPIs e Funil em paralelo — são independentes entre si
   try{
-    const k = await getDashboardKpisView(supaClient);
-    if(!k) return;
-    const clientes = Number(k.total_clientes || 0) || 0;
-    const ltvMedio = Number(k.ltv_medio || 0) || 0;
-    elLtv.textContent = fmtBRL(ltvMedio);
-    elCli.textContent = String(clientes);
-  }catch(_e){}
+    const [k, funilRows] = await Promise.all([
+      getDashboardKpisView(supaClient),
+      getFunilRecompraView(supaClient)
+    ]);
+    if(k){
+      const clientes = Number(k.total_clientes || 0) || 0;
+      const ltvMedio = Number(k.ltv_medio || 0) || 0;
+      elLtv.textContent = fmtBRL(ltvMedio);
+      elCli.textContent = String(clientes);
+    }
+    renderDashV2Funil(funilRows);
+  }catch(e){ console.warn("[dashboard] falha ao carregar KPIs/funil:", e?.message||e); }
 }
 
 function renderDashKpiSparklines(ctx){
@@ -4698,14 +4721,31 @@ async function renderDashExtraLists(ctx){
   }
 
   if(supaConnected && supaClient){
+    // Quando sem filtro ativo: busca as 4 views em paralelo (1 RTT em vez de 4)
+    let topCitiesPre = null, semContatoPre = null, rowsReatPre = null, rowsVipPre = null;
+    if(!filterActive){
+      [topCitiesPre, semContatoPre, rowsReatPre, rowsVipPre] = await Promise.all([
+        getTopCidadesView(supaClient, 10)
+          .catch(e=>{ console.warn("[dashboard] top cidades:", e?.message||e); return []; }),
+        getClientesSemContatoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] sem contato:", e?.message||e); return []; }),
+        getClientesReativacaoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] reativação:", e?.message||e); return []; }),
+        getClientesVipRiscoView(supaClient, 8)
+          .catch(e=>{ console.warn("[dashboard] vip risco:", e?.message||e); return []; })
+      ]);
+    }
+
+    // Top Cidades
     try{
       if(filterActive){
         renderDashTopCidadesFromOrders(ordersSales);
       }else{
-        const topCities = await getTopCidadesView(supaClient, 10);
-        renderDashV2TopCidades(topCities);
+        renderDashV2TopCidades(topCitiesPre);
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar top cidades:", e?.message||e); }
+
+    // Sem Contato
     try{
       if(filterActive){
         const el = document.getElementById("dashv2-sem-contato");
@@ -4726,10 +4766,11 @@ async function renderDashExtraLists(ctx){
           }).join("");
         }
       }else{
-        const semContato = await getClientesSemContatoView(supaClient, 8);
-        renderDashV2SemContato(semContato);
+        renderDashV2SemContato(semContatoPre);
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar sem contato:", e?.message||e); }
+
+    // Reativação Prioritária
     try{
       const riskEl = document.getElementById("dashv2-risk");
       if(riskEl){
@@ -4751,8 +4792,7 @@ async function renderDashExtraLists(ctx){
             </div>`;
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }else{
-          const rows = await getClientesReativacaoView(supaClient, 8);
-          riskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          riskEl.innerHTML = (Array.isArray(rowsReatPre) ? rowsReatPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "Cliente");
             const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
@@ -4763,10 +4803,12 @@ async function renderDashExtraLists(ctx){
               <div class="top-val">${escapeHTML(ltv)}</div>
               <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
             </div>`;
-          }).join("") || `<div class="empty">Sem dados no período</div>`;
+          }).join("") || `<div class="empty">Sem reativação prioritária.</div>`;
         }
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar reativação:", e?.message||e); }
+
+    // VIP em Risco
     try{
       const vipRiskEl = document.getElementById("dashv2-vip-risk");
       if(vipRiskEl){
@@ -4788,8 +4830,7 @@ async function renderDashExtraLists(ctx){
             </div>`;
           }).join("") || `<div class="empty">Sem dados no período</div>`;
         }else{
-          const rows = await getClientesVipRiscoView(supaClient, 8);
-          vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+          vipRiskEl.innerHTML = (Array.isArray(rowsVipPre) ? rowsVipPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "VIP");
             const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
@@ -4800,13 +4841,14 @@ async function renderDashExtraLists(ctx){
               <div class="top-val">${escapeHTML(ltv)}</div>
               <button class="opp-mini-btn" onclick="event.stopPropagation();openWaModal('${id}')">WA</button>
             </div>`;
-          }).join("") || `<div class="empty">Sem dados no período</div>`;
+          }).join("") || `<div class="empty">Sem VIPs em risco no período.</div>`;
         }
       }
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar VIP em risco:", e?.message||e); }
+
     try{
       renderDashV2NextActions((clientesIntelCache||[]));
-    }catch(_e){}
+    }catch(e){ console.warn("[dashboard] falha ao renderizar próximas ações:", e?.message||e); }
   }else{
     renderDashTopCidadesFromOrders(ordersAllRange);
     const riskEl = document.getElementById("dashv2-risk");
@@ -4934,6 +4976,9 @@ function dashDeltaBadge(delta){
   return `<span style="color:${color}">${up ? "▲" : "▼"}${Math.abs(delta).toFixed(1)}%</span>`;
 }
 
+// ATENÇÃO: renderDashV2 nunca é chamada (código morto).
+// O fluxo real usa renderDashExtraLists + updateDashSecondaryFromSupabase.
+// Mantida para referência até revisão futura.
 async function renderDashV2(){
   const host = document.getElementById("dashv2-card");
   if(!host) return;
@@ -5003,10 +5048,15 @@ async function renderDashV2(){
     novosClientesPrev = (Array.isArray(novosPrev) ? novosPrev : []).reduce((s,r)=>s + (Number(r?.novos_clientes||0)||0), 0);
     renderDashV2NovosClientes(novosSeries);
 
+    // Fetch reativação + VIP risk in parallel — saves one full round-trip
+    const [rowsReat, rowsVip] = await Promise.all([
+      (riskEl    ? getClientesReativacaoView(supaClient, 8) : Promise.resolve([])),
+      (vipRiskEl ? getClientesVipRiscoView(supaClient, 8)  : Promise.resolve([]))
+    ]);
+
     const reativacaoEl = riskEl;
     if(reativacaoEl){
-      const rows = await getClientesReativacaoView(supaClient, 8);
-      reativacaoEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+      reativacaoEl.innerHTML = (Array.isArray(rowsReat) ? rowsReat : []).map((c, idx)=>{
         const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
         const nome = String(c?.nome || "Cliente");
         const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
@@ -5021,8 +5071,7 @@ async function renderDashV2(){
     }
 
     if(vipRiskEl){
-      const rows = await getClientesVipRiscoView(supaClient, 8);
-      vipRiskEl.innerHTML = (Array.isArray(rows) ? rows : []).map((c, idx)=>{
+      vipRiskEl.innerHTML = (Array.isArray(rowsVip) ? rowsVip : []).map((c, idx)=>{
         const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
         const nome = String(c?.nome || "VIP");
         const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");

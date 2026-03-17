@@ -15,8 +15,19 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Cache Supabase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.supabase
+          key: supabase-cli-${{ runner.os }}-${{ hashFiles('supabase/config.toml') }}
+          restore-keys: |
+            supabase-cli-${{ runner.os }}-
 
       - uses: supabase/setup-cli@v1
         with:
@@ -25,28 +36,44 @@ jobs:
       - name: Validate secrets
         run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "Missing SUPABASE_ACCESS_TOKEN secret"
+            echo "::error::Secret SUPABASE_ACCESS_TOKEN não está configurado no repositório."
             exit 1
           fi
           if [ -z "$SUPABASE_PROJECT_ID" ]; then
-            echo "Missing SUPABASE_PROJECT_ID secret"
+            echo "::error::Secret SUPABASE_PROJECT_ID não está configurado no repositório."
             exit 1
           fi
+          echo "✓ Secrets validados com sucesso."
 
-      - name: Deploy bling-renew-token
-        run: supabase functions deploy bling-renew-token --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
+      - name: Detect changed functions
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            FUNCTIONS=$(ls supabase/functions/ | tr '\n' ' ')
+            echo "Trigger manual — deployando todas as funções: $FUNCTIONS"
+          else
+            FUNCTIONS=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/**' \
+              | grep -oP 'supabase/functions/\K[^/]+' \
+              | sort -u \
+              | tr '\n' ' ')
+            echo "Push detectado — funções alteradas: ${FUNCTIONS:-nenhuma}"
+          fi
+          echo "functions=$FUNCTIONS" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy bling-sync
-        run: supabase functions deploy bling-sync --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
+      - name: Deploy Edge Functions
+        if: steps.changed.outputs.functions != ''
+        run: |
+          for fn in ${{ steps.changed.outputs.functions }}; do
+            echo "→ Deploying $fn"
+            supabase functions deploy "$fn" \
+              --project-ref "$SUPABASE_PROJECT_ID"
+          done
 
-      - name: Deploy bling-products-sync
-        run: supabase functions deploy bling-products-sync --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
-
-      - name: Deploy yampi-webhook
-        run: supabase functions deploy yampi-webhook --no-verify-jwt --project-ref $SUPABASE_PROJECT_ID
-
-      - name: Deploy ia-claude
-        run: supabase functions deploy ia-claude --project-ref $SUPABASE_PROJECT_ID
-
-      - name: Deploy ia-commercial
-        run: supabase functions deploy ia-commercial --project-ref $SUPABASE_PROJECT_ID
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Deploy falhou — verifique os logs acima."
+          # Para notificação via Slack, configure o secret SLACK_WEBHOOK_URL e descomente:
+          # curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+          #   -H "Content-Type: application/json" \
+          #   -d "{\"text\":\"❌ *Deploy falhou* em \`${{ github.repository }}\` (branch: \`${{ github.ref_name }}\`)\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver logs>\"}"
