@@ -237,6 +237,7 @@ window.CRMStore = CRMStore;
         }
       }catch(_e){}
 
+      console.log('DEBUG AUTH: Verificando sessão existente...');
       const session = await refreshSupabaseSession();
       const email = String(session?.user?.email || "").trim().toLowerCase();
       if(session && session.access_token && email){
@@ -245,10 +246,19 @@ window.CRMStore = CRMStore;
         enterApp(email);
         return;
       }
-      forceLogout("");
+      // Sessão nula: se o usuário já tinha feito login antes, apenas mostra a tela
+      // de login sem apagar as credenciais salvas — pode ser só refresh de token expirado.
+      const hadLogin = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+      console.log('DEBUG AUTH: Sessão nula. hadLogin:', hadLogin);
+      if(!hadLogin){
+        forceLogout("");
+      }
+      // se hadLogin=true, a tela de login já está visível por padrão — não fazemos nada
       return;
     }catch(_e){
-      forceLogout("");
+      console.warn('DEBUG AUTH: Erro ao verificar sessão:', _e?.message || _e);
+      const hadLogin = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+      if(!hadLogin) forceLogout("");
       return;
     }
   }
@@ -282,8 +292,6 @@ try{
     if(CSEC){ const el=document.getElementById("inp-csec"); if(el) el.value=CSEC; }
     if(SHOP){ const el=document.getElementById("inp-shop"); if(el) el.value=SHOP; }
     if(SHOPKEY){ const el=document.getElementById("inp-shopkey"); if(el) el.value=SHOPKEY; }
-    
-    localStorage.removeItem("crm_ai_key");
     
     loadTemplatesUI();
   })();
@@ -635,6 +643,9 @@ async function handleLoginSubmit(e){
         return false;
       }
 
+      // Carrega dados ANTES de entrar no app para que o dashboard não fique em branco
+      try{ await loadSupabaseData(); }catch(_e){ console.warn("[login] loadSupabaseData falhou:", _e?.message || _e); }
+
       localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
       localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
       enterApp(canonicalEmail);
@@ -722,8 +733,13 @@ function enterApp(userEmail){
 
   (async()=>{
     try{
-      const connected = await initSupabase();
-      if(connected) await loadSupabaseData();
+      // Se já conectamos e carregamos os dados (ex: logo após handleLoginSubmit),
+      // pulamos init+load para não duplicar e exibir dados em branco novamente.
+      const alreadyReady = supaConnected && dataReady;
+      if(!alreadyReady){
+        const connected = await initSupabase();
+        if(connected) await loadSupabaseData();
+      }
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
       try{ scheduleAutoBlingSync(); }catch(_e){}
