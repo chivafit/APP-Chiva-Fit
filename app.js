@@ -27,7 +27,7 @@ import {
   getClientesInteligencia as getClientesInteligenciaView,
   getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260317-16";
+} from "./viewsApi.js?v=20260317-17";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,

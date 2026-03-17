@@ -142,7 +142,7 @@ export async function getNewCustomersDaily(client, fromIso, toIso){
 export async function getFunilRecompra(client){
   try{
     const select = "dias_sem_comprar";
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(50000);
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
     if(error){
       logDashQueryError({ op: "getFunilRecompra", view: DASHBOARD_ANALYTICS_VIEW, select, error });
       return [];
@@ -179,7 +179,7 @@ export async function getTopCidades(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
     const select = "cidade,uf,cliente_id,receita_total,total_pedidos";
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(50000);
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
     if(error){
       logDashQueryError({ op: "getTopCidades", view: DASHBOARD_ANALYTICS_VIEW, select, error });
       return [];
@@ -192,13 +192,12 @@ export async function getTopCidades(client, limit){
       const uf = asText(r?.uf).toUpperCase();
       const key = cidade + "::" + uf;
       if(!agg.has(key)){
-        agg.set(key, { cidade, uf, pedidos: 0, faturamento: 0, total_clientes: 0, _ids: new Set() });
+        agg.set(key, { cidade, uf, pedidos: 0, faturamento: 0, total_clientes: 0 });
       }
       const it = agg.get(key);
       it.pedidos += asNum(r?.total_pedidos);
       it.faturamento += asNum(r?.receita_total);
-      const id = asText(r?.cliente_id);
-      if(id){ it._ids.add(id); it.total_clientes = it._ids.size; }
+      it.total_clientes += 1;
     });
     const out = Array.from(agg.values()).map(x=>({
       cidade: x.cidade,
@@ -276,7 +275,7 @@ function normalizeClienteCardRow(r){
 export async function getClientesVipRisco(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(50000);
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(10000);
     if(error){
       logDashQueryError({ op: "getClientesVipRisco", view: DASHBOARD_ANALYTICS_VIEW, select: CLIENTES_CARD_COLS, error });
       return [];
@@ -296,7 +295,7 @@ export async function getClientesVipRisco(client, limit){
 export async function getClientesReativacao(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(50000);
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(CLIENTES_CARD_COLS).limit(10000);
     if(error){
       logDashQueryError({ op: "getClientesReativacao", view: DASHBOARD_ANALYTICS_VIEW, select: CLIENTES_CARD_COLS, error });
       return [];
@@ -316,7 +315,7 @@ export async function getClientesSemContato(client, limit){
   const n = Math.max(1, Math.min(50, Number(limit) || 10));
   try{
     const select = CLIENTES_CARD_COLS;
-    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(50000);
+    const { data, error } = await client.from(DASHBOARD_ANALYTICS_VIEW).select(select).limit(10000);
     if(error){
       logDashQueryError({ op: "getClientesSemContato", view: DASHBOARD_ANALYTICS_VIEW, select, error });
       return [];
