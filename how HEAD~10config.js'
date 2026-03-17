@@ -131,4 +131,177 @@
 [32m+[m[32m      if(!hit) return false;[m
 [32m+[m[32m    }[m
 [32m+[m[32m    return true;[m
-[32m+[m[32m  })
+[32m+[m[32m  }).map(c=>{[m
+[32m+[m[32m    const calc = calcularScoreRecuperacaoCarrinho(c, lookup);[m
+[32m+[m[32m    const score = c.score_recuperacao==null ? calc.score : Number(c.score_recuperacao||0);[m
+[32m+[m[32m    const prio  = prioridadePorScore(score);[m
+[32m+[m[32m    const etapa = sugerirEtapaParaCarrinho(c, calc.mins);[m
+[32m+[m[32m    const itens = Array.isArray(c.produtos)?c.produtos:[];[m
+[32m+[m[32m    const prodTxt = itens.slice(0,5).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join("; ");[m
+[32m+[m[32m    const pipeline = c.recuperado?"Recuperado":c.perdido?"Perdido":c.last_etapa_enviada?"Contatado":"Novo";[m
+[32m+[m[32m    const dtCriado = c.criado_em ? new Date(c.criado_em).toLocaleString("pt-BR") : "";[m
+[32m+[m[32m    const dtRec    = c.recuperado_em ? new Date(c.recuperado_em).toLocaleString("pt-BR") : "";[m
+[32m+[m[32m    return [c.cliente_nome||"", c.telefone||"", c.email||"", Number(c.valor||0).toFixed(2).replace(".",","), String(Math.round(score)), prio.label, pipeline, etapa.label||"", prodTxt, dtCriado, dtRec, c.recuperado_pedido_id||"", c.link_finalizacao||"", c.responsavel||""];[m
+[32m+[m[32m  });[m
+[32m+[m
+[32m+[m[32m  const header = ["Nome","Telefone","Email","Valor (R$)","Score","Prioridade","Pipeline","Próxima etapa","Produtos","Criado em","Recuperado em","Pedido recuperado","Link finalização","Responsável"];[m
+[32m+[m[32m  const rows = [header, ...list].map(r=>r.map(csvEscape).join(",")).join("\r\n");[m
+[32m+[m[32m  downloadCSV(`carrinhos_abandonados_${new Date().toISOString().slice(0,10)}.csv`, rows);[m
+[32m+[m[32m  toast(`✓ ${list.length} carrinho${list.length!==1?"s":""} exportado${list.length!==1?"s":""}!`, "success");[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/* ═══════════════════════════════════════════════════[m
+[32m+[m[32m   G — FUNIL DE CONVERSÃO POR ETAPA[m
+[32m+[m[32m═══════════════════════════════════════════════════ */[m
+[32m+[m[32mlet carrinhosFunilVisible = false;[m
+[32m+[m
+[32m+[m[32mfunction toggleCarrinhosFunil(){[m
+[32m+[m[32m  carrinhosFunilVisible = !carrinhosFunilVisible;[m
+[32m+[m[32m  const el = document.getElementById("carrinhos-funil");[m
+[32m+[m[32m  const btn = document.getElementById("car-funil-btn");[m
+[32m+[m[32m  if(el) el.style.display = carrinhosFunilVisible ? "" : "none";[m
+[32m+[m[32m  if(btn) btn.style.fontWeight = carrinhosFunilVisible ? "800" : "";[m
+[32m+[m[32m  if(carrinhosFunilVisible) renderCarrinhosFunil();[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction renderCarrinhosFunil(enrichedList){[m
+[32m+[m[32m  const el = document.getElementById("carrinhos-funil");[m
+[32m+[m[32m  if(!el || !carrinhosFunilVisible) return;[m
+[32m+[m[32m  const list = enrichedList || (carrinhosAbandonados||[]).map(c=>{[m
+[32m+[m[32m    const n = normalizeCarrinhoAbandonado(c);[m
+[32m+[m[32m    const calc = calcularScoreRecuperacaoCarrinho(n, buildClienteLookupParaCarrinhos());[m
+[32m+[m[32m    return Object.assign({}, n, {tempo_min: calc.mins});[m
+[32m+[m[32m  });[m
+[32m+[m
+[32m+[m[32m  const total = list.length;[m
+[32m+[m[32m  if(!total){ el.innerHTML = '<div style="text-align:center;font-size:12px;color:var(--text-3);padding:12px">Sem dados.</div>'; return; }[m
+[32m+[m
+[32m+[m[32m  const stages = [[m
+[32m+[m[32m    { id:"novo",      label:"Novo",            color:"#64748b", count: list.filter(c=>!c.recuperado&&!c.perdido&&!c.last_etapa_enviada).length },[m
+[32m+[m[32m    { id:"ajuda",     label:"Ajuda enviada",   color:"#3b82f6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="ajuda").length },[m
+[32m+[m[32m    { id:"link",      label:"Link enviado",    color:"#8b5cf6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="link").length },[m
+[32m+[m[32m    { id:"incentivo", label:"Incentivo",       color:"#f59e0b", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="incentivo").length },[m
+[32m+[m[32m    { id:"recuperado",label:"Recuperado ✓",    color:"#10b981", count: list.filter(c=>c.recuperado).length },[m
+[32m+[m[32m    { id:"perdido",   label:"Perdido ✗",       color:"#ef4444", count: list.filter(c=>c.perdido&&!c.recuperado).length },[m
+[32m+[m[32m  ];[m
+[32m+[m
+[32m+[m[32m  const max = Math.max(...stages.map(s=>s.count), 1);[m
+[32m+[m[32m  el.innerHTML =[m
+[32m+[m[32m    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'+[m
+[32m+[m[32m      '<span style="font-size:13px;font-weight:800">📊 Funil de conversão</span>'+[m
+[32m+[m[32m      '<span style="font-size:11px;color:var(--text-3)">'+ escapeHTML(String(total))+' carrinho'+( total!==1?"s":"")+'</span>'+[m
+[32m+[m[32m    '</div>'+[m
+[32m+[m[32m    stages.map(s=>{[m
+[32m+[m[32m      const pct = total ? Math.round(s.count/total*100) : 0;[m
+[32m+[m[32m      const barW = max ? Math.round(s.count/max*100) : 0;[m
+[32m+[m[32m      return '<div class="car-funil-row">'+[m
+[32m+[m[32m        '<div class="car-funil-label">'+escapeHTML(s.label)+'</div>'+[m
+[32m+[m[32m        '<div class="car-funil-bar-wrap"><div class="car-funil-bar-fill" style="width:'+barW+'%;background:'+s.color+'"></div></div>'+[m
+[32m+[m[32m        '<div class="car-funil-count">'+escapeHTML(String(s.count))+'</div>'+[m
+[32m+[m[32m        '<div class="car-funil-pct">'+escapeHTML(String(pct))+'%</div>'+[m
+[32m+[m[32m      '</div>';[m
+[32m+[m[32m    }).join("");[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/* ═══════════════════════════════════════════════════[m
+[32m+[m[32m   H — ATRIBUIÇÃO DE RESPONSÁVEL[m
+[32m+[m[32m═══════════════════════════════════════════════════ */[m
+[32m+[m[32mfunction populateCarRespFilter(){[m
+[32m+[m[32m  const sel = document.getElementById("car-responsavel");[m
+[32m+[m[32m  if(!sel) return;[m
+[32m+[m[32m  const users = loadAccessUsers();[m
+[32m+[m[32m  const current = sel.value;[m
+[32m+[m[32m  // Manter opção padrão[m
+[32m+[m[32m  sel.innerHTML = '<option value="">Responsável</option>';[m
+[32m+[m[32m  // Usuários cadastrados[m
+[32m+[m[32m  users.forEach(u=>{[m
+[32m+[m[32m    const label = String(u.email||"").split("@")[0] || String(u.email||"");[m
+[32m+[m[32m    const opt = document.createElement("option");[m
+[32m+[m[32m    opt.value = String(u.email||"");[m
+[32m+[m[32m    opt.textContent = label;[m
+[32m+[m[32m    if(u.email===current) opt.selected = true;[m
+[32m+[m[32m    sel.appendChild(opt);[m
+[32m+[m[32m  });[m
+[32m+[m[32m  // Responsáveis já atribuídos mas não mais cadastrados[m
+[32m+[m[32m  const existentes = [...new Set((carrinhosAbandonados||[]).map(c=>String(c.responsavel||"")).filter(Boolean))];[m
+[32m+[m[32m  existentes.forEach(r=>{[m
+[32m+[m[32m    if(!users.find(u=>u.email===r)){[m
+[32m+[m[32m      const opt = document.createElement("option");[m
+[32m+[m[32m      opt.value = r; opt.textContent = r;[m
+[32m+[m[32m      if(r===current) opt.selected = true;[m
+[32m+[m[32m      sel.appendChild(opt);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  });[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction atribuirResponsavelCarrinho(checkoutId, responsavel){[m
+[32m+[m[32m  const cid = String(checkoutId||"");[m
+[32m+[m[32m  const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);[m
+[32m+[m[32m  if(idx<0) return;[m
+[32m+[m[32m  carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), { responsavel: responsavel||null });[m
+[32m+[m[32m  safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));[m
+[32m+[m[32m  if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mwindow.exportCarrinhosCSV = exportCarrinhosCSV;[m
+[32m+[m[32mwindow.toggleCarrinhosFunil = toggleCarrinhosFunil;[m
+[32m+[m[32mwindow.renderCarrinhosFunil = renderCarrinhosFunil;[m
+[32m+[m[32mwindow.atribuirResponsavelCarrinho = atribuirResponsavelCarrinho;[m
+[32m+[m[32mwindow.populateCarRespFilter = populateCarRespFilter;[m
+[32m+[m
+[32m+[m[32m/* ═══════════════════════════════════════════════════[m
+[32m+[m[32m   F — HISTÓRICO DE INTERAÇÕES POR CARRINHO[m
+[32m+[m[32m═══════════════════════════════════════════════════ */[m
+[32m+[m[32masync function openCarrinhoHistorico(checkoutId){[m
+[32m+[m[32m  const modal  = document.getElementById("car-history-modal");[m
+[32m+[m[32m  const body   = document.getElementById("car-hist-body");[m
+[32m+[m[32m  const metaEl = document.getElementById("car-hist-meta");[m
+[32m+[m[32m  if(!modal || !body) return;[m
+[32m+[m
+[32m+[m[32m  const cid = String(checkoutId||"");[m
+[32m+[m[32m  const c = (carrinhosAbandonados||[]).find(x=>String(x?.checkout_id||"")===cid);[m
+[32m+[m[32m  if(!c){ toast("Carrinho não encontrado.","error"); return; }[m
+[32m+[m
+[32m+[m[32m  const nome  = escapeHTML(c.cliente_nome||"—");[m
+[32m+[m[32m  const valor = escapeHTML(fmtBRL(c.valor||0));[m
+[32m+[m[32m  if(metaEl) metaEl.textContent = `${c.cliente_nome||"—"} · ${valor}`;[m
+[32m+[m[32m  body.innerHTML = '<div style="text-align:center;padding:20px 0;color:var(--text-3);font-size:12px">Carregando...</div>';[m
+[32m+[m[32m  modal.style.display = "";[m
+[32m+[m
+[32m+[m[32m  if(!supaConnected || !supaClient){[m
+[32m+[m[32m    body.innerHTML = '<div style="padding:16px 0;text-align:center;font-size:12px;color:var(--text-3)">Conexão com Supabase necessária para ver o histórico.</div>';[m
+[32m+[m[32m    return;[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  try{[m
+[32m+[m[32m    const customerKey = String(c.email||"").trim().toLowerCase() || rawPhone(c.telefone||"") || "";[m
+[32m+[m[32m    let rows = [];[m
+[32m+[m
+[32m+[m[32m    if(customerKey){[m
+[32m+[m[32m      const uuid = await resolveCustomerUuid(customerKey).catch(()=>null);[m
+[32m+[m[32m      if(uuid){[m
+[32m+[m[32m        const {data} = await supaClient[m
+[32m+[m[32m          .from("interactions")[m
+[32m+[m[32m          .select("id,type,description,created_at,user_responsible,metadata")[m
+[32m+[m[32m          .eq("customer_id", uuid)[m
+[32m+[m[32m          .order("created_at", {ascending:false})[m
+[32m+[m[32m          .limit(50);[m
+[32m+[m[32m        rows = data || [];[m
+[32m+[m[32m      }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    // Filtrar para este carrinho especificamente (metadata.checkout_id) ou tipo recovery[m
+[32m+[m[32m    const local = rows.filter(r=>[m
+[32m+[m[32m      (r.metadata && String(r.metadata.checkout_id||"")===cid) ||[m
+[32m+[m[32m      String(r.type||"").includes("carrinho") ||[m
+[32m+[m[32m      String(r.description||"").toLowerCase().includes("carrinho")[m
+[32m+[m[32m    );[m
+[32m+[m[32m    // Mostrar local-specific primeiro, depois o resto se < 5 total[m
+[32m+[m[32m    const display = local.length ? local : rows.slice(0,20);[m
+[32m+[m
+[32m+[m[32m    if(!display.length){[m
+[32m+[m[32m      body.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-3)">Nenhuma interação registrada. O histórico é criado ao enviar mensagens pelo CRM.</div>';[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const typeIc

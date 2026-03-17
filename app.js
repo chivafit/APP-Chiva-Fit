@@ -667,6 +667,9 @@ function enterApp(userEmail){
   const shell = document.getElementById("app-shell");
   if(shell){
     shell.style.display="flex";
+    // Força o navegador a reconhecer o display:flex antes de iniciar a transição
+    void shell.offsetWidth; 
+    shell.style.opacity="1";
     shell.classList.add("visible");
   }
   const emojiEl = document.getElementById("user-emoji");
@@ -2752,13 +2755,13 @@ function showPage(id){
   // Skeleton no dashboard enquanto dados não carregaram
   if(id==="dashboard"){
     const kpisEl = document.getElementById("dash-kpis");
-    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = renderDashKpiSkeletons();
+    if(kpisEl && !kpisEl.querySelector(".dash-kpi")) kpisEl.innerHTML = typeof renderDashKpiSkeletons === "function" ? renderDashKpiSkeletons() : "";
   }
   // Skeleton na lista de clientes ao entrar na página
   if(id==="clientes"){
     const listEl = document.getElementById("client-list");
     if(listEl && !listEl.querySelector(".client-card") && !listEl.querySelector(".client-card-skeleton"))
-      listEl.innerHTML = renderClienteSkeletons(7);
+      listEl.innerHTML = typeof renderClienteSkeletons === "function" ? renderClienteSkeletons(7) : "";
   }
 
   // Close mobile sidebar
