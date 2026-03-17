@@ -13,9 +13,29 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
-<script src="./config.js?v=20260313-3"></script>
-<script type="module" src="./main.js?v=20260313-3"></script>
-<link rel="stylesheet" href="./main.css?v=20260313-3">
+<script src="./config.js?v=20260316-6"></script>
+<script type="module">
+  import { getSupabaseSession } from "./supabaseClient.js?v=20260316-6";
+
+  function readLS(key){
+    try{ return String(localStorage.getItem(key) || ""); }catch(_e){ return ""; }
+  }
+
+  const url = String(window.APP_CONFIG?.supabaseUrl || readLS("crm_supa_url") || readLS("supabase_url") || "").trim();
+  const key = String(window.APP_CONFIG?.supabaseAnonKey || readLS("crm_supa_key") || readLS("supabase_key") || "").trim();
+
+  if(!url || !key){
+    window.location.replace("./login.html");
+  } else {
+    const session = await getSupabaseSession(url, key);
+    if(!session?.access_token){
+      window.location.replace("./login.html");
+    } else {
+      await import("./main.js?v=20260316-6");
+    }
+  }
+</script>
+<link rel="stylesheet" href="./main.css?v=20260316-6">
 </head>
 <body>
 
@@ -229,9 +249,11 @@
   <div id="dash-insights-day"></div>
   <div id="auto-insights"></div>
 
-  <!-- ── KPIs ── -->
-  <div class="stat-grid" id="dash-stats"></div>
-  <div class="stat-grid dash-stats-secondary" id="dash-stats-secondary"></div>
+  <div class="dash-shell">
+    <div class="dash-main-col">
+      <div class="dash-top-grid">
+        <div class="dash-kpis" id="dash-kpis"></div>
+      </div>
 
   <!-- ══ Seção: Diagnóstico ══ -->
   <div class="dash-section-heading">
@@ -347,9 +369,76 @@
           <input type="month" id="cmp-a" onchange="renderCompare()"/>
           <span style="font-size:10px;color:var(--text-3)">vs</span>
           <input type="month" id="cmp-b" onchange="renderCompare()"/>
+      </div>
+      </div>
+
+      <div class="dash-bottom-grid">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="dash-card-title-row">
+              <span class="dash-card-icon">💡</span>
+              <div class="chart-title">Insights do Dia</div>
+            </div>
+            <div class="dash-card-actions">
+              <button class="dash-btn" onclick="showPage('ia')">Enviar Campanha</button>
+              <button class="dash-btn dash-btn-ghost" onclick="showPage('inteligencia')">Ver Todos</button>
+            </div>
+          </div>
+          <div class="dash-insights-list" id="dash-insights-list"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="dash-card-title-row">
+              <span class="dash-card-icon">🗺️</span>
+              <div class="chart-title">Cidades com + Pedidos</div>
+            </div>
+          </div>
+          <div class="dash-geo-grid">
+            <div class="dash-map" id="dash-brazil-map">
+              <div class="dash-map-loading">Carregando mapa...</div>
+            </div>
+            <div class="dash-geo-list" id="dash-top-cities"></div>
+          </div>
         </div>
       </div>
-      <div id="cmp-body"></div>
+    </div>
+
+    <div class="dash-side-col">
+      <div class="chart-card dash-side-card">
+        <div class="chart-card-header">
+          <div class="dash-side-title">
+            <div class="chart-title">Clientes Novos</div>
+            <div class="dash-side-meta">
+              <div class="dash-side-value" id="dash-new-count">—</div>
+              <div class="dash-side-delta" id="dash-new-delta"></div>
+            </div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:180px"><canvas id="chart-canal"></canvas></div>
+        <div id="canal-table" class="dash-donut-table"></div>
+      </div>
+
+      <div class="chart-card dash-side-card">
+        <div class="chart-card-header">
+          <div class="chart-title">Produtos Mais Vendidos</div>
+        </div>
+        <div class="dash-products-list" id="dash-top-products"></div>
+      </div>
+
+      <div class="chart-card dash-side-card">
+        <div class="chart-card-header">
+          <div class="chart-title">Alertas</div>
+          <div class="dash-pill-badge" id="dash-alerts-badge" style="display:none"></div>
+        </div>
+        <div class="dash-alerts-list" id="dash-alerts-mini"></div>
+      </div>
+
+      <div class="chart-card dash-side-card">
+        <div class="chart-card-header">
+          <div class="chart-title">Clientes VIP</div>
+        </div>
+        <div class="dash-vip-list" id="dash-vips-mini"></div>
+      </div>
     </div>
   </div>
 
@@ -797,6 +886,14 @@
         <input class="inp" id="inp-supa-key" type="password" placeholder="sb-anon-key..."/>
         <button class="btn-primary" onclick="saveSupabaseConfig()">Salvar & Testar Conexão</button>
         <button class="btn" style="margin-top:8px" onclick="auditSupabaseSchema()">Auditar schema & RLS</button>
+        <label style="margin-top:14px">Link para abrir em outro navegador</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="inp" id="supa-share-url" readonly placeholder="(após configurar, o link aparecerá aqui)"/>
+          <button class="btn" id="btn-copy-supa-link" onclick="copySupabaseShareLink()" disabled>Copiar link</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.4">
+          Use este link quando abrir em modo anônimo, outro navegador ou outro computador. Ele preenche automaticamente a URL e a anon key.
+        </div>
         <div id="supa-status" class="setup-status"></div>
         <div id="supa-audit" class="setup-status" style="white-space:pre-wrap"></div>
       </div>

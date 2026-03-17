@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260313-3";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-6";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,11 +8,11 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260313-3";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260313-3";
-import { CRMStore } from "./store.js?v=20260313-3";
-import { STORAGE_KEYS } from "./constants.js?v=20260313-3";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260313-3";
+} from "./ia.js?v=20260316-6";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem } from "./utils.js?v=20260316-6";
+import { CRMStore } from "./store.js?v=20260316-6";
+import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
+import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -26,18 +26,18 @@ import {
   getClientesInteligencia as getClientesInteligenciaView,
   getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260313-3";
+} from "./viewsApi.js?v=20260316-6";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260313-3";
+} from "./sync/bling.js?v=20260316-6";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260313-3";
+} from "./sync/yampi.js?v=20260316-6";
 
 document.addEventListener("DOMContentLoaded",function(){
   if(window.Chart){
@@ -901,7 +901,17 @@ function forceLogout(reason){
 
 function goLogout(){
   if(!confirm("Sair?"))return;
-  forceLogout("");
+  (async()=>{
+    try{
+      const url = getSupabaseProjectUrl();
+      const key = getSupabaseAnonKey();
+      if(url && key && supaClient?.auth && typeof supaClient.auth.signOut === "function"){
+        await supaClient.auth.signOut();
+      }
+    }catch(_e){}
+    forceLogout("");
+    try{ window.location.replace("./login.html"); }catch(_e){}
+  })();
 }
 window.goLogout = goLogout;
 
@@ -1270,6 +1280,7 @@ function saveSupabaseConfig(){
   localStorage.setItem("crm_supa_key", key);
 
   if(st){ st.textContent="✓ Salvo! Conectando..."; st.className="setup-status s-ok"; }
+  renderSupabaseShareLink();
 
   setTimeout(async()=>{
     const connected = await initSupabase();
@@ -1278,6 +1289,66 @@ function saveSupabaseConfig(){
       toast("✓ Supabase conectado com sucesso!");
     }
   }, 300);
+}
+
+function getSupabaseShareUrl(){
+  const u =
+    (document.getElementById("inp-supa-url")?.value || "").trim() ||
+    String(localStorage.getItem("crm_supa_url") || localStorage.getItem("supa_url") || localStorage.getItem("supabase_url") || "").trim();
+  const k =
+    (document.getElementById("inp-supa-key")?.value || "").trim() ||
+    String(localStorage.getItem("crm_supa_key") || localStorage.getItem("supa_key") || localStorage.getItem("supabase_key") || "").trim();
+  if(!u || !k) return "";
+  let base = "";
+  try{
+    base = String(window.location.origin || "") + String(window.location.pathname || "");
+  }catch(_e){}
+  if(!base) base = String(window.location.href || "").split("#")[0].split("?")[0];
+  const params = new URLSearchParams();
+  params.set("supa_url", u);
+  params.set("supa_key", k);
+  return base + "?" + params.toString() + "#config";
+}
+
+function renderSupabaseShareLink(){
+  const el = document.getElementById("supa-share-url");
+  const btn = document.getElementById("btn-copy-supa-link");
+  if(!el && !btn) return;
+  const link = getSupabaseShareUrl();
+  if(el) el.value = link;
+  if(btn) btn.disabled = !link;
+}
+
+function copySupabaseShareLink(){
+  const link = getSupabaseShareUrl();
+  if(!link){
+    toast("⚠ Configure o Supabase primeiro.");
+    return;
+  }
+  const fallback = ()=>{
+    try{
+      const ta = document.createElement("textarea");
+      ta.value = link;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast("✓ Link copiado");
+    }catch(_e){
+      toast("⚠ Não foi possível copiar o link");
+    }
+  };
+  try{
+    if(navigator?.clipboard?.writeText){
+      navigator.clipboard.writeText(link).then(()=>toast("✓ Link copiado")).catch(fallback);
+    }else{
+      fallback();
+    }
+  }catch(_e){
+    fallback();
+  }
 }
 // Load supa config into form on page open
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -1297,6 +1368,9 @@ document.addEventListener("DOMContentLoaded", ()=>{
   const keyEl = document.getElementById("inp-supa-key");
   if(urlEl){ urlEl.value = u; }
   if(keyEl){ keyEl.value = k; }
+  renderSupabaseShareLink();
+  if(urlEl) urlEl.addEventListener("input", renderSupabaseShareLink);
+  if(keyEl) keyEl.addEventListener("input", renderSupabaseShareLink);
 
   try{
     const fromEl = document.getElementById("date-from");
@@ -1479,20 +1553,50 @@ function val(o){
   return parseFloat(v) || 0; 
 }
 function getPedidoItens(o){
-  const raw =
-    Array.isArray(o?.itens) ? o.itens :
-    Array.isArray(o?.items) ? o.items :
-    Array.isArray(o?.produtos) ? o.produtos :
-    Array.isArray(o?.itensPedido) ? o.itensPedido :
-    [];
+  const candidate =
+    o?.itens != null ? o.itens :
+    o?.items != null ? o.items :
+    o?.produtos != null ? o.produtos :
+    o?.itensPedido != null ? o.itensPedido :
+    null;
+
+  let raw = [];
+  if(Array.isArray(candidate)){
+    raw = candidate;
+  }else if(typeof candidate === "string"){
+    const s = candidate.trim();
+    if(s){
+      try{
+        const parsed = JSON.parse(s);
+        if(Array.isArray(parsed)) raw = parsed;
+        else if(parsed && typeof parsed === "object"){
+          if(Array.isArray(parsed.itens)) raw = parsed.itens;
+          else if(Array.isArray(parsed.items)) raw = parsed.items;
+          else if(Array.isArray(parsed.produtos)) raw = parsed.produtos;
+          else if(Array.isArray(parsed.itensPedido)) raw = parsed.itensPedido;
+          else if(Array.isArray(parsed.item)) raw = parsed.item;
+          else if(parsed.item && typeof parsed.item === "object") raw = [parsed.item];
+        }
+      }catch(_e){}
+    }
+  }else if(candidate && typeof candidate === "object"){
+    if(Array.isArray(candidate.itens)) raw = candidate.itens;
+    else if(Array.isArray(candidate.items)) raw = candidate.items;
+    else if(Array.isArray(candidate.produtos)) raw = candidate.produtos;
+    else if(Array.isArray(candidate.itensPedido)) raw = candidate.itensPedido;
+    else if(Array.isArray(candidate.item)) raw = candidate.item;
+    else if(candidate.item && typeof candidate.item === "object") raw = [candidate.item];
+  }
+
   if(!Array.isArray(raw) || !raw.length) return [];
   const out = [];
   raw.filter(Boolean).forEach(it=>{
-    const descricao = String(it?.descricao || it?.produto_nome || it?.title || it?.nome || it?.name || it?.produto || it?.product_name || "").trim();
-    const codigo = String(it?.codigo || it?.sku || it?.id || it?.product_id || "").trim();
-    const quantidade = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
-    const valor = Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
-    const valor_total = it?.valor_total != null ? (Number(it.valor_total) || 0) : (quantidade * valor);
+    const base = (it && typeof it === "object" && it.item && typeof it.item === "object") ? it.item : it;
+    const descricao = String(base?.descricao || base?.produto_nome || base?.title || base?.nome || base?.name || base?.produto || base?.product_name || "").trim();
+    const codigo = String(base?.codigo || base?.sku || base?.id || base?.product_id || base?.produto_id || "").trim();
+    const quantidade = Number(base?.quantidade ?? base?.quantity ?? base?.qty ?? 1) || 1;
+    const valor = Number(base?.valor ?? base?.valor_unitario ?? base?.price ?? base?.preco ?? 0) || 0;
+    const valor_total = base?.valor_total != null ? (Number(base.valor_total) || 0) : (quantidade * valor);
     if(!descricao && !codigo) return;
     out.push({ descricao, codigo, quantidade, valor, valor_total });
   });
@@ -2176,6 +2280,10 @@ function showPage(id){
 
   const pageEl = document.getElementById("page-"+id);
   if(pageEl) pageEl.classList.add("active");
+
+  try{
+    document.documentElement.classList.toggle("skin-dashboard", id === "dashboard");
+  }catch(_e){}
 
   if(id==='oportunidades') setTimeout(()=>safeInvokeName("renderOportunidades"),50);
   if(id==='tarefas') setTimeout(()=>safeInvokeName("renderTarefas"),50);
@@ -3112,7 +3220,7 @@ function calcCliScores(c){
   if(tot>=650&&!isCnpj) recompraScore+=20;
   if(avgInterval&&avgInterval<45) recompraScore+=10;
   recompraScore=Math.min(recompraScore,100);
-  if(recompraScore === 0 && n > 0){
+  if(recompraScore === 0 && n > 0 && localStorage.getItem("crm_debug_scores")==="1"){
     try{ console.warn("[Score zero inesperado]", c.id, c.nome, "pedidos:", n); }catch(_e){}
   }
 
@@ -3654,77 +3762,160 @@ function renderDashNow(){
     }
   }
 
-  const dashStatsEl = document.getElementById("dash-stats");
-  if(dashStatsEl){
-    const firstByCustomer = {};
-    ordersBase.forEach(o=>{
-      const k = orderCustomerKey(o);
-      if(!k) return;
-      const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
-      if(!d) return;
-      const ts = new Date(d + "T12:00:00").getTime();
-      if(!isFinite(ts)) return;
-      if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
-    });
-    const novosSet = new Set();
-    ordersSales.forEach(o=>{
+  const firstByCustomer = {};
+  ordersBase.forEach(o=>{
+    const k = orderCustomerKey(o);
+    if(!k) return;
+    const d = String(o?.data || o?.dataPedido || o?.data_pedido || o?.created_at || "").slice(0,10);
+    if(!d) return;
+    const ts = new Date(d + "T12:00:00").getTime();
+    if(!isFinite(ts)) return;
+    if(firstByCustomer[k] == null || ts < firstByCustomer[k]) firstByCustomer[k] = ts;
+  });
+  const novosSet = new Set();
+  ordersSales.forEach(o=>{
+    const k = orderCustomerKey(o);
+    if(!k) return;
+    const ts = firstByCustomer[k];
+    if(ts == null) return;
+    if(fromTs != null && ts < fromTs) return;
+    if(toTs != null && ts > toTs) return;
+    novosSet.add(k);
+  });
+  const novos = novosSet.size;
+  const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
+  const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
+  const pedidosPrev = ordersPrevSales.length;
+  const novosPrevSet = new Set();
+  if(prevRange){
+    const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
+    const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
+    ordersPrevSales.forEach(o=>{
       const k = orderCustomerKey(o);
       if(!k) return;
       const ts = firstByCustomer[k];
       if(ts == null) return;
-      if(fromTs != null && ts < fromTs) return;
-      if(toTs != null && ts > toTs) return;
-      novosSet.add(k);
+      if(ts < pf || ts > pt) return;
+      novosPrevSet.add(k);
     });
-    const novos = novosSet.size;
-    const ticket = ordersSales.length ? (total / ordersSales.length) : 0;
-    const ticketPrev = ordersPrevSales.length ? (totalPrev / ordersPrevSales.length) : 0;
-    const pedidosPrev = ordersPrevSales.length;
-    const novosPrevSet = new Set();
-    if(prevRange){
-      const pf = new Date(prevRange.prevFromIso + "T00:00:00").getTime();
-      const pt = new Date(prevRange.prevToIso + "T23:59:59").getTime();
-      ordersPrevSales.forEach(o=>{
-        const k = orderCustomerKey(o);
-        if(!k) return;
-        const ts = firstByCustomer[k];
-        if(ts == null) return;
-        if(ts < pf || ts > pt) return;
-        novosPrevSet.add(k);
-      });
-    }
-    const novosPrev = novosPrevSet.size;
-    const showCompare = isDashCompareEnabled();
-    const deltaLine = (cur, prev)=>{
-      if(!showCompare) return `<div class="exec-kpi-delta"> </div>`;
-      const d = pctDelta(cur, prev);
-      if(d == null || !isFinite(d)) return `<div class="exec-kpi-delta">— vs período anterior</div>`;
-      const up = d >= 0;
-      const cls = up ? "exec-kpi-delta-pos" : "exec-kpi-delta-neg";
-      return `<div class="exec-kpi-delta ${cls}">${up ? "↑" : "↓"} ${Math.abs(d).toFixed(0)}% vs período anterior</div>`;
-    };
-    dashStatsEl.innerHTML=[
-      {l:"Faturamento",v:fmtBRL(total),d:deltaLine(total, totalPrev)},
-      {l:"Pedidos",v:String(ordersSales.length),d:deltaLine(ordersSales.length, pedidosPrev)},
-      {l:"Ticket médio",v:fmtBRL(ticket),d:deltaLine(ticket, ticketPrev)},
-      {l:"Novos clientes",v:String(novos),d:deltaLine(novos, novosPrev)}
-    ].map(s=>`<div class="exec-kpi"><div class="exec-kpi-label">${s.l}</div><div class="exec-kpi-value">${s.v}</div>${s.d}</div>`).join("")
-    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">LTV médio</div><div class="exec-kpi-value"><span id="kpi-ltv-medio">—</span></div><div class="exec-kpi-delta"> </div></div>`
-    +`<div class="exec-kpi exec-kpi-ghost"><div class="exec-kpi-label">Clientes base</div><div class="exec-kpi-value"><span id="kpi-clientes-base">—</span></div><div class="exec-kpi-delta"> </div></div>`;
+  }
+  const novosPrev = novosPrevSet.size;
+  const showCompare = isDashCompareEnabled();
+  const deltaLine = (cur, prev)=>{
+    if(!showCompare) return `<div class="dash-kpi-delta"> </div>`;
+    const d = pctDelta(cur, prev);
+    if(d == null || !isFinite(d)) return `<div class="dash-kpi-delta">—</div>`;
+    const up = d >= 0;
+    const cls = up ? "dash-kpi-delta-pos" : "dash-kpi-delta-neg";
+    return `<div class="dash-kpi-delta ${cls}">${up ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}% <span class="dash-kpi-delta-sub">vs mês anterior</span></div>`;
+  };
+
+  const dashKpisEl = document.getElementById("dash-kpis");
+  if(dashKpisEl){
+    const items = [
+      { key: "revenue", label: "Receita (30 dias)", value: fmtBRL(total), delta: deltaLine(total, totalPrev), icon: "💹", iconCls: "dash-kpi-icon--green", spark: "kpi-spark-revenue" },
+      { key: "orders", label: "Pedidos", value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev), icon: "📦", iconCls: "dash-kpi-icon--amber", spark: "kpi-spark-orders" },
+      { key: "ticket", label: "Ticket Médio", value: fmtBRL(ticket), delta: deltaLine(ticket, ticketPrev), icon: "🎟️", iconCls: "dash-kpi-icon--orange", spark: "kpi-spark-ticket" }
+    ];
+    dashKpisEl.innerHTML = items.map(s=>`
+      <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">${escapeHTML(s.label)}</div>
+            <div class="dash-kpi-value">${escapeHTML(s.value)}</div>
+            ${s.delta}
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon ${escapeHTML(s.iconCls)}">${escapeHTML(s.icon)}</div>
+            <div class="dash-kpi-spark">
+              <canvas id="${escapeHTML(s.spark)}"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join("")
+    + `
+      <div class="dash-kpi dash-kpi--ghost" data-kpi="ltv">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">LTV Médio</div>
+            <div class="dash-kpi-value"><span id="kpi-ltv-medio">—</span></div>
+            <div class="dash-kpi-delta"> </div>
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon dash-kpi-icon--ghost">💎</div>
+          </div>
+        </div>
+      </div>
+      <div class="dash-kpi dash-kpi--ghost" data-kpi="base">
+        <div class="dash-kpi-top">
+          <div class="dash-kpi-main">
+            <div class="dash-kpi-label">Clientes Base</div>
+            <div class="dash-kpi-value"><span id="kpi-clientes-base">—</span></div>
+            <div class="dash-kpi-delta"> </div>
+          </div>
+          <div class="dash-kpi-side">
+            <div class="dash-kpi-icon dash-kpi-icon--ghost">👥</div>
+          </div>
+        </div>
+      </div>
+    `;
+    try{
+      renderDashKpiSparklines({ ordersSales, ordersPrevSales, fromIso, toIso, firstByCustomer });
+    }catch(_e){}
   }
 
-  renderMeta(tMo); renderCompare(ordersSales); renderAlertBanner(ordersSales);
-  renderDashSalesByDay(ordersSales);
-  renderChartMes(ordersSales);
-  renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh });
-  renderTopCli(ordersSales);
-  renderTopProd(ordersSales);
-  const secEl = document.getElementById("dash-stats-secondary");
-  if(secEl){
-    secEl.innerHTML = "";
-    updateDashSecondaryFromSupabase().catch(()=>{});
+  const newCountEl = document.getElementById("dash-new-count");
+  if(newCountEl) newCountEl.textContent = String(novos || 0);
+  const newDeltaEl = document.getElementById("dash-new-delta");
+  if(newDeltaEl){
+    if(showCompare){
+      const d = pctDelta(novos, novosPrev);
+      if(d == null || !isFinite(d)) newDeltaEl.innerHTML = "";
+      else{
+        const up = d >= 0;
+        newDeltaEl.className = "dash-side-delta " + (up ? "pos" : "neg");
+        newDeltaEl.textContent = (up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%";
+      }
+    }else{
+      newDeltaEl.innerHTML = "";
+    }
   }
-  setTimeout(()=>{ renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo, fromIso, toIso }); }, 40);
+
+  const pillThis = document.getElementById("dash-pill-this");
+  const pillPrev = document.getElementById("dash-pill-prev");
+  if(pillThis) pillThis.classList.toggle("active", !showCompare);
+  if(pillPrev) pillPrev.classList.toggle("active", showCompare);
+
+  const rangeEl = document.getElementById("dash-receita-range");
+  if(rangeEl){
+    const diffDays = (fromTs != null && toTs != null) ? Math.round((toTs - fromTs) / (24*60*60*1000)) + 1 : 0;
+    rangeEl.textContent = diffDays ? `Últimos ${diffDays} dias` : "Últimos 30 dias";
+  }
+
+  try{
+    renderDashReceitaFooter(ordersSales);
+  }catch(_e){}
+
+  renderMeta(tMo); renderAlertBanner(ordersSales);
+  renderDashSalesByDay(ordersSales, ordersPrevSales);
+  const ordersNew = ordersSales.filter(o=>novosSet.has(orderCustomerKey(o)));
+  renderChartCanal(ordersNew);
+  try{
+    const prodEl = document.getElementById("dash-top-products");
+    if(prodEl && !prodEl.innerHTML) prodEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+    const alertsEl = document.getElementById("dash-alerts-mini");
+    if(alertsEl && !alertsEl.innerHTML) alertsEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+    const vipsEl = document.getElementById("dash-vips-mini");
+    if(vipsEl && !vipsEl.innerHTML) vipsEl.innerHTML = `<div class="empty" style="padding:14px 0">Carregando…</div>`;
+  }catch(_e){}
+
+  try{ renderDashInsightsMini(ordersSales); }catch(_e){}
+  try{ renderDashProductsMini(ordersSales, ordersPrevSales); }catch(_e){}
+  try{ renderDashAlertsMini(ordersSales); }catch(_e){}
+  try{ renderDashVipMini(ordersSales); }catch(_e){}
+  try{ renderDashGeoMini(ordersSales); }catch(_e){}
+  updateDashSecondaryFromSupabase().catch(()=>{});
 }
 
 async function updateDashSecondaryFromSupabase(){
@@ -3754,6 +3945,434 @@ async function updateDashSecondaryFromSupabase(){
   }catch(e){ console.warn("[dashboard] falha ao carregar KPIs/funil:", e?.message||e); }
 }
 
+function renderDashKpiSparklines(ctx){
+  const ordersSales = Array.isArray(ctx?.ordersSales) ? ctx.ordersSales : [];
+  const ordersPrevSales = Array.isArray(ctx?.ordersPrevSales) ? ctx.ordersPrevSales : [];
+  const fromIso = String(ctx?.fromIso || "").trim();
+  const toIso = String(ctx?.toIso || "").trim();
+  const firstByCustomer = ctx?.firstByCustomer && typeof ctx.firstByCustomer === "object" ? ctx.firstByCustomer : {};
+
+  const byDayRevenue = {};
+  const byDayOrders = {};
+  ordersSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    byDayRevenue[d] = (byDayRevenue[d] || 0) + val(o);
+    byDayOrders[d] = (byDayOrders[d] || 0) + 1;
+  });
+  const keys = Object.keys(byDayRevenue).sort();
+  if(!keys.length) return;
+  const revenue = keys.map(k=>Number(byDayRevenue[k] || 0) || 0);
+  const orders = keys.map(k=>Number(byDayOrders[k] || 0) || 0);
+  const ticket = keys.map((k,i)=>{
+    const n = orders[i] || 0;
+    return n ? (revenue[i] / n) : 0;
+  });
+
+  const fromTs = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+  const toTs = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+  const newByDay = {};
+  Object.entries(firstByCustomer).forEach(([cid, ts])=>{
+    const n = Number(ts);
+    if(!isFinite(n)) return;
+    if(fromTs != null && n < fromTs) return;
+    if(toTs != null && n > toTs) return;
+    const day = iso(new Date(n));
+    newByDay[day] = (newByDay[day] || 0) + 1;
+  });
+  const novos = keys.map(k=>Number(newByDay[k] || 0) || 0);
+
+  const prevByDayRevenue = {};
+  ordersPrevSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    prevByDayRevenue[d] = (prevByDayRevenue[d] || 0) + val(o);
+  });
+  const prevKeys = Object.keys(prevByDayRevenue).sort();
+  const prevRevenue = prevKeys.map(k=>Number(prevByDayRevenue[k] || 0) || 0);
+
+  const renderSpark = (id, values, color)=>{
+    const canvas = document.getElementById(id);
+    if(!canvas || !canvas.getContext) return;
+    const c = canvas.getContext("2d");
+    if(!c) return;
+    const key = "kpi_" + id;
+    if(charts[key]){ try{ charts[key].destroy(); }catch(_e){} charts[key] = null; }
+    const g = c.createLinearGradient(0, 0, 0, canvas.height || 40);
+    g.addColorStop(0, color.replace("1)", ".20)"));
+    g.addColorStop(1, color.replace("1)", "0)"));
+    charts[key] = new Chart(c, {
+      type: "line",
+      data: {
+        labels: values.map((_,i)=>String(i)),
+        datasets: [{
+          data: values,
+          borderColor: color,
+          backgroundColor: g,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.35,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } }
+      }
+    });
+  };
+
+  renderSpark("kpi-spark-revenue", revenue, "rgba(15,167,101,1)");
+  renderSpark("kpi-spark-orders", orders, "rgba(251,191,36,1)");
+  renderSpark("kpi-spark-ticket", ticket, "rgba(249,115,22,1)");
+  renderSpark("kpi-spark-new", novos, "rgba(167,139,250,1)");
+
+  try{
+    const showCompare = isDashCompareEnabled();
+    if(showCompare && prevRevenue.length){
+      const el = document.querySelector('[data-kpi="revenue"] .dash-kpi-label');
+      if(el) el.textContent = "Receita (período)";
+    }
+  }catch(_e){}
+}
+
+function fmtPtShortDate(d){
+  const isoStr = String(d || "").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return "—";
+  const dd = isoStr.slice(8,10);
+  const mm = Number(isoStr.slice(5,7));
+  const mons = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return dd + " " + (mons[mm-1] || "");
+}
+function dashInitials(name){
+  const s = String(name || "").trim();
+  if(!s) return "—";
+  const parts = s.split(/\s+/).filter(Boolean);
+  const a = parts[0] ? parts[0][0] : "";
+  const b = parts.length > 1 ? parts[parts.length-1][0] : (parts[0] ? parts[0][1] : "");
+  return (a + b).toUpperCase();
+}
+function dashSafeName(name){
+  const s = String(name || "").trim();
+  if(!s) return "Cliente";
+  return s.length > 34 ? s.slice(0, 31) + "..." : s;
+}
+
+function renderDashReceitaFooter(ordersSales){
+  const bestEl = document.getElementById("dash-mini-best");
+  const avgEl = document.getElementById("dash-mini-avg");
+  const ordEl = document.getElementById("dash-mini-orders");
+  if(!bestEl && !avgEl && !ordEl) return;
+  const byDay = {};
+  ordersSales.forEach(o=>{
+    const d = String(o?.data || "").slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    byDay[d] = (byDay[d] || 0) + val(o);
+  });
+  const keys = Object.keys(byDay).sort();
+  const total = ordersSales.reduce((s,o)=>s + val(o), 0);
+  const daysCount = keys.length || 1;
+  const avg = total / daysCount;
+  let bestDate = "";
+  let bestVal = 0;
+  keys.forEach(k=>{
+    const v = Number(byDay[k] || 0) || 0;
+    if(bestDate === "" || v > bestVal){
+      bestDate = k;
+      bestVal = v;
+    }
+  });
+  if(bestEl){
+    bestEl.innerHTML = `<div class="dash-mini-ic">↗</div><div><div class="dash-mini-label">Melhor dia</div><div class="dash-mini-value">${escapeHTML(fmtPtShortDate(bestDate))} — ${escapeHTML(fmtBRL(bestVal))}</div></div>`;
+  }
+  if(avgEl){
+    avgEl.innerHTML = `<div class="dash-mini-ic">📈</div><div><div class="dash-mini-label">Média diária</div><div class="dash-mini-value">${escapeHTML(fmtBRL(avg))}</div></div>`;
+  }
+  if(ordEl){
+    ordEl.innerHTML = `<div class="dash-mini-ic">📦</div><div><div class="dash-mini-label">Total Pedidos</div><div class="dash-mini-value">${escapeHTML(String(ordersSales.length || 0))}</div></div>`;
+  }
+}
+
+function renderDashInsightsMini(_ordersSales){
+  const el = document.getElementById("dash-insights-list");
+  if(!el) return;
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : []))
+    .map(c=>({ c, s: calcCliScores(c) }))
+    .filter(x=>x.c && x.c.id && !x.s.isCnpj)
+    .filter(x=>x.s.ds >= 21 && x.s.ds <= 60)
+    .sort((a,b)=>{
+      if(a.s.status !== b.s.status) return a.s.status === "vip" ? -1 : b.s.status === "vip" ? 1 : 0;
+      if(b.s.recompraScore !== a.s.recompraScore) return b.s.recompraScore - a.s.recompraScore;
+      return (b.s.ltv || 0) - (a.s.ltv || 0);
+    })
+    .slice(0, 3);
+  if(!clis.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem insights agora.</div>`;
+    return;
+  }
+  el.innerHTML = clis.map(x=>{
+    const nm = dashSafeName(x.c.nome || "Cliente");
+    return `<div class="dash-insight-row">
+      <div class="dash-insight-left">
+        <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
+        <div class="dash-insight-main">
+          <div class="dash-insight-name">${escapeHTML(nm)}</div>
+          <div class="dash-insight-sub">${escapeHTML(String(x.s.ds))} dias desde a última compra</div>
+        </div>
+      </div>
+      <div class="dash-insight-days">${escapeHTML(String(x.s.ds))}d</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDashProductsMini(ordersSales, ordersPrevSales){
+  const el = document.getElementById("dash-top-products");
+  if(!el) return;
+  try{
+  const agg = (orders)=>{
+    const m = {};
+    orders.forEach(o=>{
+      getPedidoItens(o).forEach(it=>{
+        const name = String(it?.descricao || "").trim();
+        if(!name) return;
+        if(!m[name]) m[name] = { name, qty: 0, rev: 0 };
+        m[name].qty += Number(it?.quantidade || 0) || 0;
+        m[name].rev += Number(it?.valor_total || 0) || 0;
+      });
+    });
+    return m;
+  };
+  const cur = agg(Array.isArray(ordersSales) ? ordersSales : []);
+  const prev = agg(Array.isArray(ordersPrevSales) ? ordersPrevSales : []);
+  const list = Object.values(cur)
+    .map(p=>{
+      const pv = prev[p.name]?.rev || 0;
+      return { ...p, prevRev: pv, delta: pctDelta(p.rev, pv) };
+    })
+    .sort((a,b)=> (b.rev||0) - (a.rev||0))
+    .slice(0, 5);
+  if(!list.length){
+    const hasOrders = Array.isArray(ordersSales) && ordersSales.length > 0;
+    el.innerHTML = hasOrders
+      ? `<div class="empty" style="padding:14px 0">Sem itens de produtos nos pedidos desse período.</div>`
+      : `<div class="empty" style="padding:14px 0">Sem produtos no período.</div>`;
+    return;
+  }
+  el.innerHTML = list.map((p,i)=>{
+    const d = p.delta;
+    const show = d != null && isFinite(d);
+    const up = show ? d >= 0 : true;
+    const cls = show ? (up ? "pos" : "neg") : "";
+    const txt = show ? ((up ? "▲ " : "▼ ") + Math.abs(d).toFixed(0) + "%") : "";
+    const icon = (String(p.name).match(/[A-Za-zÀ-ÿ]/) ? String(p.name).trim()[0] : "★").toUpperCase();
+    return `<div class="dash-prod-row">
+      <div class="dash-prod-rank">${escapeHTML(String(i+1))}</div>
+      <div class="dash-prod-img">${escapeHTML(icon)}</div>
+      <div class="dash-prod-main">
+        <div class="dash-prod-name">${escapeHTML(dashSafeName(p.name))}</div>
+        <div class="dash-prod-sub">${escapeHTML(String(p.qty))} un. · ${escapeHTML(fmtBRL(p.rev))}</div>
+      </div>
+      <div class="dash-prod-delta ${escapeHTML(cls)}">${escapeHTML(txt)}</div>
+    </div>`;
+  }).join("");
+  }catch(_e){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Erro ao carregar produtos.</div>`;
+  }
+}
+
+function renderDashAlertsMini(_ordersSales){
+  const el = document.getElementById("dash-alerts-mini");
+  const badge = document.getElementById("dash-alerts-badge");
+  if(!el && !badge) return;
+  const ad = parseInt(localStorage.getItem("crm_alertdays") || "60");
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : [])).map(c=>({ c, s: calcCliScores(c) })).filter(x=>x.c && x.c.id);
+  const vipRisk = clis.filter(x=>x.s.status === "vip" && !x.s.isCnpj && x.s.ds >= 45).length;
+  const inactive = clis.filter(x=>!x.s.isCnpj && x.s.ds >= ad).length;
+
+  const fromIso = String(localStorage.getItem("crm_dash_from") || "").trim();
+  const toIso = String(localStorage.getItem("crm_dash_to") || "").trim();
+  const prevRange = (fromIso && toIso) ? calcPrevRange(fromIso, toIso) : null;
+  const ordersAll = Array.isArray(allOrders) ? allOrders : [];
+  const byRange = (fromIso, toIso)=>{
+    const f = fromIso ? new Date(fromIso + "T00:00:00").getTime() : null;
+    const t = toIso ? new Date(toIso + "T23:59:59").getTime() : null;
+    return ordersAll.filter(o=>{
+      const d = String(o?.data || "").slice(0,10);
+      if(!d) return false;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return false;
+      if(f != null && ts < f) return false;
+      if(t != null && ts > t) return false;
+      return true;
+    });
+  };
+  let produtoQueda = "";
+  let produtoQuedaPct = null;
+  if(prevRange?.prevFromIso && prevRange?.prevToIso){
+    const curOrders = byRange(fromIso, toIso);
+    const prevOrders = byRange(prevRange.prevFromIso, prevRange.prevToIso);
+    const aggProd = (orders)=>{
+      const m = {};
+      orders.forEach(o=>{
+        getPedidoItens(o).forEach(it=>{
+          const name = String(it?.descricao || "").trim();
+          if(!name) return;
+          m[name] = (m[name] || 0) + (Number(it?.valor_total || 0) || 0);
+        });
+      });
+      return m;
+    };
+    const cur = aggProd(curOrders);
+    const prev = aggProd(prevOrders);
+    Object.keys(prev).forEach(n=>{
+      const a = Number(cur[n] || 0) || 0;
+      const b = Number(prev[n] || 0) || 0;
+      const d = pctDelta(a, b);
+      if(d == null || !isFinite(d)) return;
+      if(d >= -25) return;
+      if(produtoQuedaPct == null || d < produtoQuedaPct){
+        produtoQuedaPct = d;
+        produtoQueda = n;
+      }
+    });
+  }
+
+  const rows = [];
+  if(vipRisk){
+    rows.push({ ic: "👑", cls: "red", title: "VIP em risco", sub: `${vipRisk} VIP sem comprar há 45+ dias`, right: "ver" });
+  }
+  if(inactive){
+    rows.push({ ic: "⏳", cls: "", title: "Inativos", sub: `${inactive} clientes sem comprar há ${ad}+ dias`, right: "ver" });
+  }
+  if(produtoQueda){
+    rows.push({ ic: "📉", cls: "red", title: "Queda de produto", sub: `${dashSafeName(produtoQueda)} (${Math.abs(produtoQuedaPct).toFixed(0)}%)`, right: "ver" });
+  }
+
+  if(badge){
+    if(rows.length){
+      badge.style.display = "";
+      badge.textContent = rows.length + " itens";
+    }else{
+      badge.style.display = "none";
+    }
+  }
+  if(!el) return;
+  if(!rows.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem alertas agora.</div>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 3).map(r=>`
+    <div class="dash-alert-row">
+      <div class="dash-alert-left">
+        <div class="dash-ic ${escapeHTML(r.cls)}">${escapeHTML(r.ic)}</div>
+        <div class="dash-alert-main">
+          <div class="dash-alert-title">${escapeHTML(r.title)}</div>
+          <div class="dash-alert-sub">${escapeHTML(r.sub)}</div>
+        </div>
+      </div>
+      <div class="dash-alert-right">${escapeHTML(r.right || "")}</div>
+    </div>
+  `).join("");
+}
+
+function renderDashVipMini(_ordersSales){
+  const el = document.getElementById("dash-vips-mini");
+  if(!el) return;
+  const clis = Object.values(buildCli(Array.isArray(allOrders) ? allOrders : []))
+    .map(c=>({ c, s: calcCliScores(c), tot: (Array.isArray(c?.orders) ? c.orders.reduce((sum,o)=>sum+val(o),0) : 0) }))
+    .filter(x=>x.s.status === "vip" && !x.s.isCnpj)
+    .sort((a,b)=> (b.tot||0) - (a.tot||0))
+    .slice(0, 4);
+  if(!clis.length){
+    el.innerHTML = `<div class="empty" style="padding:14px 0">Sem VIPs na base.</div>`;
+    return;
+  }
+  el.innerHTML = clis.map(x=>{
+    const nm = dashSafeName(x.c.nome || "VIP");
+    return `<div class="dash-vip-row">
+      <div class="dash-vip-left">
+        <div class="dash-avatar">${escapeHTML(dashInitials(nm))}</div>
+        <div class="dash-vip-main">
+          <div class="dash-vip-name">${escapeHTML(nm)}</div>
+          <div class="dash-vip-sub">${escapeHTML(String(x.s.n || 0))} pedidos · ${escapeHTML(fmtBRL(x.tot || 0))}</div>
+        </div>
+      </div>
+      <div class="dash-vip-right">${escapeHTML(String(x.s.ds || 0))}d</div>
+    </div>`;
+  }).join("");
+}
+
+let _dashBrazilSvgText = null;
+async function ensureDashBrazilSvg(){
+  if(_dashBrazilSvgText) return _dashBrazilSvgText;
+  try{
+    const res = await fetch("./assets/brazil-states.svg");
+    _dashBrazilSvgText = await res.text();
+    return _dashBrazilSvgText;
+  }catch(_e){
+    _dashBrazilSvgText = "";
+    return "";
+  }
+}
+
+function renderDashGeoMini(ordersSales){
+  const mapEl = document.getElementById("dash-brazil-map");
+  const listEl = document.getElementById("dash-top-cities");
+  if(!mapEl && !listEl) return;
+  const cityAgg = {};
+  const ufAgg = {};
+  (Array.isArray(ordersSales) ? ordersSales : []).forEach(o=>{
+    const city = cleanText(o?.contato?.endereco?.municipio || o?.contato?.endereco?.cidade || o?.endereco?.municipio || o?.cidade || "");
+    const uf = normalizeUF(o?.contato?.endereco?.uf || o?.contato?.endereco?.estado || o?.uf || o?.estado || "");
+    if(city) cityAgg[city] = (cityAgg[city] || 0) + 1;
+    if(uf) ufAgg[uf] = (ufAgg[uf] || 0) + 1;
+  });
+  if(listEl){
+    const list = Object.entries(cityAgg).sort((a,b)=>b[1]-a[1]).slice(0, 6);
+    if(!list.length) listEl.innerHTML = `<div class="empty" style="padding:14px 0">Sem cidades no período.</div>`;
+    else listEl.innerHTML = list.map(([city,n])=>`
+      <div class="dash-city-row">
+        <div class="dash-city-name">${escapeHTML(dashSafeName(city))}</div>
+        <div class="dash-city-val">${escapeHTML(String(n))}</div>
+      </div>
+    `).join("");
+  }
+  if(!mapEl) return;
+  ensureDashBrazilSvg().then(txt=>{
+    if(!txt){
+      mapEl.innerHTML = `<div class="dash-map-loading">Mapa indisponível.</div>`;
+      return;
+    }
+    mapEl.innerHTML = txt;
+    try{
+      const svg = mapEl.querySelector("svg");
+      if(svg){
+        svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      }
+      const vals = Object.values(ufAgg);
+      const max = vals.length ? Math.max(...vals) : 0;
+      const min = vals.length ? Math.min(...vals) : 0;
+      const lerp = (a,b,t)=>Math.round(a + (b-a)*t);
+      const fillFor = (v)=>{
+        const t = max === min ? 0 : (v - min) / (max - min);
+        const r = lerp(226, 22, t);
+        const g = lerp(245, 163, t);
+        const b = lerp(234, 74, t);
+        return `rgb(${r},${g},${b})`;
+      };
+      mapEl.querySelectorAll(".state").forEach(node=>{
+        const id = String(node.getAttribute("id") || "").trim().toUpperCase();
+        const v = id ? (ufAgg[id] || 0) : 0;
+        node.setAttribute("fill", v ? fillFor(v) : "rgba(148,163,184,.15)");
+        node.setAttribute("stroke", "rgba(15,23,42,.06)");
+        node.setAttribute("stroke-width", "1");
+      });
+    }catch(_e){}
+  });
+}
+
 function setDashCanvasState(canvasId, hasData, msg, showClear){
   const canvas = document.getElementById(canvasId);
   const wrap = canvas ? canvas.parentElement : null;
@@ -3779,30 +4398,46 @@ function setDashCanvasState(canvasId, hasData, msg, showClear){
   return { canvas, shouldRender: false };
 }
 
-function renderDashSalesByDay(orders){
+function renderDashSalesByDay(orders, prevOrders){
   const list = Array.isArray(orders) ? orders : [];
-  const byDay = {};
-  list.forEach(o=>{
-    const d = String(o?.data || "").slice(0,10);
-    if(!d) return;
-    const ts = new Date(d + "T12:00:00").getTime();
-    if(!isFinite(ts)) return;
-    byDay[d] = (byDay[d] || 0) + val(o);
-  });
+  const prevList = Array.isArray(prevOrders) ? prevOrders : [];
+  const buildByDay = (arr)=>{
+    const by = {};
+    arr.forEach(o=>{
+      const d = String(o?.data || "").slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      const ts = new Date(d + "T12:00:00").getTime();
+      if(!isFinite(ts)) return;
+      by[d] = (by[d] || 0) + val(o);
+    });
+    const keys = Object.keys(by).sort();
+    return { keys, values: keys.map(k=>Number(by[k]||0) || 0) };
+  };
+
+  const cur = buildByDay(list);
+  const prev = buildByDay(prevList);
   // Atualiza badge com total do período
   const totalBadge = document.getElementById("dash-dia-total");
   if(totalBadge){
-    const total = Object.values(byDay).reduce((s,v)=>s+v,0);
+    const total = cur.values.reduce((s,v)=>s+v,0);
     totalBadge.textContent = total > 0 ? fmtBRL(total) : "";
     totalBadge.style.display = total > 0 ? "" : "none";
   }
-  const keys = Object.keys(byDay).sort();
-  const state = setDashCanvasState("chart-v2-dia", keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  const state = setDashCanvasState("chart-v2-dia", cur.keys.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
   if(!state.shouldRender || !state.canvas || !state.canvas.getContext) return;
   const ctx = state.canvas.getContext("2d");
   if(!ctx) return;
   if(charts.v2dia) charts.v2dia.destroy();
-  const values = keys.map(k=>byDay[k]);
+
+  const values = cur.values;
+  const prevAligned = prev.values.length ? prev.values.slice(0, values.length).concat(Array(Math.max(0, values.length - prev.values.length)).fill(null)) : [];
+
+  const maxVal = values.length ? Math.max(...values) : 0;
+  const minVal = values.length ? Math.min(...values) : 0;
+  const maxIdx = values.indexOf(maxVal);
+  const minIdx = values.indexOf(minVal);
+  const highlights = values.map((v, i)=> (i === maxIdx || i === minIdx) ? v : null);
+
   const showMA = isDashMAEnabled();
   const maWindow = 7;
   const ma = showMA ? values.map((_, i)=>{
@@ -3811,39 +4446,186 @@ function renderDashSalesByDay(orders){
     const sum = slice.reduce((s,v)=>s + (Number(v)||0), 0);
     return slice.length ? (sum / slice.length) : null;
   }) : [];
+
+  const isLight = document.documentElement.classList.contains("light");
+  const area = (()=>{
+    const g = ctx.createLinearGradient(0, 0, 0, state.canvas.height || 300);
+    g.addColorStop(0, "rgba(15,167,101,.30)");
+    g.addColorStop(1, "rgba(15,167,101,0)");
+    return g;
+  })();
+
+  const showCompare = isDashCompareEnabled() && prevAligned.length;
+  const datasets = [];
+  if(showCompare){
+    datasets.push({
+      label: "Período anterior",
+      data: prevAligned,
+      tension: 0.35,
+      fill: false,
+      borderColor: "rgba(148,163,184,.85)",
+      borderWidth: 2,
+      borderDash: [6,6],
+      pointRadius: 0,
+      pointHitRadius: 10
+    });
+  }
+  datasets.push({
+    label: "Receita",
+    data: values,
+    tension: 0.35,
+    fill: true,
+    borderColor: "#0FA765",
+    backgroundColor: area,
+    borderWidth: 3,
+    pointRadius: 2,
+    pointHoverRadius: 5,
+    pointBackgroundColor: "#0FA765",
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 2,
+    pointHitRadius: 14
+  });
+  if(showMA){
+    datasets.push({
+      label: "Média móvel (7d)",
+      data: ma,
+      tension: 0.35,
+      fill: false,
+      borderColor: "rgba(15,167,101,.55)",
+      borderWidth: 2,
+      borderDash: [4,5],
+      pointRadius: 0,
+      pointHitRadius: 10
+    });
+  }
+  datasets.push({
+    label: "Destaques",
+    data: highlights,
+    showLine: false,
+    pointRadius: (c)=>{
+      const i = c?.dataIndex ?? -1;
+      if(i === maxIdx || i === minIdx) return 6;
+      return 0;
+    },
+    pointHoverRadius: 7,
+    pointBackgroundColor: (c)=>{
+      const i = c?.dataIndex ?? -1;
+      if(i === maxIdx) return "#16a34a";
+      if(i === minIdx) return "#ef4444";
+      return "transparent";
+    },
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 2,
+    pointHitRadius: 16
+  });
+
+  const calloutPlugin = {
+    id: "dashCallouts",
+    afterDatasetsDraw: (chart)=>{
+      try{
+        const area = chart.chartArea;
+        if(!area) return;
+        const x = chart.scales?.x;
+        const y = chart.scales?.y;
+        if(!x || !y) return;
+        if(maxIdx < 0 || minIdx < 0) return;
+        const ctx2 = chart.ctx;
+        if(!ctx2) return;
+
+        const xMax = x.getPixelForValue(maxIdx);
+        const yMax = y.getPixelForValue(maxVal);
+        const xMin = x.getPixelForValue(minIdx);
+        const yMin = y.getPixelForValue(minVal);
+
+        const drawRounded = (x0,y0,w,h,r)=>{
+          const rr = Math.min(r, w/2, h/2);
+          ctx2.beginPath();
+          ctx2.moveTo(x0+rr, y0);
+          ctx2.arcTo(x0+w, y0, x0+w, y0+h, rr);
+          ctx2.arcTo(x0+w, y0+h, x0, y0+h, rr);
+          ctx2.arcTo(x0, y0+h, x0, y0, rr);
+          ctx2.arcTo(x0, y0, x0+w, y0, rr);
+          ctx2.closePath();
+        };
+        const tag = (text, bg, xC, yC)=>{
+          const padX = 10;
+          const padY = 6;
+          ctx2.save();
+          ctx2.font = "800 11px Plus Jakarta Sans";
+          const tw = ctx2.measureText(text).width;
+          const w = tw + padX*2;
+          const h = 24;
+          let x0 = xC - w/2;
+          let y0 = yC - h - 10;
+          x0 = Math.max(area.left + 6, Math.min(x0, area.right - w - 6));
+          y0 = Math.max(area.top + 6, y0);
+          ctx2.fillStyle = bg;
+          drawRounded(x0, y0, w, h, 10);
+          ctx2.fill();
+          ctx2.fillStyle = "#ffffff";
+          ctx2.textBaseline = "middle";
+          ctx2.fillText(text, x0 + padX, y0 + h/2 + 1);
+          ctx2.restore();
+        };
+
+        ctx2.save();
+        ctx2.setLineDash([4,4]);
+        ctx2.lineWidth = 1;
+        ctx2.strokeStyle = "rgba(15,23,42,.18)";
+        ctx2.beginPath();
+        ctx2.moveTo(xMax, area.top + 6);
+        ctx2.lineTo(xMax, area.bottom - 6);
+        ctx2.stroke();
+        ctx2.restore();
+
+        tag("Pico: " + fmtBRL(maxVal), "#16a34a", xMax, yMax);
+        tag("Baixa: " + fmtBRL(minVal), "#ef4444", xMin, yMin);
+      }catch(_e){}
+    }
+  };
+
   charts.v2dia = new Chart(ctx, {
     type: "line",
     data: {
-      labels: keys.map(k=>fmtDate(k)),
-      datasets: [{
-        label: "Faturamento",
-        data: values,
-        tension: 0.35,
-        fill: true,
-        borderColor: "#0FA765",
-        backgroundColor: "rgba(15,167,101,.18)",
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHitRadius: 12
-      }].concat(showMA ? [{
-        label: "Média móvel (7d)",
-        data: ma,
-        tension: 0.35,
-        fill: false,
-        borderColor: "rgba(164,233,107,.9)",
-        borderWidth: 2,
-        borderDash: [6,6],
-        pointRadius: 0,
-        pointHitRadius: 10
-      }] : [])
+      labels: cur.keys.map(k=>fmtDate(k)),
+      datasets
     },
+    plugins: [calloutPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c)=>fmtBRL(c.parsed.y||0) } } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isLight ? "#ffffff" : "#0e1018",
+          borderColor: isLight ? "rgba(0,0,0,.12)" : "#1d2235",
+          borderWidth: 1,
+          titleColor: isLight ? "#111827" : "#edeef4",
+          bodyColor: isLight ? "#334155" : "#a0a8be",
+          padding: 10,
+          displayColors: false,
+          callbacks: {
+            label: (c)=>{
+              const v = Number(c.parsed.y || 0) || 0;
+              if(c.dataset?.label === "Destaques"){
+                const i = c.dataIndex;
+                if(i === maxIdx) return " Pico: " + fmtBRL(v);
+                if(i === minIdx) return " Baixa: " + fmtBRL(v);
+              }
+              return " " + fmtBRL(v);
+            }
+          }
+        }
+      },
       scales: {
-        x: { grid: { display: false }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 12 } },
-        y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) } }
+        x: {
+          grid: { display: false },
+          ticks: { color: isLight ? "#64748b" : "#9eb8a8", font: { size: 10, weight: 700 }, maxTicksLimit: 10 }
+        },
+        y: {
+          grid: { color: isLight ? "rgba(15,23,42,.06)" : "rgba(255,255,255,.06)" },
+          ticks: { color: isLight ? "#64748b" : "#9eb8a8", font: { size: 10, weight: 700 }, callback: (v)=>fmtBRL(v) }
+        }
       }
     }
   });
@@ -4704,9 +5486,11 @@ function renderDashV2NextActions(rows){
 
 function renderMeta(v){
   const meta=parseFloat(localStorage.getItem("crm_meta")||"0");
-  if(!meta){document.getElementById("meta-body").innerHTML=`<span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span>`;return;}
+  const el = document.getElementById("meta-body");
+  if(!el) return;
+  if(!meta){el.innerHTML=`<span style="font-size:11px;color:var(--text-3)">Clique em "Editar" para definir sua meta.</span>`;return;}
   const pct=Math.min(v/meta*100,100),warn=pct<50;
-  document.getElementById("meta-body").innerHTML=`
+  el.innerHTML=`
     <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:4px">
       <span class="meta-pct" style="color:${warn?"var(--amber)":"var(--green)"}">${pct.toFixed(1)}%</span>
       <span style="font-size:10px;color:var(--text-3);margin-bottom:3px">${fmtBRL(v)} de ${fmtBRL(meta)}</span>
@@ -4722,6 +5506,8 @@ async function editMeta(){
   renderDash();
 }
 function renderCompare(ordersOverride){
+  const body = document.getElementById("cmp-body");
+  if(!body) return;
   const now = new Date();
   const cur = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
   const prevDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
@@ -4743,7 +5529,7 @@ function renderCompare(ordersOverride){
   const oA=flt(a),oB=flt(b),vA=oA.reduce((s,o)=>s+val(o),0),vB=oB.reduce((s,o)=>s+val(o),0);
   const d=vA>0?((vB-vA)/vA*100):0;
   const mn=ym=>{ const[y,m]=ym.split("-"); return["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"][+m-1]+"/"+y.slice(2); };
-  document.getElementById("cmp-body").innerHTML=`<div class="cmp-grid">
+  body.innerHTML=`<div class="cmp-grid">
     <div class="cmp-col"><div class="cmp-col-title">${mn(a)} (mês anterior)</div><div class="cmp-val" style="color:var(--text)">${fmtBRL(vA)}</div><div class="cmp-sub">${oA.length} pedidos</div></div>
     <div class="cmp-col"><div class="cmp-col-title">${mn(b)} (mês atual)</div><div class="cmp-val" style="color:var(--green)">${fmtBRL(vB)}</div><div class="cmp-sub">${oB.length} pedidos</div><div class="cmp-delta ${d>=0?"delta-up":"delta-down"}">${d>=0?"▲":"▼"}${Math.abs(d).toFixed(1)}% vs ${mn(a)}</div></div>
   </div>`;
@@ -4767,10 +5553,12 @@ function renderChartCanal(ordersOverride){
   if(charts.canal) charts.canal.destroy();
   const canvas=document.getElementById("chart-canal");
   if(!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if(!ctx) return;
-  const total=Object.values(t).reduce((a,b)=>a+b,0)||1;
   const sorted=Object.entries(t).sort((a,b)=>b[1]-a[1]);
+  const state = setDashCanvasState("chart-canal", sorted.length > 0, "Sem dados no período", !!String(document.getElementById("dash-canal-filter")?.value||""));
+  if(!state.shouldRender || !state.canvas) return;
+  const ctx = state.canvas.getContext("2d");
+  if(!ctx) return;
+  const total=sorted.reduce((s,[_c,v])=>s+(Number(v)||0),0)||1;
   const brandColors={
     ml:"#fbbf24",
     shopee:"#f97316",
@@ -4781,6 +5569,7 @@ function renderChartCanal(ordersOverride){
     outros:"#94a3b8",
     default:"#0FA765"
   };
+  const isLight = document.documentElement.classList.contains("light");
   charts.canal=new Chart(ctx,{
     type:"doughnut",
     data:{
@@ -4790,7 +5579,7 @@ function renderChartCanal(ordersOverride){
         backgroundColor:sorted.map(([c])=>brandColors[c]||brandColors.default),
         borderWidth:0,
         borderColor:"transparent",
-        spacing:5,
+        spacing:4,
         hoverOffset:8
       }]
     },
@@ -4798,18 +5587,13 @@ function renderChartCanal(ordersOverride){
       responsive:true,maintainAspectRatio:false,
       cutout:'68%',
       plugins:{
-        legend:{
-          position:"bottom",
-          labels:{color:"rgba(160, 168, 190, 0.8)",font:{size:10,family:"Plus Jakarta Sans"},
-            boxWidth:8,boxHeight:8,padding:10,
-            usePointStyle:true,pointStyle:'circle'}
-        },
+        legend:{ display:false },
         tooltip:{
-          backgroundColor:'#0e1018',
-          borderColor:'#1d2235',
+          backgroundColor: isLight ? '#ffffff' : '#0e1018',
+          borderColor: isLight ? 'rgba(0,0,0,.12)' : '#1d2235',
           borderWidth:1,
-          titleColor:'#edeef4',
-          bodyColor:'#a0a8be',
+          titleColor: isLight ? '#111827' : '#edeef4',
+          bodyColor: isLight ? '#334155' : '#a0a8be',
           padding:10,
           callbacks:{
             label:function(ctx){
@@ -4826,13 +5610,17 @@ function renderChartCanal(ordersOverride){
   if(tbl) tbl.innerHTML=sorted.map(([c,v])=>{
     const pct=Math.round(v/total*100);
     const color=brandColors[c]||brandColors.default;
-    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-sub)">
-      <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
-      <div style="flex:1;font-size:11px;font-weight:600">${CH[c]||c}</div>
-      <div style="font-size:11px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtBRL(v)}</div>
-      <div style="font-size:10px;color:var(--text-3);width:36px;text-align:right;font-weight:600">${pct}%</div>
-      <div style="width:50px;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
-        <div style="height:4px;border-radius:99px;background:${color};width:${pct}%"></div>
+    return `<div class="dash-donut-row">
+      <div class="dash-donut-left">
+        <span class="dash-donut-dot" style="--c:${color}"></span>
+        <span class="dash-donut-name">${escapeHTML(CH[c]||c)}</span>
+      </div>
+      <div class="dash-donut-right">
+        <span class="dash-donut-value">${escapeHTML(fmtBRL(v))}</span>
+        <span class="dash-donut-pct">${escapeHTML(String(pct))}%</span>
+      </div>
+      <div class="dash-donut-bar">
+        <div class="dash-donut-bar-fill" style="--c:${color};width:${pct}%"></div>
       </div>
     </div>`;
   }).join("");
@@ -9419,17 +10207,7 @@ function normalizeOrderForCRM(o, sourceHint){
     }
   };
 
-  const itens = next.itens || next.items || next.produtos || next.products || next.line_items || [];
-  if(Array.isArray(itens)){
-    next.itens = itens.map(it=>({
-      descricao: it?.descricao || it?.title || it?.nome || it?.name || it?.produto || "",
-      codigo: it?.codigo || it?.sku || it?.id || "",
-      quantidade: Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1,
-      valor: Number(it?.valor ?? it?.price ?? it?.preco ?? 0) || 0
-    })).filter(it=>it.descricao || it.codigo);
-  }else{
-    next.itens = [];
-  }
+  next.itens = getPedidoItens(next);
 
   next._canal = next._canal || String(next.canal || next.channel || "").toLowerCase();
   if(!next._canal){
@@ -9790,14 +10568,14 @@ async function upsertOrdersToSupabase(orders){
     for(let i=0; i<validCliRows.length; i+=50){
       const batch = validCliRows.slice(i,i+50);
       const payload = batch.map(sanitizePayload).filter(Boolean);
-      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc" });
+      const {error} = await supaClient.from("v2_clientes").upsert(payload, { onConflict: "doc", ignoreDuplicates: true });
       if(error){
         hadUpsertError = true;
         try{ console.error("[Upsert v2_clientes]", error, sanitizeForSupabaseLog(payload.slice(0,10))); }catch(_e){}
         logSupabaseUpsertError("upsert v2_clientes error", error, batch.slice(0,5));
         for(const row of payload){
           try{
-            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc" });
+            const {error: rowErr} = await supaClient.from("v2_clientes").upsert([sanitizePayload(row)], { onConflict: "doc", ignoreDuplicates: true });
             if(rowErr){
               hadUpsertError = true;
               try{
@@ -9810,14 +10588,18 @@ async function upsertOrdersToSupabase(orders){
       }
     }
 
-    // Recarregar mapa doc→uuid após upsert de clientes
-    const {data:cliRefresh, error:cliRefreshErr} = await supaClient.from("v2_clientes").select("id,doc").limit(5000);
-    if(cliRefreshErr){
-      logSupabaseUpsertError("select v2_clientes refresh error", cliRefreshErr, null);
-      throw cliRefreshErr;
-    }
+    // Recarregar mapa doc→uuid após upsert de clientes (somente docs relevantes; evita LIMIT 5000)
     const docToUuid = {};
-    (cliRefresh||[]).forEach(c => { if(c.doc) docToUuid[c.doc] = c.id; });
+    const docsToResolve = Array.from(new Set(validCliRows.map(r=>String(r?.doc||"").trim()).filter(Boolean)));
+    for(let i=0; i<docsToResolve.length; i+=200){
+      const batch = docsToResolve.slice(i, i+200);
+      const {data, error} = await supaClient.from("v2_clientes").select("id,doc").in("doc", batch).limit(5000);
+      if(error){
+        logSupabaseUpsertError("select v2_clientes refresh error", error, batch.slice(0,20));
+        throw error;
+      }
+      (data||[]).forEach(c => { if(c?.doc) docToUuid[c.doc] = c.id; });
+    }
 
     const yampiLegacyIds = Array.from(new Set(
       (Array.isArray(orders) ? orders : [])
