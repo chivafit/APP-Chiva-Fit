@@ -2685,6 +2685,7 @@ function showPage(id){
 
   if(id==='oportunidades') setTimeout(()=>safeInvokeName("renderOportunidades"),50);
   if(id==='tarefas') setTimeout(()=>safeInvokeName("renderTarefas"),50);
+  if(id==="alertas") safeInvokeName("renderAlertas");
   if(id==="producao"){ safeInvokeName("renderProdKpis"); safeInvokeName("renderInsumos"); }
   if(id==="comercial"){ safeInvokeName("renderComKpis"); safeInvokeName("renderComPedidos"); setTimeout(()=>safeInvokeName("renderChartsCom"),100); }
   if(id==="marca"){ safeInvokeName("renderMarcaKpis"); safeInvokeName("renderCalendario"); }
