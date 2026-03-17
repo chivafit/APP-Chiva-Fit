@@ -70,6 +70,10 @@ import {
 } from './sync/yampi.js';
 import brazilStatesSvgUrl from './assets/brazil-states.svg?url';
 
+// ── Vercel Analytics: inicializa ──
+import { inject } from '@vercel/analytics';
+inject();
+
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
 window.addEventListener('unhandledrejection', function (event) {
