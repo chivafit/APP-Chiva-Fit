@@ -33,20 +33,20 @@
         // Se estiver em localhost, permite carregar sem sessão para debug
         if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
           console.warn("Sem sessão Supabase, mas permitindo carregamento em localhost.");
-          await import("./main.js?v=20260317-6");
+          await import("./main.js?v=20260317-16");
         } else {
           window.location.replace("./login.html");
         }
       } else {
-        await import("./main.js?v=20260317-15");
+        await import("./main.js?v=20260317-16");
       }
     } catch (e) {
       console.error("Erro crítico no bootstrap:", e);
-      await import("./main.js?v=20260317-15");
+      await import("./main.js?v=20260317-16");
     }
   }
 </script>
-<link rel="stylesheet" href="./main.css?v=20260317-15">
+<link rel="stylesheet" href="./main.css?v=20260317-16">
 </head>
 <body>
 

@@ -27,7 +27,7 @@ import {
   getClientesInteligencia as getClientesInteligenciaView,
   getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260316-6";
+} from "./viewsApi.js?v=20260317-16";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
@@ -1040,26 +1040,30 @@ function toggleDegustFields(){
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
-  const c = allCustomers.find(x=>x.id===clienteId);
-  if(!c) return;
+  try{
+    const cid = String(clienteId ?? "");
+    const c = (allCustomers||[]).find(x=>String(x?.id ?? "")===cid);
+    if(!c) return;
 
-  const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
-  const fmtN = v => v!=null ? Number(v).toLocaleString("pt-BR") : "—";
+    const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
+    const fmtN = v => v!=null ? Number(v).toLocaleString("pt-BR") : "—";
 
-  // Get orders for this client
-  const orders = allOrders.filter(o=>o.cliente_id===clienteId).sort((a,b)=>new Date(b.data_pedido)-new Date(a.data_pedido));
+    const orders = (allOrders||[])
+      .filter(o=>String(o?.cliente_id ?? "")===cid)
+      .slice()
+      .sort((a,b)=>new Date(b?.data_pedido||0)-new Date(a?.data_pedido||0));
 
-  const statusColor = {ativo:"var(--green)",inativo:"var(--text-3)",vip:"var(--ai)",risco:"var(--amber)"};
-  const sc = statusColor[c.status||""] || "var(--text-3)";
+    const statusColor = {ativo:"var(--green)",inativo:"var(--text-3)",vip:"var(--ai)",risco:"var(--amber)"};
+    const sc = statusColor[c.status||""] || "var(--text-3)";
 
-  const kpis = `
+    const kpis = `
     <div class="drawer-kpi-row">
       <div class="drawer-kpi"><div class="drawer-kpi-val">${fmtN(c.total_pedidos)}</div><div class="drawer-kpi-label">Pedidos</div></div>
       <div class="drawer-kpi"><div class="drawer-kpi-val" style="font-size:13px">${fmt(c.total_gasto)}</div><div class="drawer-kpi-label">Total Gasto</div></div>
       <div class="drawer-kpi"><div class="drawer-kpi-val" style="font-size:13px">${fmt(c.ticket_medio)}</div><div class="drawer-kpi-label">Ticket Médio</div></div>
     </div>`;
 
-  const infoRows = [
+    const infoRows = [
     c.doc ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(c.doc)}</span></div>` : "",
     c.email ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(c.email)}</span></div>` : "",
     c.telefone ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(c.telefone)}</span></div>` : "",
@@ -1069,7 +1073,7 @@ function openClienteDrawer(clienteId){
     `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px"><span style="color:var(--text-3)">Score recompra</span><span style="color:var(--chiva-primary-light);font-weight:600">${c.score_recompra!=null ? c.score_recompra+"%" : "—"}</span></div>`,
   ].filter(Boolean).join("");
 
-  const ordersHtml = orders.length ? orders.slice(0,8).map(o=>
+    const ordersHtml = orders.length ? orders.slice(0,8).map(o=>
     `<div class="drawer-order-row" onclick="openPedidoDrawer('${o.id}')">
       <div>
         <div class="drawer-order-num">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</div>
@@ -1080,7 +1084,7 @@ function openClienteDrawer(clienteId){
     </div>`
   ).join("") : `<div style="font-size:12px;color:var(--text-3);padding:12px 0">Nenhum pedido encontrado.</div>`;
 
-  const bodyHTML = `
+    const bodyHTML = `
     ${kpis}
     <div class="drawer-section">
       <div class="drawer-section-title">Informações</div>
@@ -1093,22 +1097,27 @@ function openClienteDrawer(clienteId){
     ${c.notas ? `<div class="drawer-section"><div class="drawer-section-title">Notas</div><p style="font-size:12px;color:var(--text-2);line-height:1.6">${escapeHTML(c.notas)}</p></div>` : ""}
   `;
 
-  const phone = (c.telefone||"").replace(/\D/g,"");
-  const actionsHTML = phone ? `
+    const phone = (c.telefone||"").replace(/\D/g,"");
+    const actionsHTML = phone ? `
     <button class="drawer-btn drawer-btn-primary" onclick="openWaModal('${c.id}')">💬 WhatsApp</button>
     <button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>
   ` : `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`;
 
-  const badge = c.status||"";
-  openDrawer(c.nome||"Cliente", `${badge} · ${c.cidade||""} ${c.uf||""}`, bodyHTML, actionsHTML);
+    const badge = c.status||"";
+    openDrawer(c.nome||"Cliente", `${badge} · ${c.cidade||""} ${c.uf||""}`, bodyHTML, actionsHTML);
+  }catch(e){
+    openDrawer("Erro", "Não foi possível abrir detalhes do cliente", `<div style="font-size:12px;color:var(--text-3)">Erro: ${escapeHTML(String(e?.message||e))}</div>`, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }
 }
 
 // ─── PEDIDO DRAWER ────────────────────────────────────────────
 function openPedidoDrawer(pedidoId){
-  const o = allOrders.find(x=>x.id===pedidoId);
-  if(!o) return;
-  const c = allCustomers.find(x=>x.id===o.cliente_id);
-  const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
+  try{
+    const oid = String(pedidoId ?? "");
+    const o = (allOrders||[]).find(x=>String(x?.id ?? "")===oid) || (allOrders||[]).find(x=>String(x?.numero_pedido ?? "")===oid);
+    if(!o) return;
+    const c = (allCustomers||[]).find(x=>String(x?.id ?? "")===String(o?.cliente_id ?? ""));
+    const fmt = v => v!=null ? "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2}) : "—";
 
   const infoRows = [
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-sub);font-size:12px"><span style="color:var(--text-3)">Número</span><span class="chiva-table-mono">#${escapeHTML(o.numero_pedido||o.id.slice(0,8))}</span></div>`,
@@ -1131,8 +1140,11 @@ function openPedidoDrawer(pedidoId){
     </div>` : ""}
   `;
 
-  openDrawer(`Pedido #${o.numero_pedido||o.id.slice(0,8)}`, o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "", bodyHTML,
-    `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+    openDrawer(`Pedido #${o.numero_pedido||String(o.id||"").slice(0,8)}`, o.data_pedido ? new Date(o.data_pedido).toLocaleDateString("pt-BR") : "", bodyHTML,
+      `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }catch(e){
+    openDrawer("Erro", "Não foi possível abrir detalhes do pedido", `<div style="font-size:12px;color:var(--text-3)">Erro: ${escapeHTML(String(e?.message||e))}</div>`, `<button class="drawer-btn drawer-btn-ghost" onclick="closeDrawer()">Fechar</button>`);
+  }
 }
 
 // ─── PEDIDOS PAGE ─────────────────────────────────────────────
@@ -2733,17 +2745,26 @@ function closeMobileSidebar(){
 
 // Drawer controls
 function openDrawer(title, subtitle, bodyHTML, actionsHTML){
-  document.getElementById("drawer-title").textContent = title || "";
-  document.getElementById("drawer-subtitle").textContent = subtitle || "";
-  document.getElementById("drawer-body").innerHTML = bodyHTML || "";
-  document.getElementById("drawer-actions").innerHTML = actionsHTML || "";
-  document.getElementById("detail-drawer").classList.add("open");
-  document.getElementById("drawer-overlay").classList.add("visible");
+  const titleEl = document.getElementById("drawer-title");
+  const subEl = document.getElementById("drawer-subtitle");
+  const bodyEl = document.getElementById("drawer-body");
+  const actionsEl = document.getElementById("drawer-actions");
+  const drawerEl = document.getElementById("detail-drawer");
+  const overlayEl = document.getElementById("drawer-overlay");
+  if(!titleEl || !subEl || !bodyEl || !actionsEl || !drawerEl || !overlayEl) return;
+  titleEl.textContent = title || "";
+  subEl.textContent = subtitle || "";
+  bodyEl.innerHTML = bodyHTML || "";
+  actionsEl.innerHTML = actionsHTML || "";
+  drawerEl.classList.add("open");
+  overlayEl.classList.add("visible");
   document.body.style.overflow = "hidden";
 }
 function closeDrawer(){
-  document.getElementById("detail-drawer").classList.remove("open");
-  document.getElementById("drawer-overlay").classList.remove("visible");
+  const drawerEl = document.getElementById("detail-drawer");
+  const overlayEl = document.getElementById("drawer-overlay");
+  if(drawerEl) drawerEl.classList.remove("open");
+  if(overlayEl) overlayEl.classList.remove("visible");
   document.body.style.overflow = "";
 }
 
@@ -5206,8 +5227,8 @@ async function renderDashExtraLists(ctx){
           riskEl.innerHTML = (Array.isArray(rowsReatPre) ? rowsReatPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "Cliente");
-            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            const dias = c?.dias_sem_comprar == null ? "" : (String(c.dias_sem_comprar) + "d");
+            const ltv = fmtBRL(Number(c?.ltv_medio ?? c?.receita_total ?? 0) || 0);
             return `<div class="top-item" onclick="openClientePage('${id}')">
               <div class="top-rank">${idx+1}</div>
               <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
@@ -5244,8 +5265,8 @@ async function renderDashExtraLists(ctx){
           vipRiskEl.innerHTML = (Array.isArray(rowsVipPre) ? rowsVipPre : []).map((c, idx)=>{
             const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ""));
             const nome = String(c?.nome || "VIP");
-            const dias = c?.dias_desde_ultima_compra == null ? "" : (String(c.dias_desde_ultima_compra) + "d");
-            const ltv = fmtBRL(c?.ltv || c?.total_gasto || 0);
+            const dias = c?.dias_sem_comprar == null ? "" : (String(c.dias_sem_comprar) + "d");
+            const ltv = fmtBRL(Number(c?.ltv_medio ?? c?.receita_total ?? 0) || 0);
             return `<div class="top-item" onclick="openClientePage('${id}')">
               <div class="top-rank">${idx+1}</div>
               <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(dias)}</span></div>
@@ -5833,7 +5854,7 @@ function renderDashV2SemContato(rows){
     const id = escapeJsSingleQuote(String(r?.cliente_id || r?.id || ""));
     const nome = String(r?.nome || "Cliente").trim();
     const motivo = String(r?.motivo || r?.reason || "sem whatsapp/email").trim();
-    const ltv = fmtBRL(Number(r?.ltv ?? r?.total_gasto ?? 0) || 0);
+    const ltv = fmtBRL(Number(r?.ltv_medio ?? r?.ltv ?? r?.receita_total ?? r?.total_gasto ?? 0) || 0);
     return `<div class="top-item" onclick="openClientePage('${id}')">
       <div class="top-rank">${idx+1}</div>
       <div class="top-name">${escapeHTML(nome)} <span style="color:var(--text-3);font-weight:600">· ${escapeHTML(motivo)}</span></div>
