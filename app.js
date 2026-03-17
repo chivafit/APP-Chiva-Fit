@@ -181,6 +181,11 @@ function safeInvokeName(name, ...args) {
   }
 }
 
+try {
+  window.handleRoute = handleRoute;
+  window.initNavigation = initNavigation;
+} catch (_e) {}
+
 let CID = '',
   CSEC = '',
   SHOP = '',

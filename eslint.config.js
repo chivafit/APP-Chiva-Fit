@@ -87,7 +87,6 @@ module.exports = [
   {
     files: [
       'eslint.config.js',
-      'vite.config.js',
       'tailwind.config.js',
       'postcss.config.js',
       '**/*.cjs',
@@ -95,6 +94,18 @@ module.exports = [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'script',
+      globals: nodeGlobals,
+    },
+    rules: {
+      'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
+    files: ['vite.config.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
       globals: nodeGlobals,
     },
     rules: {
