@@ -9,9 +9,9 @@
     }
   }
 
-  // Valores fixos do projeto
-  var FIXED_URL = "https://nvbicjjtnobnnscmypeq.supabase.co";
-  var FIXED_KEY = "sb_publishable_PEupIHnmmnChZMTEfJylcQ_T5I3tj-7";
+  // Valores fixos do projeto (fallback se não houver no LocalStorage)
+  var FIXED_URL = "";
+  var FIXED_KEY = "";
 
   // SEGURANÇA: Prioriza APP_CONFIG (injetado) > LocalStorage > FIXED (fallback).
   var supabaseUrl = String(existing.supabaseUrl || "").trim() || readLS("crm_supa_url") || readLS("supabase_url") || FIXED_URL;

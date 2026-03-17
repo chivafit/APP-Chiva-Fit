@@ -531,19 +531,27 @@ async function handleLoginSubmit(e){
   
   const emailEl = document.getElementById("login-email");
   const passEl = document.getElementById("login-pass");
+  const urlEl = document.getElementById("cfg-url");
+  const keyEl = document.getElementById("cfg-key");
   const errEl = document.getElementById("login-error");
   const btnEl = e?.target?.querySelector('button[type="submit"]');
-  
-  const email = emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
-  const pass = passEl ? String(passEl.value||"").trim() : "";
   
   if(errEl){ errEl.textContent=""; errEl.style.color=""; }
   
   try {
+    const email = emailEl ? String(emailEl.value||"").trim().toLowerCase() : "";
+    const pass = passEl ? String(passEl.value||"").trim() : "";
+    const inputUrl = urlEl ? String(urlEl.value || "").trim() : "";
+    const inputKey = keyEl ? String(keyEl.value || "").trim() : "";
+
     if(!email || !pass){
       if(errEl) errEl.textContent = "Informe e-mail e senha.";
       return false;
     }
+
+    // Se o usuário preencheu URL/Key no form, salva no LS ANTES de tentar conectar
+    if(inputUrl) localStorage.setItem("crm_supa_url", inputUrl);
+    if(inputKey) localStorage.setItem("crm_supa_key", inputKey);
 
     if(btnEl){
       btnEl.disabled = true;
@@ -657,7 +665,7 @@ async function handleLoginSubmit(e){
   }
   return false;
 }
-window.handleLoginSubmit = handleLoginSubmit;
+
 function enterApp(userEmail){
   setSentryUser({ email: userEmail || "admin" });
   try{ localStorage.removeItem("crm_bootstrap_pass"); }catch(_e){}
@@ -725,60 +733,7 @@ function enterApp(userEmail){
     }
   })();
 }
-window.enterApp = enterApp;
-window.showPage = showPage;
-window.openMobileSidebar = openMobileSidebar;
-window.closeMobileSidebar = closeMobileSidebar;
-window.openDrawer = openDrawer;
-window.closeDrawer = closeDrawer;
-window.toggleSidebarCollapse = toggleSidebarCollapse;
-window.toggleTheme = toggleTheme;
-window.renderDash = renderDash;
-window.openDashActionsModal = openDashActionsModal;
-window.setDashRange = setDashRange;
-window.toggleDashCompare = toggleDashCompare;
-window.toggleDashMA = toggleDashMA;
-window.handleTopbarSearchDebounced = handleTopbarSearchDebounced;
-window.toggleNotif = toggleNotif;
-window.closeWa = closeWa;
-window.sendWa = sendWa;
-window.fecharModal = fecharModal;
-window.goLogout = goLogout;
-window.handleLoginSubmit = handleLoginSubmit;
-window.editMeta = editMeta;
-window.renderCompare = renderCompare;
-window.generateRadarTodayActions = generateRadarTodayActions;
-window.renderOportunidades = renderOportunidades;
-window.openTaskModal = openTaskModal;
-window.computeCustomerIntelligence = computeCustomerIntelligence;
-window.recalculateSegments = recalculateSegments;
-window.exportSegmentData = exportSegmentData;
-window.recarregar = recarregar;
-window.exportClientesCSV = exportClientesCSV;
-window.backToClientes = backToClientes;
-window.clienteAddTask = clienteAddTask;
-window.clienteAddNegotiation = clienteAddNegotiation;
-window.clienteAddNote = clienteAddNote;
-window.clienteWhatsApp = clienteWhatsApp;
-window.seedCidadesIBGE = seedCidadesIBGE;
-window.saveAlertDays = saveAlertDays;
-window.saveSupabaseConfig = saveSupabaseConfig;
-window.auditSupabaseSchema = auditSupabaseSchema;
-window.copySupabaseShareLink = copySupabaseShareLink;
-window.refreshBlingAutoCard = refreshBlingAutoCard;
-window.saveAIKey = saveAIKey;
-window.addAccessUser = addAccessUser;
-window.saveTemplates = saveTemplates;
-window.testSentry = testSentry;
-window.saveCurrentFilter = saveCurrentFilter;
-window.applyFilter = applyFilter;
-window.deleteSavedFilter = deleteSavedFilter;
-window.toggleClienteSelection = toggleClienteSelection;
-window.toggleSelectAll = toggleSelectAll;
-window.clearSelection = clearSelection;
-window.bulkExportCSV = bulkExportCSV;
-window.bulkCopyWhatsApp = bulkCopyWhatsApp;
-window.bulkMarkContacted = bulkMarkContacted;
+// EXPORTS removidos daqui e movidos para o final do arquivo para evitar ReferenceError (Temporal Dead Zone)
 
 /* ═══════════════════════════════════════════════════
    C — ALERTAS DE CARRINHOS QUENTES EM TEMPO REAL
@@ -834,8 +789,7 @@ function checkCarrinhosQuentes(){
   }catch(_){}
 }
 
-// Exposto globalmente para ser chamado após sync
-window.checkCarrinhosQuentes = checkCarrinhosQuentes;
+// EXPORTS removidos daqui e movidos para o final do arquivo para evitar ReferenceError (Temporal Dead Zone)
 
 /* ═══════════════════════════════════════════════════
    I — EXPORTAR CSV DE CARRINHOS ABANDONADOS
@@ -1063,7 +1017,6 @@ function closeCarrinhoHistorico(){
   if(modal) modal.style.display = "none";
 }
 
-window.openCarrinhoHistorico = openCarrinhoHistorico;
 window.closeCarrinhoHistorico = closeCarrinhoHistorico;
 
 // Marca
@@ -1072,18 +1025,6 @@ function toggleDegustFields(){
   var el=document.getElementById('ev-degust-fields');
   if(el) el.style.display=(tipo==='degustacao'||tipo==='feira')?'':'none';
 }
-window.toggleDegustFields = toggleDegustFields;
-window.irParaHoje = irParaHoje;
-
-window.marcarCarrinhoPerdido = marcarCarrinhoPerdido;
-window.toggleCarrinhoSelection = toggleCarrinhoSelection;
-window.toggleAllCarrinhos = toggleAllCarrinhos;
-window.openWaModalCarrinho = openWaModalCarrinho;
-window.openCarrinhoBatchWa = openCarrinhoBatchWa;
-window.closeCarrinhoBatchModal = closeCarrinhoBatchModal;
-window.batchCopyOne = batchCopyOne;
-window.batchOpenWa = batchOpenWa;
-window.batchCopyAllCarrinhos = batchCopyAllCarrinhos;
 
 // ─── CLIENT DRAWER ────────────────────────────────────────────
 function openClienteDrawer(clienteId){
@@ -12033,7 +11974,6 @@ function openWaModalCarrinho(checkoutId){
   tplsEl.innerHTML = tpls.map((t,i)=>`
     <div class="wa-tpl${i===recIdx?" selected":""}" onclick="selectTpl(${i})" style="cursor:pointer">
       <strong style="font-size:10px;display:block;margin-bottom:4px;opacity:.6">${escapeHTML(t.titulo)}</strong>
-      ${escapeHTML(t.texto)}
     </div>`).join("");
 
   customEl.value = tpls[recIdx].texto;
@@ -12055,6 +11995,8 @@ function openWaModalCarrinho(checkoutId){
     }
     window.sendWa = origSendWa; // restore
   };
+
+  modalEl.style.display = "flex";
 }
 
 // E — Lote personalizado
@@ -12601,6 +12543,7 @@ Object.assign(window,{
   openPedidoDrawer,
   filterClientesByCity,
   handleTopbarSearch,
+  handleTopbarSearchDebounced,
   toggleNotif,
   closeWa,
   openWa,
@@ -12621,6 +12564,9 @@ Object.assign(window,{
   renderInteligencia,
   renderDash,
   setDashRange,
+  openDashActionsModal,
+  toggleDashCompare,
+  toggleDashMA,
   renderClientes,
   selectSegment,
   setChCli,
@@ -12668,6 +12614,7 @@ Object.assign(window,{
   setMarcaTab,
   mudarMes,
   filtrarDia,
+  irParaHoje,
   fecharModal,
   deletarCampanha,
   salvarCampanha,
@@ -12685,7 +12632,29 @@ Object.assign(window,{
   recalculateSegments,
   openSegmentDetail,
   renderSegmentCustomers,
-  exportSegmentData
+  exportSegmentData,
+  saveCurrentFilter,
+  applyFilter,
+  deleteSavedFilter,
+  openWaModalCarrinho,
+  toggleCarrinhoSelection,
+  marcarCarrinhoPerdido,
+  openCarrinhoBatchWa,
+  closeCarrinhoBatchModal,
+  batchCopyOne,
+  batchOpenWa,
+  batchCopyAllCarrinhos,
+  toggleClienteSelection,
+  toggleSelectAll,
+  clearSelection,
+  bulkExportCSV,
+  bulkCopyWhatsApp,
+  bulkMarkContacted,
+  checkCarrinhosQuentes,
+  exportCarrinhosCSV,
+  openCarrinhoHistorico,
+  closeCarrinhoHistorico,
+  testSentry
 });
 
 export {

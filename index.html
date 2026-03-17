@@ -38,15 +38,15 @@
           window.location.replace("./login.html");
         }
       } else {
-        await import("./main.js?v=20260317-7");
+        await import("./main.js?v=20260317-10");
       }
     } catch (e) {
       console.error("Erro crítico no bootstrap:", e);
-      await import("./main.js?v=20260317-7");
+      await import("./main.js?v=20260317-10");
     }
   }
 </script>
-<link rel="stylesheet" href="./main.css?v=20260317-7">
+<link rel="stylesheet" href="./main.css?v=20260317-10">
 </head>
 <body>
 
@@ -69,6 +69,16 @@
     <!-- Formulário -->
     <form onsubmit="handleLoginSubmit(event); return false;" style="display:flex;flex-direction:column;gap:10px" method="post" action="javascript:void(0)">
       <div>
+        <label for="cfg-url" style="display:block;font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:4px">Supabase URL</label>
+        <input id="cfg-url" type="text" placeholder="https://xxxx.supabase.co" style="width:100%;padding:8px 10px;border-radius:9px;border:1px solid rgba(148,163,184,0.5);background:rgba(15,23,42,0.85);color:#e5e7eb;font-size:12px;outline:none"
+               onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='rgba(148,163,184,0.5)'">
+      </div>
+      <div>
+        <label for="cfg-key" style="display:block;font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:4px">Supabase anon key</label>
+        <input id="cfg-key" type="text" placeholder="eyJhbGciOiJIUzI1Ni..." style="width:100%;padding:8px 10px;border-radius:9px;border:1px solid rgba(148,163,184,0.5);background:rgba(15,23,42,0.85);color:#e5e7eb;font-size:12px;outline:none"
+               onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='rgba(148,163,184,0.5)'">
+      </div>
+      <div>
         <label for="login-email" style="display:block;font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:4px">E-mail</label>
         <input id="login-email" type="email" autocomplete="email" placeholder="admin@chivafit.com" style="width:100%;padding:8px 10px;border-radius:9px;border:1px solid rgba(148,163,184,0.5);background:rgba(15,23,42,0.85);color:#e5e7eb;font-size:12px;outline:none"
                onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='rgba(148,163,184,0.5)'">
@@ -81,7 +91,19 @@
 
       <div id="login-error" style="font-size:11px;color:#f87171;min-height:16px;margin-top:2px"></div>
 
-      <button type="submit" style="margin-top:4px;width:100%;padding:9px 10px;border-radius:999px;border:none;background:linear-gradient(135deg,#0FA765,#13c97e);color:#fff;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+    <script>
+      // Garante que se não houver URL/Key, os campos apareçam IMEDIATAMENTE
+      (function(){
+        const u = localStorage.getItem("crm_supa_url") || "";
+        const k = localStorage.getItem("crm_supa_key") || "";
+        if(!u || !k){
+          const f = document.querySelector('form[onsubmit*="handleLoginSubmit"]');
+          if(f) f.style.display = "flex";
+        }
+      })();
+    </script>
+
+    <button type="submit" style="margin-top:4px;width:100%;padding:9px 10px;border-radius:999px;border:none;background:linear-gradient(135deg,#0FA765,#13c97e);color:#fff;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
         <span>Entrar</span>
       </button>
 
