@@ -294,6 +294,7 @@ window.CRMStore = CRMStore;
         }
       } catch (_e) {}
 
+      console.log('DEBUG AUTH: Verificando sessão existente...');
       const session = await refreshSupabaseSession();
       const email = String(session?.user?.email || '')
         .trim()
@@ -304,10 +305,19 @@ window.CRMStore = CRMStore;
         enterApp(email);
         return;
       }
-      forceLogout('');
+      // Sessão nula: se o usuário já tinha feito login antes, apenas mostra a tela
+      // de login sem apagar as credenciais salvas — pode ser só refresh de token expirado.
+      const hadLogin = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+      console.log('DEBUG AUTH: Sessão nula. hadLogin:', hadLogin);
+      if(!hadLogin){
+        forceLogout("");
+      }
+      // se hadLogin=true, a tela de login já está visível por padrão — não fazemos nada
       return;
-    } catch (_e) {
-      forceLogout('');
+    }catch(_e){
+      console.warn('DEBUG AUTH: Erro ao verificar sessão:', _e?.message || _e);
+      const hadLogin = localStorage.getItem(STORAGE_KEYS.loginFlag) === "true";
+      if(!hadLogin) forceLogout("");
       return;
     }
   }
@@ -364,6 +374,7 @@ try {
     }
 
     localStorage.removeItem('crm_ai_key');
+
 
     loadTemplatesUI();
   })();
@@ -795,7 +806,10 @@ async function handleLoginSubmit(e) {
         return false;
       }
 
-      localStorage.setItem(STORAGE_KEYS.loginFlag, 'true');
+      // Carrega dados ANTES de entrar no app para que o dashboard não fique em branco
+      try{ await loadSupabaseData(); }catch(_e){ console.warn("[login] loadSupabaseData falhou:", _e?.message || _e); }
+
+      localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
       localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
       enterApp(canonicalEmail);
       return false;
@@ -898,18 +912,19 @@ function enterApp(userEmail) {
     }
   }, 15000);
 
-  (async () => {
-    try {
-      const connected = await initSupabase();
-      if (connected) await loadSupabaseData();
-      safeInvokeName('updateBadge');
-      if (blingOrders.length) safeInvokeName('startTimers');
-      try {
-        scheduleAutoBlingSync();
-      } catch (_e) {}
-      try {
-        scheduleAutoCarrinhosSync();
-      } catch (_e) {}
+  (async()=>{
+    try{
+      // Se já conectamos e carregamos os dados (ex: logo após handleLoginSubmit),
+      // pulamos init+load para não duplicar e exibir dados em branco novamente.
+      const alreadyReady = supaConnected && dataReady;
+      if(!alreadyReady){
+        const connected = await initSupabase();
+        if(connected) await loadSupabaseData();
+      }
+      safeInvokeName("updateBadge");
+      if(blingOrders.length) safeInvokeName("startTimers");
+      try{ scheduleAutoBlingSync(); }catch(_e){}
+      try{ scheduleAutoCarrinhosSync(); }catch(_e){}
       localStorage.setItem('crm_last_bling_sync', new Date().toISOString());
     } catch (e) {
       captureError(e, { context: 'bootstrap', userEmail });
