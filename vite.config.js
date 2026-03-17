@@ -11,4 +11,13 @@ module.exports = defineConfig(({ command }) => ({
       },
     },
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['utils.js', 'constants.js', 'store.js'],
+    },
+  },
 }));
