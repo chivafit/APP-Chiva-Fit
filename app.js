@@ -49,7 +49,7 @@ window.onerror = function(message, source, lineno, colno, error) {
   captureError(error || new Error(String(message)), { source, lineno, colno });
 };
 
-document.addEventListener("DOMContentLoaded",function(){
+(function(){
   if(window.Chart){
     Chart.defaults.font.family="'Plus Jakarta Sans',system-ui,sans-serif";
     Chart.defaults.color="#585f78";
@@ -62,7 +62,7 @@ document.addEventListener("DOMContentLoaded",function(){
     Chart.defaults.plugins.tooltip.padding=10;
     Chart.defaults.plugins.tooltip.cornerRadius=8;
   }
-});
+})();
 
 /* ═══════════════════════════════════════════
    FUNÇÕES UTILITÁRIAS — CORREÇÃO DE ERROS
@@ -209,7 +209,7 @@ window.CRMStore = CRMStore;
 // ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", async ()=>{
+(async function _tryAutoLogin(){
   const shell = document.getElementById("app-shell");
   if(shell && shell.classList.contains("visible")) return;
 
@@ -250,7 +250,7 @@ document.addEventListener("DOMContentLoaded", async ()=>{
   if(!loggedIn) return;
   const email = localStorage.getItem(STORAGE_KEYS.sessionEmail) || "admin@chivafit.com";
   enterApp(email);
-});
+})();
 
 try{
   (()=>{
@@ -1700,7 +1700,7 @@ function copySupabaseShareLink(){
   }
 }
 // Load supa config into form on page open
-document.addEventListener("DOMContentLoaded", ()=>{
+(function(){
   bindDateMasks(document);
   const u =
     localStorage.getItem("crm_supa_url") ||
@@ -1733,7 +1733,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
       toEl.value = fmtDate(new Date().toISOString().slice(0,10));
     }
   }catch(_e){}
-});
+})();
 
 function saveAIKey(){
   toast("A chave da IA agora é gerenciada com segurança no servidor.");
@@ -12446,11 +12446,11 @@ function deletarEvento(){
 }
 
 function fecharModal(id){ var el=document.getElementById(id); if(el) el.classList.remove('open'); }
-document.addEventListener('DOMContentLoaded',function(){
+(function(){
   document.querySelectorAll('.mod-overlay').forEach(function(el){
     el.addEventListener('click',function(e){ if(e.target===el) el.classList.remove('open'); });
   });
-});
+})();
 
 function renderChartEstoque(){
   var ctx=document.getElementById("chart-estoque"); if(!ctx || !ctx.getContext) return;
