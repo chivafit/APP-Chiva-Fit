@@ -12524,13 +12524,14 @@ function renderChartsCom(){
 }
 
 Object.assign(window,{
+  handleLoginSubmit,
+  goLogout,
+  enterApp,
+  showPage,
   closeMobileSidebar,
   openMobileSidebar,
-  showPage,
+  toggleSidebarCollapse,
   toggleTheme,
-  goLogout,
-  handleLoginSubmit,
-  enterApp,
   hydrateConfigPage,
   addAccessUser,
   removeAccessUser,
