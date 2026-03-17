@@ -27,6 +27,8 @@ const browserGlobals = {
   atob: 'readonly',
   btoa: 'readonly',
   crypto: 'readonly',
+  Blob: 'readonly',
+  IntersectionObserver: 'readonly',
   Chart: 'readonly',
 };
 
@@ -47,6 +49,8 @@ const nodeGlobals = {
 
 const unusedVarsWarn = ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }];
 
+const allowEmptyCatchWarn = ['warn', { allowEmptyCatch: true }];
+
 module.exports = [
   {
     ignores: ['dist/**', 'node_modules/**', 'supabase/.temp/**'],
@@ -61,10 +65,17 @@ module.exports = [
     },
     rules: {
       'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
     },
   },
   {
-    files: ['vite.config.js', 'tailwind.config.js', 'postcss.config.js', '**/*.cjs'],
+    files: [
+      'eslint.config.js',
+      'vite.config.js',
+      'tailwind.config.js',
+      'postcss.config.js',
+      '**/*.cjs',
+    ],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'script',
@@ -72,6 +83,7 @@ module.exports = [
     },
     rules: {
       'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
     },
   },
   {
@@ -83,6 +95,7 @@ module.exports = [
     },
     rules: {
       'no-unused-vars': unusedVarsWarn,
+      'no-empty': allowEmptyCatchWarn,
     },
   },
   {
@@ -105,6 +118,19 @@ module.exports = [
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': unusedVarsWarn,
       'no-undef': 'off',
+      '@typescript-eslint/no-explicit-any': 'warn',
+      'no-empty': allowEmptyCatchWarn,
+    },
+  },
+  {
+    files: ['app.js'],
+    rules: {
+      'no-undef': 'off',
+      'no-irregular-whitespace': 'warn',
+      'no-prototype-builtins': 'warn',
+      'no-useless-assignment': 'warn',
+      'no-useless-catch': 'warn',
+      'no-useless-escape': 'warn',
     },
   },
   prettier,

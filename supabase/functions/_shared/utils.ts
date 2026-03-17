@@ -19,7 +19,7 @@ export function jsonResponse(
 ): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
@@ -37,8 +37,8 @@ export function sleep(ms: number): Promise<void> {
 export function firstTextFromAnthropic(respJson: any): string {
   const content = Array.isArray(respJson?.content) ? respJson.content : [];
   for (const c of content) {
-    if (c?.type === "text" && typeof c?.text === "string") return c.text;
+    if (c?.type === 'text' && typeof c?.text === 'string') return c.text;
   }
   const txt = respJson?.text;
-  return typeof txt === "string" ? txt : "";
+  return typeof txt === 'string' ? txt : '';
 }

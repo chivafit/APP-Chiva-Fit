@@ -1,2 +1,2 @@
-import "../app.js";
-import "../controller.js";
+import '../app.js';
+import '../controller.js';

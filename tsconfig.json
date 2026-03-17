@@ -16,14 +16,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.mts",
-    "**/*.cts",
-    "**/*.js",
-    "**/*.mjs",
-    "**/*.cjs"
-  ],
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "**/*.js", "**/*.mjs", "**/*.cjs"],
   "exclude": ["dist", "node_modules", "supabase", "migrations", "scripts"]
 }

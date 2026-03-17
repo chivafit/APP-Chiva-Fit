@@ -10,9 +10,10 @@ Para que o CRM funcione 100%, siga os passos abaixo no seu **Painel do Supabase*
 2. Clique em **New Query**.
 3. Copie todo o conteúdo do arquivo [000_full_schema_setup.sql](./migrations/000_full_schema_setup.sql) e cole no editor.
 4. Clique em **Run**.
-   - *Isso criará todas as tabelas e configurará as permissões de acesso (RLS).*
+   - _Isso criará todas as tabelas e configurará as permissões de acesso (RLS)._
 
 Se você já rodou o schema inicial antes, rode também:
+
 - [004_create_v2_produtos.sql](./migrations/004_create_v2_produtos.sql)
 
 ---
@@ -22,18 +23,22 @@ Se você já rodou o schema inicial antes, rode também:
 Para as Edge Functions funcionarem, você precisa configurar as variáveis de ambiente. No terminal (com Supabase CLI) ou no painel:
 
 ### Bling API v3
+
 ```bash
 supabase secrets set BLING_CLIENT_ID="seu_id"
 supabase secrets set BLING_CLIENT_SECRET="seu_secret"
 ```
 
 ### Cron (Bling Sync automático)
+
 Crie um segredo para autorizar o job agendado (GitHub Actions) a rodar a sincronização persistente:
+
 ```bash
 supabase secrets set CRON_SECRET="um_valor_aleatorio_longo"
 ```
 
 ### Yampi Webhook
+
 ```bash
 supabase secrets set YAMPI_SECRET="wh_SEU_SECRET_AQUI"
 ```

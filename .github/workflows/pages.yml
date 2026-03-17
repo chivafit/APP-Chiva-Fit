@@ -25,12 +25,11 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
       - run: npm ci
       - run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
-          path: ./dist
+        with:
           path: dist
 
   deploy:
@@ -41,3 +40,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,7 +4,7 @@
  * Centraliza requireUserAuth, allowlist e helpers de JWT.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
 export interface AuthResult {
   ok: boolean;
@@ -16,15 +16,17 @@ export interface AuthResult {
 let allowlistCache: { loadedAtMs: number; emails: Set<string> } | null = null;
 
 export function readBearerToken(req: Request): string {
-  const auth = String(req.headers.get("authorization") || "").trim();
-  if (!auth) return "";
+  const auth = String(req.headers.get('authorization') || '').trim();
+  if (!auth) return '';
   const lower = auth.toLowerCase();
-  if (!lower.startsWith("bearer ")) return "";
+  if (!lower.startsWith('bearer ')) return '';
   return auth.slice(7).trim();
 }
 
 export function normalizeEmail(v: unknown): string {
-  return String(v ?? "").trim().toLowerCase();
+  return String(v ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 export async function getAllowlistEmails(
@@ -41,12 +43,12 @@ export async function getAllowlistEmails(
   try {
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase
-      .from("configuracoes")
-      .select("valor_texto")
-      .eq("chave", "crm_access_users")
+      .from('configuracoes')
+      .select('valor_texto')
+      .eq('chave', 'crm_access_users')
       .maybeSingle();
     if (!error) {
-      const raw = String(data?.valor_texto || "").trim();
+      const raw = String(data?.valor_texto || '').trim();
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -59,7 +61,7 @@ export async function getAllowlistEmails(
     }
   } catch (_e) {
     // falha ao carregar allowlist — não bloqueia, mas loga
-    console.warn("[auth] falha ao carregar crm_access_users:", (_e as any)?.message);
+    console.warn('[auth] falha ao carregar crm_access_users:', (_e as any)?.message);
   }
 
   allowlistCache = { loadedAtMs: now, emails };
@@ -77,25 +79,25 @@ export async function requireUserAuth(
   serviceRoleKey: string,
 ): Promise<AuthResult> {
   const jwt = readBearerToken(req);
-  if (!jwt) return { ok: false, reason: "Missing bearer token" };
+  if (!jwt) return { ok: false, reason: 'Missing bearer token' };
 
   try {
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data, error } = await supabase.auth.getUser(jwt);
-    if (error || !data?.user) return { ok: false, reason: "Invalid JWT" };
+    if (error || !data?.user) return { ok: false, reason: 'Invalid JWT' };
 
     const email = normalizeEmail((data.user as any)?.email);
-    if (!email) return { ok: false, reason: "Missing user email" };
+    if (!email) return { ok: false, reason: 'Missing user email' };
 
     const allowlist = await getAllowlistEmails(supabaseUrl, serviceRoleKey);
     // allowlist vazia = todos os usuários autenticados são permitidos
     if (allowlist.size && !allowlist.has(email)) {
-      return { ok: false, reason: "Email not allowed" };
+      return { ok: false, reason: 'Email not allowed' };
     }
 
     return { ok: true, user: data.user, email };
   } catch (_e) {
-    console.error("[auth] erro na verificação de auth:", (_e as any)?.message);
-    return { ok: false, reason: "Auth check failed" };
+    console.error('[auth] erro na verificação de auth:', (_e as any)?.message);
+    return { ok: false, reason: 'Auth check failed' };
   }
 }

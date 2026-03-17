@@ -7,7 +7,7 @@
  * rate limiting de IA — não é transação financeira).
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -44,27 +44,33 @@ export async function checkRateLimit(
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const { data } = await supabase
-      .from("configuracoes")
-      .select("valor_texto")
-      .eq("chave", windowKey)
+      .from('configuracoes')
+      .select('valor_texto')
+      .eq('chave', windowKey)
       .maybeSingle();
 
-    const count = parseInt(String(data?.valor_texto ?? "0")) || 0;
+    const count = parseInt(String(data?.valor_texto ?? '0')) || 0;
 
     if (count >= maxPerHour) {
       return { allowed: false, remaining: 0, resetAt };
     }
 
     // Incrementa o contador
-    await supabase.from("configuracoes").upsert(
-      [{ chave: windowKey, valor_texto: String(count + 1), updated_at: new Date().toISOString() }],
-      { onConflict: "chave" },
+    await supabase.from('configuracoes').upsert(
+      [
+        {
+          chave: windowKey,
+          valor_texto: String(count + 1),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      { onConflict: 'chave' },
     );
 
     return { allowed: true, remaining: maxPerHour - count - 1, resetAt };
   } catch (_e) {
     // Falha aberta: se o rate limit não puder ser verificado, permite a requisição
-    console.warn("[rate_limit] falha ao verificar rate limit:", (_e as any)?.message);
+    console.warn('[rate_limit] falha ao verificar rate limit:', (_e as any)?.message);
     return { allowed: true, remaining: maxPerHour, resetAt };
   }
 }
