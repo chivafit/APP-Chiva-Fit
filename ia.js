@@ -307,7 +307,9 @@ async function upsertCustomerIntelligenceToSupabase(ctx, intel) {
       .select('id,doc,email,telefone')
       .limit(10000);
     if (!error && Array.isArray(data)) cliRows = data;
-  } catch (_e) {}
+  } catch (_e) {
+    console.warn('[IA] falha ao carregar clientes do Supabase:', _e?.message || _e);
+  }
   const byDoc = {};
   const byEmail = {};
   const byPhone = {};
@@ -1467,7 +1469,9 @@ export async function runAI(ctx, type) {
         if (resultEl)
           resultEl.innerHTML += `<div style="font-size:9px;color:var(--green);margin-top:4px">✓ Insight salvo no Supabase</div>`;
       }
-    } catch (_e) {}
+    } catch (_e) {
+      console.warn('[IA] falha ao salvar insight no Supabase:', _e?.message || _e);
+    }
   } catch (e) {
     const safeErr = ctx.escapeHTML(e?.message || 'Erro na função IA');
     if (resultEl)

@@ -49,7 +49,9 @@ async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, sel
       const { data, error } = await q;
       if (error) continue;
       return Array.isArray(data) ? data : [];
-    } catch (_e) {}
+    } catch (_e) {
+      console.warn(`[viewsApi] tryQueryDateRange ${viewName} col=${dc}:`, _e?.message || _e);
+    }
   }
   try {
     let q = client.from(viewName).select(cols);
@@ -71,6 +73,7 @@ async function tryQueryDateRange(client, viewName, dateCols, fromIso, toIso, sel
       return true;
     });
   } catch (_e) {
+    console.warn(`[viewsApi] tryQueryDateRange fallback ${viewName}:`, _e?.message || _e);
     return [];
   }
 }
@@ -105,6 +108,7 @@ export async function getDashboardKpis(client) {
       percentual_recompra: asNum(data.kpi_percentual_recompra),
     };
   } catch (_e) {
+    console.warn('[viewsApi] getDashboardKpis:', _e?.message || _e);
     return null;
   }
 }
@@ -184,6 +188,7 @@ export async function getFunilRecompra(client) {
     out.sort((a, b) => a.ordem - b.ordem);
     return out;
   } catch (_e) {
+    console.warn('[viewsApi] getFunilRecompra:', _e?.message || _e);
     return [];
   }
 }
@@ -224,6 +229,7 @@ export async function getTopCidades(client, limit) {
     out.sort((a, b) => (b.faturamento || 0) - (a.faturamento || 0));
     return out.slice(0, n);
   } catch (_e) {
+    console.warn('[viewsApi] getTopCidades:', _e?.message || _e);
     return [];
   }
 }
@@ -244,6 +250,7 @@ export async function getProdutosFavoritos(client, limit) {
     }
     return Array.isArray(data) ? data : [];
   } catch (_e) {
+    console.warn('[viewsApi] getProdutosFavoritos:', _e?.message || _e);
     return [];
   }
 }
@@ -325,6 +332,7 @@ export async function getClientesVipRisco(client, limit) {
       );
     return vip.slice(0, n);
   } catch (_e) {
+    console.warn('[viewsApi] getClientesVipRisco:', _e?.message || _e);
     return [];
   }
 }
@@ -360,6 +368,7 @@ export async function getClientesReativacao(client, limit) {
       );
     return list.slice(0, n);
   } catch (_e) {
+    console.warn('[viewsApi] getClientesReativacao:', _e?.message || _e);
     return [];
   }
 }
@@ -410,6 +419,7 @@ export async function getClientesSemContato(client, limit) {
       );
     return out.slice(0, n);
   } catch (_e) {
+    console.warn('[viewsApi] getClientesSemContato:', _e?.message || _e);
     return [];
   }
 }
@@ -515,6 +525,7 @@ export async function getClientesInteligencia(client, opts) {
     const hasMore = rows.length === pageSize && !!nextCursor;
     return { rows, nextCursor, hasMore };
   } catch (_e) {
+    console.warn('[viewsApi] getClientesInteligencia:', _e?.message || _e);
     return { rows: [], nextCursor: null, hasMore: false };
   }
 }

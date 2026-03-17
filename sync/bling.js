@@ -39,7 +39,9 @@ export async function maybeRunAutoBlingSync(ctx) {
       await syncBlingProdutos(ctx);
       localStorage.setItem('crm_bling_autosync_products_day', today);
     }
-  } catch (_e) {}
+  } catch (_e) {
+    console.warn('[Bling auto-sync] syncBlingProdutos falhou:', _e?.message || _e);
+  }
 }
 
 export async function syncBling(ctx, options) {
@@ -65,7 +67,9 @@ export async function syncBling(ctx, options) {
         to = new Date().toISOString().slice(0, 10);
         if (toEl) toEl.value = fmtDateBrFromIso(to);
       }
-    } catch (_e) {}
+    } catch (_e) {
+      console.warn('[Bling sync] falha ao resolver datas padrão:', _e?.message || _e);
+    }
   }
 
   const syncStartedAt = Date.now();
@@ -144,7 +148,9 @@ export async function syncBling(ctx, options) {
     ctx.startTimers();
     try {
       if (ctx.isSupaReady()) await ctx.sbSetConfig('ultima_sync_bling', new Date().toISOString());
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Bling sync] falha ao salvar timestamp no Supabase:', e?.message || e);
+    }
     if (st) {
       st.textContent = `✓ ${ctx.blingOrders.length} pedidos importados (lotes: ${batch})`;
       st.className = 'setup-status s-ok';
@@ -248,7 +254,9 @@ export async function syncBlingProdutos(ctx) {
     try {
       if (ctx.isSupaReady())
         await ctx.sbSetConfig('ultima_sync_bling_produtos', new Date().toISOString());
-    } catch (_e) {}
+    } catch (_e) {
+      console.warn('[Bling produtos] falha ao salvar timestamp no Supabase:', _e?.message || _e);
+    }
     ctx.toast('✓ Produtos do Bling importados!');
   } catch (e) {
     const msg = String(e?.message || String(e) || '');
@@ -280,7 +288,9 @@ export async function backfillBlingEnderecos(ctx) {
         .order('data_pedido', { ascending: true })
         .limit(1);
       from = String(data?.[0]?.data_pedido || '').slice(0, 10);
-    } catch (_e) {}
+    } catch (_e) {
+      console.warn('[Bling backfill] falha ao buscar data inicial no Supabase:', _e?.message || _e);
+    }
 
     const to = new Date().toISOString().slice(0, 10);
     if (!from) from = '2020-01-01';
