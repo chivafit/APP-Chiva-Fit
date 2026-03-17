@@ -33,9 +33,13 @@ concurrency:
   group: bling-cron-sync
   cancel-in-progress: true
 
+env:
+  SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+  CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
 jobs:
   sync:
-    if: ${{ github.event_name == 'workflow_dispatch' || (secrets.SUPABASE_PROJECT_ID != '' && secrets.CRON_SECRET != '') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (env.SUPABASE_PROJECT_ID != '' && env.CRON_SECRET != '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
