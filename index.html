@@ -663,6 +663,7 @@
       </select>
       <select id="fil-estado" class="saas-chip saas-chip-select" onchange="renderClientes()"><option value="">UF</option></select>
       <button class="saas-chip saas-chip-btn" onclick="recarregar()" aria-label="Recarregar"><span id="ri">↻</span></button>
+      <button class="saas-chip saas-chip-btn" onclick="exportClientesCSV()" title="Exportar clientes em CSV" aria-label="Exportar CSV">↓ CSV</button>
     </div>
   </div>
   <div class="ch-pills" id="ch-pills-cli"></div>
@@ -1006,6 +1007,7 @@
     <input id="ped-search" class="saas-search-input" placeholder="Buscar pedido, cliente, e-mail ou telefone..." oninput="renderPedidosPage()"/>
   </div>
   <div class="saas-chips" aria-label="Filtros de pedidos">
+    <button class="saas-chip saas-chip-btn" onclick="exportPedidosCSV()" title="Exportar pedidos em CSV" aria-label="Exportar CSV">↓ CSV</button>
     <select id="ped-canal-filter" class="saas-chip saas-chip-select" onchange="renderPedidosPage()">
       <option value="">Canal</option>
       <option value="yampi">Yampi</option>

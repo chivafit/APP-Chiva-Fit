@@ -3,9 +3,17 @@ let blingAutoSyncTimer = null;
 export function scheduleAutoBlingSync(ctx){
   if(blingAutoSyncTimer) clearInterval(blingAutoSyncTimer);
   blingAutoSyncTimer = setInterval(()=>{
-    maybeRunAutoBlingSync(ctx).catch(()=>{});
+    maybeRunAutoBlingSync(ctx).catch(e=>{
+      const msg = e?.message || "erro desconhecido";
+      console.warn("[Bling auto-sync] falhou:", msg);
+      try{ ctx.toast("⚠ Sync automático Bling falhou: " + msg, "error"); }catch(_e){}
+    });
   }, 20*60*1000);
-  maybeRunAutoBlingSync(ctx).catch(()=>{});
+  maybeRunAutoBlingSync(ctx).catch(e=>{
+    const msg = e?.message || "erro desconhecido";
+    console.warn("[Bling auto-sync inicial] falhou:", msg);
+    try{ ctx.toast("⚠ Sync inicial Bling falhou: " + msg, "error"); }catch(_e){}
+  });
 }
 
 export async function maybeRunAutoBlingSync(ctx){

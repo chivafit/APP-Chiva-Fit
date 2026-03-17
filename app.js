@@ -1430,17 +1430,45 @@ function scheduleAutoBlingSync(){
 }
 
 async function syncBling(){
-  const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
-  checkEstoqueCritico();
-  try{ refreshBlingAutoCard(); }catch(_e){}
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando Bling…";
+  try{
+    const res = await syncBlingImpl(getSyncCtx(), arguments?.[0]);
+    checkEstoqueCritico();
+    try{ refreshBlingAutoCard(); }catch(_e){}
+    if(barTxt) barTxt.textContent = "✓ Bling sincronizado";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Verifique as configurações do Bling";
+    if(barTxt) barTxt.textContent = "⚠ Bling: " + msg;
+    toast("⚠ Bling: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 async function syncBlingProdutos(){
-  const res = await syncBlingProdutosImpl(getSyncCtx());
-  checkEstoqueCritico();
-  try{ refreshBlingAutoCard(); }catch(_e){}
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando produtos Bling…";
+  try{
+    const res = await syncBlingProdutosImpl(getSyncCtx());
+    checkEstoqueCritico();
+    try{ refreshBlingAutoCard(); }catch(_e){}
+    if(barTxt) barTxt.textContent = "✓ Produtos sincronizados";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Erro ao sincronizar produtos";
+    if(barTxt) barTxt.textContent = "⚠ Produtos: " + msg;
+    toast("⚠ Produtos Bling: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 async function backfillBlingEnderecos(){
@@ -1455,9 +1483,23 @@ function scheduleAutoCarrinhosSync(){
 }
 
 async function syncYampi(){
-  const res = await syncYampiImpl(getSyncCtx());
-  checkEstoqueCritico();
-  return res;
+  const bar = document.getElementById("sync-bar");
+  const barTxt = document.getElementById("sync-txt-bar");
+  if(bar) bar.classList.add("show");
+  if(barTxt) barTxt.textContent = "⟳ Sincronizando Yampi…";
+  try{
+    const res = await syncYampiImpl(getSyncCtx());
+    checkEstoqueCritico();
+    if(barTxt) barTxt.textContent = "✓ Yampi sincronizado";
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 2500);
+    return res;
+  }catch(e){
+    const msg = e?.message || "Verifique as configurações do Yampi";
+    if(barTxt) barTxt.textContent = "⚠ Yampi: " + msg;
+    toast("⚠ Yampi: " + msg, "error");
+    setTimeout(()=>{ if(bar) bar.classList.remove("show"); }, 6000);
+    throw e;
+  }
 }
 
 function normalizeYampiOrder(o){
@@ -9134,9 +9176,77 @@ function renderAlertas(){
 }
 
 // ═══════════════════════════════════════════════════
+//  EXPORT CSV
+// ═══════════════════════════════════════════════════
+function csvEscape(v){
+  const s = String(v ?? "").replace(/"/g, '""');
+  return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s}"` : s;
+}
+
+function downloadCSV(filename, rows){
+  const blob = new Blob(["\uFEFF" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportClientesCSV(){
+  const source = clientesIntelCache.length ? clientesIntelCache : Object.values(buildCli(allOrders));
+  if(!source.length){ toast("Nenhum cliente para exportar", "warning"); return; }
+  const header = ["Nome","E-mail","Telefone","Documento","Canal","Status","Segmento","UF","Cidade","LTV (R$)","Total Pedidos","Dias desde última compra","Score Recompra","Risco Churn","Próxima Ação"];
+  const rows = source.map(c => [
+    c.nome || "",
+    c.email || "",
+    c.telefone || c.celular || "",
+    c.doc || "",
+    c.canal_principal || "",
+    c.status || "",
+    c.segmento_crm || "",
+    c.uf || "",
+    c.cidade || "",
+    (c.ltv ?? c.total_gasto ?? c.orders?.reduce((s,o)=>s+val(o),0) ?? 0).toFixed(2),
+    c.total_pedidos ?? c.orders?.length ?? 0,
+    c.dias_desde_ultima_compra ?? "",
+    c.score_recompra ?? "",
+    c.risco_churn ?? "",
+    c.next_best_action || ""
+  ]);
+  const today = new Date().toISOString().slice(0,10);
+  downloadCSV(`clientes-chivafit-${today}.csv`, [header, ...rows]);
+  toast(`✓ ${source.length} clientes exportados`, "success");
+}
+
+function exportPedidosCSV(){
+  const orders = [...allOrders].sort((a,b) => String(b.data||"").localeCompare(String(a.data||"")));
+  if(!orders.length){ toast("Nenhum pedido para exportar", "warning"); return; }
+  const header = ["Número","Data","Canal","Cliente","E-mail","Telefone","Status","Total (R$)"];
+  const rows = orders.map(o => [
+    o.numero || o.numero_pedido || o.id || "",
+    (o.data || "").slice(0,10),
+    o._source || o._canal || detectCh(o) || "",
+    o.contato?.nome || "",
+    o.contato?.email || "",
+    o.contato?.telefone || "",
+    o.situacao?.nome || o.status || "",
+    val(o).toFixed(2)
+  ]);
+  const today = new Date().toISOString().slice(0,10);
+  downloadCSV(`pedidos-chivafit-${today}.csv`, [header, ...rows]);
+  toast(`✓ ${orders.length} pedidos exportados`, "success");
+}
+
+// ═══════════════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════════════
-function toast(m){ const e=document.getElementById("toast"); e.textContent=m; e.classList.add("show"); setTimeout(()=>e.classList.remove("show"),2500); }
+function toast(m, type){
+  const e = document.getElementById("toast");
+  if(!e) return;
+  e.textContent = m;
+  e.className = "show" + (type === "error" ? " toast-error" : type === "success" ? " toast-success" : type === "warning" ? " toast-warning" : "");
+  clearTimeout(e._toastTimer);
+  e._toastTimer = setTimeout(() => e.classList.remove("show"), type === "error" ? 5000 : 2500);
+}
 const PENDING_OPS_KEY = "crm_pending_ops_v1";
 let pendingOpsTimer = null;
 

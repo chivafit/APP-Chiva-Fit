@@ -1857,6 +1857,9 @@ select.saas-chip-select{
   box-shadow: var(--shadow-md);
 }
 #toast.show { transform: translateY(0); opacity: 1; }
+#toast.toast-error   { background: #3b1010; border-color: #7f1d1d; color: #fca5a5; }
+#toast.toast-success { background: #0f2a1a; border-color: #14532d; color: #86efac; }
+#toast.toast-warning { background: #2a1f07; border-color: #78350f; color: #fcd34d; }
 
 /* ═══ INSTALL BAR ══════════════════════════════════════════════ */
 #install-bar {
