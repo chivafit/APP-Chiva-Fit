@@ -3621,12 +3621,22 @@ function showPage(id) {
 
 // Sidebar mobile controls
 function openMobileSidebar() {
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('sidebar-overlay').classList.add('visible');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) {
+    sidebar.classList.add('open');
+    sidebar.classList.add('visible');
+  }
+  if (overlay) overlay.classList.add('visible');
 }
 function closeMobileSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('visible');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) {
+    sidebar.classList.remove('open');
+    sidebar.classList.remove('visible');
+  }
+  if (overlay) overlay.classList.remove('visible');
 }
 
 // Drawer controls
