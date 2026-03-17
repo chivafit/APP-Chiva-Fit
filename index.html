@@ -1258,11 +1258,13 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap">
       <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
         <button class="btn-primary" onclick="syncCarrinhosAbandonadosYampi()">Sincronizar carrinhos</button>
-        <button class="btn" id="car-lote-btn" style="display:none" onclick="openCarrinhoBatchWa()">💬 Disparar em lote (<span id="car-lote-count">0</span>)</button>
+        <button class="btn" id="car-lote-btn" style="display:none" onclick="openCarrinhoBatchWa()">💬 Lote (<span id="car-lote-count">0</span>)</button>
+        <button class="btn" onclick="exportCarrinhosCSV()" title="Exportar lista filtrada para Excel/CSV">⬇ CSV</button>
+        <button class="btn" id="car-funil-btn" onclick="toggleCarrinhosFunil()" title="Ver funil de conversão por etapa">📊 Funil</button>
         <div id="abandoned-status" class="setup-status"></div>
       </div>
-      <div class="saas-filterbar" style="margin:0;min-width:420px;justify-content:flex-end">
-        <div class="saas-search" style="min-width:220px">
+      <div class="saas-filterbar" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:6px">
+        <div class="saas-search" style="min-width:200px">
           <span class="saas-search-ico">⌕</span>
           <input id="car-search" class="saas-search-input" placeholder="Buscar carrinho..." oninput="renderCarrinhosAbandonados()"/>
         </div>
@@ -1274,11 +1276,16 @@
             <option value="recuperados">Recuperados</option>
             <option value="perdidos">Perdidos</option>
           </select>
+          <select id="car-responsavel" class="saas-chip saas-chip-select" onchange="renderCarrinhosAbandonados()">
+            <option value="">Responsável</option>
+          </select>
         </div>
       </div>
     </div>
     <!-- KPIs do funil -->
     <div id="carrinhos-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px"></div>
+    <!-- Funil de conversão por etapa (G) -->
+    <div id="carrinhos-funil" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:14px"></div>
     <div id="carrinhos-list"></div>
   </div>
 

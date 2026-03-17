@@ -791,6 +791,145 @@ function checkCarrinhosQuentes(){
 window.checkCarrinhosQuentes = checkCarrinhosQuentes;
 
 /* ═══════════════════════════════════════════════════
+   I — EXPORTAR CSV DE CARRINHOS ABANDONADOS
+═══════════════════════════════════════════════════ */
+function exportCarrinhosCSV(){
+  const lookup = buildClienteLookupParaCarrinhos();
+  const q  = String((document.getElementById("car-search")||{}).value||"").trim().toLowerCase();
+  const st = String((document.getElementById("car-status")||{}).value||"");
+  const resp = String((document.getElementById("car-responsavel")||{}).value||"");
+
+  const list = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>{
+    if(!c.checkout_id) return false;
+    if(st==="abertos"    && (c.recuperado||c.perdido)) return false;
+    if(st==="recuperados" && !c.recuperado) return false;
+    if(st==="perdidos"   && !c.perdido) return false;
+    if(st==="quentes"    && (c.recuperado||c.perdido||(minutosDesdeIso(c.criado_em)==null||minutosDesdeIso(c.criado_em)>=120))) return false;
+    if(resp && (c.responsavel||"")!==resp) return false;
+    if(q){
+      const hit=String(c.cliente_nome||"").toLowerCase().includes(q)||String(c.email||"").toLowerCase().includes(q)||rawPhone(c.telefone||"").includes(rawPhone(q));
+      if(!hit) return false;
+    }
+    return true;
+  }).map(c=>{
+    const calc = calcularScoreRecuperacaoCarrinho(c, lookup);
+    const score = c.score_recuperacao==null ? calc.score : Number(c.score_recuperacao||0);
+    const prio  = prioridadePorScore(score);
+    const etapa = sugerirEtapaParaCarrinho(c, calc.mins);
+    const itens = Array.isArray(c.produtos)?c.produtos:[];
+    const prodTxt = itens.slice(0,5).map(it=>String(it?.nome||it?.title||it?.descricao||it?.name||"").trim()).filter(Boolean).join("; ");
+    const pipeline = c.recuperado?"Recuperado":c.perdido?"Perdido":c.last_etapa_enviada?"Contatado":"Novo";
+    const dtCriado = c.criado_em ? new Date(c.criado_em).toLocaleString("pt-BR") : "";
+    const dtRec    = c.recuperado_em ? new Date(c.recuperado_em).toLocaleString("pt-BR") : "";
+    return [c.cliente_nome||"", c.telefone||"", c.email||"", Number(c.valor||0).toFixed(2).replace(".",","), String(Math.round(score)), prio.label, pipeline, etapa.label||"", prodTxt, dtCriado, dtRec, c.recuperado_pedido_id||"", c.link_finalizacao||"", c.responsavel||""];
+  });
+
+  const header = ["Nome","Telefone","Email","Valor (R$)","Score","Prioridade","Pipeline","Próxima etapa","Produtos","Criado em","Recuperado em","Pedido recuperado","Link finalização","Responsável"];
+  const rows = [header, ...list].map(r=>r.map(csvEscape).join(",")).join("\r\n");
+  downloadCSV(`carrinhos_abandonados_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  toast(`✓ ${list.length} carrinho${list.length!==1?"s":""} exportado${list.length!==1?"s":""}!`, "success");
+}
+
+/* ═══════════════════════════════════════════════════
+   G — FUNIL DE CONVERSÃO POR ETAPA
+═══════════════════════════════════════════════════ */
+let carrinhosFunilVisible = false;
+
+function toggleCarrinhosFunil(){
+  carrinhosFunilVisible = !carrinhosFunilVisible;
+  const el = document.getElementById("carrinhos-funil");
+  const btn = document.getElementById("car-funil-btn");
+  if(el) el.style.display = carrinhosFunilVisible ? "" : "none";
+  if(btn) btn.style.fontWeight = carrinhosFunilVisible ? "800" : "";
+  if(carrinhosFunilVisible) renderCarrinhosFunil();
+}
+
+function renderCarrinhosFunil(enrichedList){
+  const el = document.getElementById("carrinhos-funil");
+  if(!el || !carrinhosFunilVisible) return;
+  const list = enrichedList || (carrinhosAbandonados||[]).map(c=>{
+    const n = normalizeCarrinhoAbandonado(c);
+    const calc = calcularScoreRecuperacaoCarrinho(n, buildClienteLookupParaCarrinhos());
+    return Object.assign({}, n, {tempo_min: calc.mins});
+  });
+
+  const total = list.length;
+  if(!total){ el.innerHTML = '<div style="text-align:center;font-size:12px;color:var(--text-3);padding:12px">Sem dados.</div>'; return; }
+
+  const stages = [
+    { id:"novo",      label:"Novo",            color:"#64748b", count: list.filter(c=>!c.recuperado&&!c.perdido&&!c.last_etapa_enviada).length },
+    { id:"ajuda",     label:"Ajuda enviada",   color:"#3b82f6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="ajuda").length },
+    { id:"link",      label:"Link enviado",    color:"#8b5cf6", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="link").length },
+    { id:"incentivo", label:"Incentivo",       color:"#f59e0b", count: list.filter(c=>!c.recuperado&&!c.perdido&&c.last_etapa_enviada==="incentivo").length },
+    { id:"recuperado",label:"Recuperado ✓",    color:"#10b981", count: list.filter(c=>c.recuperado).length },
+    { id:"perdido",   label:"Perdido ✗",       color:"#ef4444", count: list.filter(c=>c.perdido&&!c.recuperado).length },
+  ];
+
+  const max = Math.max(...stages.map(s=>s.count), 1);
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'+
+      '<span style="font-size:13px;font-weight:800">📊 Funil de conversão</span>'+
+      '<span style="font-size:11px;color:var(--text-3)">'+ escapeHTML(String(total))+' carrinho'+( total!==1?"s":"")+'</span>'+
+    '</div>'+
+    stages.map(s=>{
+      const pct = total ? Math.round(s.count/total*100) : 0;
+      const barW = max ? Math.round(s.count/max*100) : 0;
+      return '<div class="car-funil-row">'+
+        '<div class="car-funil-label">'+escapeHTML(s.label)+'</div>'+
+        '<div class="car-funil-bar-wrap"><div class="car-funil-bar-fill" style="width:'+barW+'%;background:'+s.color+'"></div></div>'+
+        '<div class="car-funil-count">'+escapeHTML(String(s.count))+'</div>'+
+        '<div class="car-funil-pct">'+escapeHTML(String(pct))+'%</div>'+
+      '</div>';
+    }).join("");
+}
+
+/* ═══════════════════════════════════════════════════
+   H — ATRIBUIÇÃO DE RESPONSÁVEL
+═══════════════════════════════════════════════════ */
+function populateCarRespFilter(){
+  const sel = document.getElementById("car-responsavel");
+  if(!sel) return;
+  const users = loadAccessUsers();
+  const current = sel.value;
+  // Manter opção padrão
+  sel.innerHTML = '<option value="">Responsável</option>';
+  // Usuários cadastrados
+  users.forEach(u=>{
+    const label = String(u.email||"").split("@")[0] || String(u.email||"");
+    const opt = document.createElement("option");
+    opt.value = String(u.email||"");
+    opt.textContent = label;
+    if(u.email===current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Responsáveis já atribuídos mas não mais cadastrados
+  const existentes = [...new Set((carrinhosAbandonados||[]).map(c=>String(c.responsavel||"")).filter(Boolean))];
+  existentes.forEach(r=>{
+    if(!users.find(u=>u.email===r)){
+      const opt = document.createElement("option");
+      opt.value = r; opt.textContent = r;
+      if(r===current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function atribuirResponsavelCarrinho(checkoutId, responsavel){
+  const cid = String(checkoutId||"");
+  const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
+  if(idx<0) return;
+  carrinhosAbandonados[idx] = Object.assign({}, normalizeCarrinhoAbandonado(carrinhosAbandonados[idx]), { responsavel: responsavel||null });
+  safeSetItem("crm_carrinhos_abandonados", JSON.stringify(carrinhosAbandonados));
+  if(supaConnected && supaClient) upsertCarrinhosAbandonadosToSupabase([carrinhosAbandonados[idx]]).catch(()=>{});
+}
+
+window.exportCarrinhosCSV = exportCarrinhosCSV;
+window.toggleCarrinhosFunil = toggleCarrinhosFunil;
+window.renderCarrinhosFunil = renderCarrinhosFunil;
+window.atribuirResponsavelCarrinho = atribuirResponsavelCarrinho;
+window.populateCarRespFilter = populateCarRespFilter;
+
+/* ═══════════════════════════════════════════════════
    F — HISTÓRICO DE INTERAÇÕES POR CARRINHO
 ═══════════════════════════════════════════════════ */
 async function openCarrinhoHistorico(checkoutId){
@@ -1772,6 +1911,9 @@ function normalizeCarrinhoAbandonado(raw){
   const lastEtapa = String(c.last_etapa_enviada || c.last_whatsapp_stage || "").trim() || null;
   const lastAtRaw = c.last_mensagem_at || c.last_whatsapp_at || null;
   const lastAt = lastAtRaw ? new Date(lastAtRaw).toISOString() : null;
+  const responsavel = String(c.responsavel || c.assigned_to || "").trim() || null;
+  const perdido = !!(c.perdido || c.lost);
+  const perdidoEm = c.perdido_em || null;
   return {
     checkout_id: checkoutId,
     cliente_nome: nome,
@@ -1786,7 +1928,10 @@ function normalizeCarrinhoAbandonado(raw){
     link_finalizacao: linkFinalizacao,
     score_recuperacao: score,
     last_etapa_enviada: lastEtapa,
-    last_mensagem_at: lastAt
+    last_mensagem_at: lastAt,
+    responsavel,
+    perdido,
+    perdido_em: perdidoEm
   };
 }
 
@@ -11758,6 +11903,22 @@ function pipelineBadge(c){
   return `<span class="pipe-badge pipe-novo">Novo</span>`;
 }
 
+function buildRespSelect(safeId, currentResp){
+  const users = (typeof loadAccessUsers==="function") ? loadAccessUsers() : [];
+  const cur = String(currentResp||"");
+  let opts = '<option value="">'+(cur?'–':'Atribuir')+'</option>';
+  users.forEach(function(u){
+    const val = String(u.email||"");
+    const label = val.split("@")[0]||val;
+    opts += '<option value="'+escapeHTML(val)+'"'+(val===cur?' selected':'')+'>'+escapeHTML(label)+'</option>';
+  });
+  // Se responsável atual não está nos usuários cadastrados
+  if(cur && !users.find(function(u){ return String(u.email||"")===cur; })){
+    opts += '<option value="'+escapeHTML(cur)+'" selected>'+escapeHTML(cur)+'</option>';
+  }
+  return '<select class="car-resp-select" onchange="atribuirResponsavelCarrinho(\''+safeId+'\',this.value)">'+opts+'</select>';
+}
+
 function marcarCarrinhoPerdido(checkoutId){
   const cid = String(checkoutId||"");
   const idx = (carrinhosAbandonados||[]).findIndex(x=>String(x?.checkout_id||"")===cid);
@@ -11927,9 +12088,12 @@ function batchCopyAllCarrinhos(){
 function renderCarrinhosAbandonados(){
   var el=document.getElementById('carrinhos-list'); if(!el) return;
   try{ carrinhosAbandonados = safeJsonParse("crm_carrinhos_abandonados", []) || carrinhosAbandonados || []; }catch(_e){}
-  var q  = String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
-  var st = String((document.getElementById('car-status')||{}).value||'');
+  var q    = String((document.getElementById('car-search')||{}).value||'').trim().toLowerCase();
+  var st   = String((document.getElementById('car-status')||{}).value||'');
+  var resp = String((document.getElementById('car-responsavel')||{}).value||'');
   var lookup = buildClienteLookupParaCarrinhos();
+  // H — popular select de responsáveis
+  try{ populateCarRespFilter(); }catch(_){}
 
   // Enriquecer todos para KPIs (antes do filtro)
   var enriched = [].concat(carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(function(c){ return !!c.checkout_id; }).map(function(c){
@@ -11943,12 +12107,15 @@ function renderCarrinhosAbandonados(){
   });
 
   renderCarrinhosKpis(enriched);
+  // G — atualiza funil se visível
+  try{ renderCarrinhosFunil(enriched); }catch(_){}
 
   var list = enriched.filter(function(c){
     if(st==='abertos'    && (c.recuperado||c.perdido)) return false;
     if(st==='recuperados' && !c.recuperado) return false;
     if(st==='perdidos'   && !c.perdido) return false;
     if(st==='quentes'    && (c.recuperado||c.perdido||(c.tempo_min==null||c.tempo_min>=120))) return false;
+    if(resp && (c.responsavel||'')!==resp) return false;
     if(q){
       var hit = String(c.cliente_nome||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q)||rawPhone(c.telefone||'').includes(rawPhone(q));
       if(!hit) return false;
@@ -11973,6 +12140,7 @@ function renderCarrinhosAbandonados(){
         '<th style="text-align:right">Score</th>'+
         '<th style="text-align:right">Valor</th>'+
         '<th>Próxima ação</th>'+
+        '<th>Responsável</th>'+
         '<th></th>'+
       '</tr></thead>'+
       '<tbody>'+
@@ -11999,6 +12167,7 @@ function renderCarrinhosAbandonados(){
             '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(String(Math.round(c.score_calc||0)))+'</td>'+
             '<td style="text-align:right" class="chiva-table-mono">'+escapeHTML(fmtBRL(c.valor||0))+'</td>'+
             '<td style="font-size:11px;color:var(--text-2)">'+escapeHTML(nextAcao)+'</td>'+
+            '<td>'+buildRespSelect(safeId, c.responsavel)+'</td>'+
             '<td style="text-align:right;white-space:nowrap">'+btnWa+btnHist+btnPer+'</td>'+
           '</tr>';
         }).join('')+
