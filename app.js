@@ -105,6 +105,7 @@ let supaClient = null;
 let supaSession = null;
 let supaAccessToken = '';
 let supaAuthUnsub = null;
+let _sessionRefreshInFlight = null;
 let canaisLookup = {};
 let clientesIntelCache = [];
 let clientesIntelLoadedAt = 0;
@@ -600,7 +601,6 @@ function getSupaFnBase() {
   return url + '/functions/v1';
 }
 
-let _sessionRefreshInFlight = null;
 async function refreshSupabaseSession() {
   if (!supaClient || !supaClient.auth || typeof supaClient.auth.getSession !== 'function')
     return null;
@@ -13858,6 +13858,9 @@ async function loadSupabaseData() {
       await loadCanalLookup();
       console.debug('[loadSupabaseData] dados auxiliares OK, carregando pedidos…');
       await loadOrdersFromSupabaseForCRM();
+      mergeOrders();
+      renderProdutos();
+      renderAll();
       console.debug(
         '[loadSupabaseData] pedidos OK — blingOrders:',
         blingOrders.length,
