@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 import { captureToSentry } from "../_shared/sentry.ts";
+import { requireUserAuth } from "../_shared/auth.ts";
+import { safeJsonParse, nowIso, sleep } from "../_shared/utils.ts";
 
 declare const Deno: any;
 
@@ -22,87 +24,7 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function readBearerToken(req: Request): string {
-  const auth = String(req.headers.get("authorization") || "").trim();
-  if (!auth) return "";
-  const lower = auth.toLowerCase();
-  if (!lower.startsWith("bearer ")) return "";
-  return auth.slice(7).trim();
-}
-
-function normalizeEmail(v: unknown): string {
-  return String(v ?? "").trim().toLowerCase();
-}
-
-let allowlistCache: { loadedAtMs: number; emails: Set<string> } | null = null;
-
-async function getAllowlistEmails(supabaseUrl: string, serviceRoleKey: string): Promise<Set<string>> {
-  const ttlMs = 60_000;
-  const now = Date.now();
-  if (allowlistCache && now - allowlistCache.loadedAtMs < ttlMs) return allowlistCache.emails;
-
-  const emails = new Set<string>();
-  try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { data, error } = await supabase
-      .from("configuracoes")
-      .select("valor_texto")
-      .eq("chave", "crm_access_users")
-      .maybeSingle();
-    if (!error) {
-      const raw = String(data?.valor_texto || "").trim();
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((u) => {
-            const em = normalizeEmail((u as any)?.email);
-            if (em) emails.add(em);
-          });
-        }
-      }
-    }
-  } catch (_e) {
-  }
-
-  allowlistCache = { loadedAtMs: now, emails };
-  return emails;
-}
-
-async function requireUserAuth(req: Request, supabaseUrl: string, serviceRoleKey: string) {
-  const jwt = readBearerToken(req);
-  if (!jwt) return { ok: false, reason: "Missing bearer token" };
-  try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { data, error } = await supabase.auth.getUser(jwt);
-    if (error || !data?.user) return { ok: false, reason: "Invalid JWT" };
-    const email = normalizeEmail((data.user as any)?.email);
-    if (!email) return { ok: false, reason: "Missing user email" };
-    const allowlist = await getAllowlistEmails(supabaseUrl, serviceRoleKey);
-    if (allowlist.size && !allowlist.has(email) && email !== "admin@chivafit.com") {
-      return { ok: false, reason: "Email not allowed" };
-    }
-    return { ok: true, user: data.user };
-  } catch (_e) {
-    return { ok: false, reason: "Auth check failed" };
-  }
-}
-
-function safeJsonParse(text: string): unknown {
-  if (!text || !text.trim()) return {};
-  try {
-    return JSON.parse(text);
-  } catch (_e) {
-    return null;
-  }
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
+// sleep e nowIso importados de ../_shared/utils.ts
 
 let tokenCache: { token: string; expiresAtMs: number } | null = null;
 

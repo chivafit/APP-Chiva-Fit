@@ -1,3 +1,5 @@
+import { parseDateToIso, fmtDateBrFromIso } from "../utils.js?v=20260317-4";
+
 let blingAutoSyncTimer = null;
 
 export function scheduleAutoBlingSync(ctx){
@@ -41,20 +43,7 @@ export async function syncBling(ctx, options){
   const st = document.getElementById("bling-status");
   const fromEl = document.getElementById("date-from");
   const toEl = document.getElementById("date-to");
-  const fmtDateBrFromIso = (iso)=>{
-    const s = String(iso||"").trim();
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
-  };
-  const parseDateToIso = (v)=>{
-    const s = String(v||"").trim();
-    if(!s) return "";
-    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if(iso) return s;
-    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if(br) return `${br[3]}-${br[2]}-${br[1]}`;
-    return "";
-  };
+  // parseDateToIso e fmtDateBrFromIso importados de ../utils.js
   let from = parseDateToIso(String(fromEl?.value||""));
   let to = parseDateToIso(String(toEl?.value||""));
   if((!from || !to) && !omitDates){
