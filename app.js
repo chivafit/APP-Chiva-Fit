@@ -645,18 +645,28 @@ function supaFnHeaders() {
   };
 }
 
+// Wrapper de timeout para qualquer Promise do Supabase.
+// Se a query não responder em `ms` milissegundos, rejeita e o caller usa cache.
+function supaTimeout(promise, ms = 5000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Supabase timeout (${ms}ms)`)), ms)
+    ),
+  ]);
+}
+
 async function bootstrapFromSupabase() {
   try {
     const connected = await initSupabase();
     if (connected) {
-      await loadSupabaseData();
-      // Verificar erro de token Bling e alertar o usuário no boot
-      try {
-        const { data: tokenErrRow } = await supaClient
-          .from('configuracoes')
-          .select('valor_texto')
-          .eq('chave', 'bling_token_error')
-          .maybeSingle();
+      // fire-and-forget: não bloqueia o bootstrap nem o shell
+      loadSupabaseData();
+      // Verificar erro de token Bling em background (não bloqueia)
+      supaTimeout(
+        supaClient.from('configuracoes').select('valor_texto').eq('chave', 'bling_token_error').maybeSingle(),
+        5000
+      ).then(({ data: tokenErrRow }) => {
         const tokenErr = String(tokenErrRow?.valor_texto || '').trim();
         if (tokenErr) {
           const parsed = JSON.parse(tokenErr);
@@ -664,7 +674,7 @@ async function bootstrapFromSupabase() {
             setTimeout(() => toast(`⚠ Bling: ${parsed.message}`, 'error'), 3500);
           }
         }
-      } catch (_e) {}
+      }).catch(_e => {});
     }
     CRM_BOOTSTRAPPED = true;
     CRM_BOOTSTRAP_ERROR = null;
@@ -806,9 +816,7 @@ async function handleLoginSubmit(e) {
         return false;
       }
 
-      // Carrega dados ANTES de entrar no app para que o dashboard não fique em branco
-      try{ await loadSupabaseData(); }catch(_e){ console.warn("[login] loadSupabaseData falhou:", _e?.message || _e); }
-
+      // Entra no app imediatamente — loadSupabaseData roda em background dentro de enterApp
       localStorage.setItem(STORAGE_KEYS.loginFlag, "true");
       localStorage.setItem(STORAGE_KEYS.sessionEmail, canonicalEmail);
       enterApp(canonicalEmail);
@@ -884,6 +892,16 @@ function enterApp(userEmail) {
     void shell.offsetWidth;
     shell.style.opacity = '1';
     shell.classList.add('visible');
+    console.log(
+      'DEBUG SHELL: Shell deve estar visível agora | display:',
+      shell.style.display,
+      '| classes:',
+      shell.className,
+      '| offsetHeight:',
+      shell.offsetHeight
+    );
+  } else {
+    console.warn('DEBUG SHELL: #app-shell não encontrado no DOM!');
   }
   const emojiEl = document.getElementById('user-emoji');
   if (emojiEl) emojiEl.textContent = userEmail && userEmail !== 'admin@chivafit.com' ? '👤' : '🛡️';
@@ -919,7 +937,9 @@ function enterApp(userEmail) {
       const alreadyReady = supaConnected && dataReady;
       if(!alreadyReady){
         const connected = await initSupabase();
-        if(connected) await loadSupabaseData();
+        // fire-and-forget: loadSupabaseData libera o shell após fase essencial (≤5s)
+        // e continua em background sem bloquear a UI
+        if(connected) loadSupabaseData();
       }
       safeInvokeName("updateBadge");
       if(blingOrders.length) safeInvokeName("startTimers");
@@ -13738,55 +13758,47 @@ async function loadSupabaseData() {
   if (isLoadingData) return;
   isLoadingData = true;
   dataReady = false;
+
+  // ─── FASE 1: Essencial — configs + tarefas (rápido, com timeout 5s) ─────────
+  // Após esta fase o shell já tem dados suficientes para renderizar do cache.
   try {
-    // configuracoes — campo valor_texto (antigo: config.valor)
-    const { data: metaRow } = await supaClient
-      .from('configuracoes')
-      .select('valor_texto')
-      .eq('chave', 'meta_mensal')
-      .maybeSingle();
-    if (metaRow?.valor_texto) localStorage.setItem('crm_meta', metaRow.valor_texto);
-
-    const { data: alertRow } = await supaClient
-      .from('configuracoes')
-      .select('valor_texto')
-      .eq('chave', 'alert_days')
-      .maybeSingle();
-    if (alertRow?.valor_texto) {
-      localStorage.setItem('crm_alertdays', alertRow.valor_texto);
+    const [metaRes, alertRes, usersRes] = await supaTimeout(
+      Promise.all([
+        supaClient.from('configuracoes').select('valor_texto').eq('chave', 'meta_mensal').maybeSingle(),
+        supaClient.from('configuracoes').select('valor_texto').eq('chave', 'alert_days').maybeSingle(),
+        supaClient.from('configuracoes').select('valor_texto').eq('chave', 'crm_access_users').maybeSingle(),
+      ]),
+      5000
+    );
+    if (metaRes?.data?.valor_texto) localStorage.setItem('crm_meta', metaRes.data.valor_texto);
+    if (alertRes?.data?.valor_texto) {
+      localStorage.setItem('crm_alertdays', alertRes.data.valor_texto);
       const el = document.getElementById('alert-days');
-      if (el) el.value = alertRow.valor_texto;
+      if (el) el.value = alertRes.data.valor_texto;
     }
-
-    const { data: usersRow } = await supaClient
-      .from('configuracoes')
-      .select('valor_texto')
-      .eq('chave', 'crm_access_users')
-      .maybeSingle();
-    if (usersRow?.valor_texto) {
-      localStorage.setItem('crm_access_users', usersRow.valor_texto);
+    if (usersRes?.data?.valor_texto) {
+      localStorage.setItem('crm_access_users', usersRes.data.valor_texto);
       renderAccessUsers();
     }
+  } catch (_e) {
+    console.warn('[loadSupabaseData] configs timeout/erro, usando cache local:', _e?.message);
+  }
 
+  try {
     // v2_tarefas — campos: descricao (antigo: desc), vencimento (antigo: data), status 'aberta'→'pendente' para UI
-    const { data: tasks } = await supaClient
-      .from('v2_tarefas')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+    const { data: tasks } = await supaTimeout(
+      supaClient.from('v2_tarefas').select('*').order('created_at', { ascending: false }).limit(500),
+      5000
+    );
     tarefasCache = (tasks || []).map((t) => ({
       ...t,
       desc: t.descricao || '',
       data: t.vencimento || '',
       status: t.status === 'aberta' ? 'pendente' : t.status,
     }));
-    // Mesclar tarefas do Supabase em allTasks — associar _supaId a tarefas existentes pelo título
     if (tarefasCache.length) {
       const sbById = {};
-      tarefasCache.forEach((t) => {
-        sbById[t.id] = t;
-      });
-      // Tarefas locais que já têm _supaId: atualizar dados vindos do servidor
+      tarefasCache.forEach((t) => { sbById[t.id] = t; });
       allTasks = allTasks.map((local) => {
         if (local._supaId && sbById[local._supaId]) {
           const srv = sbById[local._supaId];
@@ -13802,7 +13814,6 @@ async function loadSupabaseData() {
         }
         return local;
       });
-      // Tarefas no Supabase sem _supaId local: adicionar como novas
       const localSupaIds = new Set(allTasks.map((t) => t._supaId).filter(Boolean));
       tarefasCache.forEach((srv) => {
         if (!localSupaIds.has(srv.id)) {
@@ -13821,55 +13832,62 @@ async function loadSupabaseData() {
       });
       saveTasks();
     }
-
-    await loadClienteMetaCache();
-    console.debug('[loadSupabaseData] clienteMeta OK');
-    await loadInsumosFromSupabase();
-    await loadReceitasProdutosFromSupabase();
-    await loadOrdensProducaoFromSupabase();
-    await loadMovimentosEstoqueFromSupabase();
-    await loadCarrinhosAbandonadosFromSupabase();
-    await loadCanalLookup();
-    console.debug('[loadSupabaseData] dados auxiliares OK, carregando pedidos…');
-    await loadOrdersFromSupabaseForCRM();
-    console.debug(
-      '[loadSupabaseData] pedidos OK — blingOrders:',
-      blingOrders.length,
-      'yampiOrders:',
-      yampiOrders.length,
-    );
-    await loadClientesInteligenciaCache();
-    console.debug('[loadSupabaseData] clientesIntelCache:', clientesIntelCache.length);
-    await loadBlingProductsFromSupabase();
-
-    updateBadge();
-    mergeOrders();
-    populateUFs();
-    dataReady = true;
-    console.log(
-      '[loadSupabaseData] ✅ CONCLUÍDO — allOrders:',
-      allOrders.length,
-      'allCustomers:',
-      allCustomers.length,
-      '| Bling:',
-      blingOrders.filter((o) => o._source === 'bling').length,
-      '| Yampi:',
-      yampiOrders.length,
-    );
-    renderAll();
-  } catch (e) {
-    console.error('[loadSupabaseData] ❌ erro inesperado:', e?.message || e, e);
-    captureError(e, { context: 'loadSupabaseData' });
-    try {
-      mergeOrders();
-    } catch (_e) {}
-    try {
-      renderAll();
-    } catch (_e) {}
-  } finally {
-    isLoadingData = false;
-    if (!dataReady) dataReady = true;
+  } catch (_e) {
+    console.warn('[loadSupabaseData] tarefas timeout/erro:', _e?.message);
   }
+
+  // Renderiza imediatamente com o que tiver em cache — libera o shell
+  try { mergeOrders(); } catch (_e) {}
+  try { populateUFs(); } catch (_e) {}
+  try { renderAll(); } catch (_e) {}
+  dataReady = true;
+  isLoadingData = false;
+  console.log('[loadSupabaseData] ✅ Fase 1 OK — shell liberado, carregando dados em background…');
+
+  // ─── FASE 2: Background — pedidos, clientes, insumos (pode demorar) ─────────
+  // Não bloqueia o shell. Quando terminar, renderiza novamente com dados completos.
+  (async () => {
+    try {
+      await loadClienteMetaCache();
+      console.debug('[loadSupabaseData] clienteMeta OK');
+      await loadInsumosFromSupabase();
+      await loadReceitasProdutosFromSupabase();
+      await loadOrdensProducaoFromSupabase();
+      await loadMovimentosEstoqueFromSupabase();
+      await loadCarrinhosAbandonadosFromSupabase();
+      await loadCanalLookup();
+      console.debug('[loadSupabaseData] dados auxiliares OK, carregando pedidos…');
+      await loadOrdersFromSupabaseForCRM();
+      console.debug(
+        '[loadSupabaseData] pedidos OK — blingOrders:',
+        blingOrders.length,
+        'yampiOrders:',
+        yampiOrders.length,
+      );
+      await loadClientesInteligenciaCache();
+      console.debug('[loadSupabaseData] clientesIntelCache:', clientesIntelCache.length);
+      await loadBlingProductsFromSupabase();
+      updateBadge();
+      mergeOrders();
+      populateUFs();
+      console.log(
+        '[loadSupabaseData] ✅ BACKGROUND CONCLUÍDO — allOrders:',
+        allOrders.length,
+        'allCustomers:',
+        allCustomers.length,
+        '| Bling:',
+        blingOrders.filter((o) => o._source === 'bling').length,
+        '| Yampi:',
+        yampiOrders.length,
+      );
+      renderAll();
+    } catch (e) {
+      console.error('[loadSupabaseData] ❌ erro no background:', e?.message || e);
+      captureError(e, { context: 'loadSupabaseData-background' });
+      try { mergeOrders(); } catch (_e) {}
+      try { renderAll(); } catch (_e) {}
+    }
+  })();
 }
 
 function updateClientesIntelFiltersOptions() {
