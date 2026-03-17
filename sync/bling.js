@@ -1,4 +1,4 @@
-import { parseDateToIso, fmtDateBrFromIso } from "../utils.js?v=20260317-4";
+import { parseDateToIso, fmtDateBrFromIso } from "../utils.js";
 
 let blingAutoSyncTimer = null;
 

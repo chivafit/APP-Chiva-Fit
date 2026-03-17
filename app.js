@@ -1,4 +1,4 @@
-import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js?v=20260316-6";
+import { allInsumos, allOrdens, getEstPct, getEstStatus } from "./producao.js";
 import {
   computeCustomerIntelligence as computeCustomerIntelligenceImpl,
   definirNextBestAction as definirNextBestActionImpl,
@@ -8,12 +8,12 @@ import {
   runAI as runAIImpl,
   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,
   openWhatsAppForCustomer as openWhatsAppForCustomerImpl
-} from "./ia.js?v=20260316-6";
-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-5";
-import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";
-import { CRMStore } from "./store.js?v=20260316-6";
-import { STORAGE_KEYS } from "./constants.js?v=20260316-6";
-import { getSupabaseClient } from "./supabaseClient.js?v=20260316-6";
+} from "./ia.js";
+import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js";
+import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js";
+import { CRMStore } from "./store.js";
+import { STORAGE_KEYS } from "./constants.js";
+import { getSupabaseClient } from "./supabaseClient.js";
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -27,18 +27,18 @@ import {
   getClientesInteligencia as getClientesInteligenciaView,
   getFunilRecompra as getFunilRecompraView,
   normalizeClienteIntel
-} from "./viewsApi.js?v=20260317-17";
+} from "./viewsApi.js";
 import {
   scheduleAutoBlingSync as scheduleAutoBlingSyncImpl,
   syncBling as syncBlingImpl,
   syncBlingProdutos as syncBlingProdutosImpl,
   backfillBlingEnderecos as backfillBlingEnderecosImpl
-} from "./sync/bling.js?v=20260317-4";
+} from "./sync/bling.js";
 import {
   syncYampi as syncYampiImpl,
   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,
   scheduleAutoCarrinhosSync as scheduleAutoCarrinhosSyncImpl
-} from "./sync/yampi.js?v=20260316-6";
+} from "./sync/yampi.js";
 
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
