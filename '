@@ -1,0 +1,488 @@
+[33mcommit f89bf1df7603b3b89013238229799f8bb77aee89[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Merge: 971592c 56f7457
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 11:05:28 2026 -0300
+
+    Merge pull request #33 from chivafit/claude/review-app-bugs-yrTzU
+    
+    Claude/review app bugs yr tz u
+
+[33mcommit 56f74570566c24b4b35c8dcfe88ac775c5537de8[m[33m ([m[1;31morigin/claude/review-app-bugs-yrTzU[m[33m)[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 14:01:07 2026 +0000
+
+    chore: update supabase cli-latest temp file
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+supabase/.temp/cli-latest
+
+[33mcommit bff43340743d8a5bdc882a691a63e14dfb6b786b[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 13:55:40 2026 +0000
+
+    chore: add Supabase PAT auth to MCP config
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+.mcp.json
+
+[33mcommit b155b26beb51c9c7e791d22ffdfcaaf1898ed1ef[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 13:50:04 2026 +0000
+
+    chore: add Supabase MCP server config
+    
+    Adiciona .mcp.json com o servidor MCP do Supabase (HTTP transport)
+    para integração direta com o banco via Claude Code.
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+.mcp.json
+
+[33mcommit 5e2b4a49e4c7a9a67f20aba55c276b958149407c[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 13:45:51 2026 +0000
+
+    fix: remove parseDateToIso duplicada do app.js
+    
+    A função estava declarada duas vezes — uma vez em utils.js (importada)
+    e outra inline em app.js — causando SyntaxError que impedia o carregamento
+    completo do JS e quebrava o login (handleLoginSubmit not defined).
+    
+    - Remove a declaração duplicada de app.js
+    - Atualiza utils.js com a versão completa (inclui parse de ddmmyyyy de 8 dígitos)
+    - Bump de versão do import utils.js para forçar cache bust
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+app.js
+utils.js
+
+[33mcommit 971592cf2ea280fd25feaa4312a20027dc156fd4[m
+Merge: 8ab5db8 da6d23f
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:19:24 2026 -0300
+
+    Merge pull request #32 from chivafit/feat/supabase-auth
+    
+    Merge pull request #30 from chivafit/main
+
+[33mcommit 8ab5db895bb427db5593af950abacba5d2c89943[m
+Merge: f2c867a 7dd56af
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:19:02 2026 -0300
+
+    Merge pull request #31 from chivafit/claude/review-app-bugs-yrTzU
+    
+    Merge pull request #29 from chivafit/main
+
+[33mcommit da6d23fbc896c5136abf39788790b021c70fd486[m[33m ([m[1;31morigin/feat/supabase-auth[m[33m)[m
+Merge: 797f1e9 f2c867a
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:17:18 2026 -0300
+
+    Merge pull request #30 from chivafit/main
+    
+    ui
+
+[33mcommit 7dd56afd66afced35485e342441e230e85008a2a[m
+Merge: 63c9028 f2c867a
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:16:52 2026 -0300
+
+    Merge pull request #29 from chivafit/main
+    
+    er
+
+[33mcommit f2c867a8959b3c1f32e43b6befb2a0e55cc2925a[m
+Merge: f3cbf71 63c9028
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:15:55 2026 -0300
+
+    Merge pull request #28 from chivafit/claude/review-app-bugs-yrTzU
+    
+    Merge pull request #25 from chivafit/main
+
+[33mcommit f3cbf718ebcae0be1c50e52c62514f8d7fa65de0[m
+Merge: f77214f 5c7ecab
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:15:25 2026 -0300
+
+    Merge pull request #27 from chivafit/dashboard-skin
+    
+    Merge pull request #26 from chivafit/main
+
+[33mcommit 5c7ecabfa0229391b04cbc2eb4bfbcd9e1a88b73[m[33m ([m[1;31morigin/dashboard-skin[m[33m)[m
+Merge: d41c18e f77214f
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:14:37 2026 -0300
+
+    Merge pull request #26 from chivafit/main
+    
+    apbug
+
+[33mcommit 63c9028925312f2e8830d80273b1998f0008a197[m
+Merge: 0302c23 f77214f
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:13:57 2026 -0300
+
+    Merge pull request #25 from chivafit/main
+    
+    mak
+
+[33mcommit f77214fc8d19d262d820650e0fe76e296a5594dd[m
+Merge: 5e6114b 0302c23
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:12:26 2026 -0300
+
+    Merge pull request #24 from chivafit/claude/review-app-bugs-yrTzU
+    
+    Claude/review app bugs yr tz u
+
+[33mcommit 5e6114be3020e8eda3058e901e847a2653bf0b22[m
+Merge: e2b8cf6 d41c18e
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:12:02 2026 -0300
+
+    Merge pull request #23 from chivafit/dashboard-skin
+    
+    Merge pull request #20 from chivafit/main
+
+[33mcommit e2b8cf64e9e8462761c131e4c6a0d4d69c69b40b[m
+Merge: b4655c7 797f1e9
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:11:37 2026 -0300
+
+    Merge pull request #22 from chivafit/feat/supabase-auth
+    
+    Merge pull request #19 from chivafit/main
+
+[33mcommit 0302c232e4ff78f3274a26db322a2cd20ed742ad[m
+Merge: 390a0d7 b4655c7
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:10:02 2026 -0300
+
+    Merge pull request #21 from chivafit/main
+    
+    pull
+
+[33mcommit d41c18e673137d633e8c3437d78dc507c4ab90b2[m
+Merge: 9bca821 b4655c7
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:09:27 2026 -0300
+
+    Merge pull request #20 from chivafit/main
+    
+    main merg
+
+[33mcommit 797f1e9a2ca9bb1490464b4df06222ed337b39ff[m
+Merge: f564b1d b4655c7
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:08:57 2026 -0300
+
+    Merge pull request #19 from chivafit/main
+    
+    Merge pull request #18 from chivafit/feat/supabase-auth
+
+[33mcommit b4655c733e37c750ed491fbdfb585dffd2aea78c[m
+Merge: 3050607 f564b1d
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:07:35 2026 -0300
+
+    Merge pull request #18 from chivafit/feat/supabase-auth
+    
+    Merge pull request #17 from chivafit/main
+
+[33mcommit f564b1da72f1239158d333122e4aaa573dc52de2[m
+Merge: a037d0f 3050607
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:07:11 2026 -0300
+
+    Merge pull request #17 from chivafit/main
+    
+    merged
+
+[33mcommit 390a0d7609848ecc328c322fd34040efef2f346c[m
+Merge: b70c002 3050607
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:06:36 2026 -0300
+
+    Merge pull request #16 from chivafit/main
+    
+    -
+
+[33mcommit 30506078a14e612041db52c954978246c54f0b5d[m
+Merge: 3dfa405 b70c002
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 10:05:10 2026 -0300
+
+    Merge pull request #15 from chivafit/claude/review-app-bugs-yrTzU
+    
+    fix(migration): torna policies de sync_log idempotentes com DROP IF E…
+
+[33mcommit b70c0022e93a76dd4fce9f27c2be89ff5d2f2a39[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 13:01:34 2026 +0000
+
+    fix(migration): torna policies de sync_log idempotentes com DROP IF EXISTS
+    
+    CREATE POLICY não suporta IF NOT EXISTS no PostgreSQL.
+    Usar DROP POLICY IF EXISTS antes de CREATE garante que a migration
+    pode ser reexecutada sem erro 42710 (duplicate_object).
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+migrations/020_sync_log_and_yampi_idempotency.sql
+
+[33mcommit 3dfa405b9e2baeb3c68d7db6b7022656c374b990[m
+Merge: a58a526 c3644e1
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:47:52 2026 -0300
+
+    Merge pull request #14 from chivafit/claude/review-app-bugs-yrTzU
+    
+    security: corrige backdoor, rate limiting IA, config.js e duplicatas
+
+[33mcommit c3644e1cdf7ce75d839eef313870f1478fe81b69[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 12:45:42 2026 +0000
+
+    security: corrige backdoor, rate limiting IA, config.js e duplicatas
+    
+    SEGURANÇA (críticos):
+    - Remove bypass hardcoded admin@chivafit.com de bling-sync e bling-products-sync
+    - Consolida requireUserAuth sem backdoor em _shared/auth.ts
+    - Adiciona rate limiting por usuário (30 req/hora) em ia-claude e ia-commercial
+    - Impede que caller sobrescreva model da IA (fixo no servidor via CLAUDE_MODEL env)
+    - Remove leitura de supabaseUrl/anonKey do localStorage em config.js
+    - Sanitiza system prompt em ia-commercial (não aceita override do caller)
+    - Melhora mensagens de erro da IA (não expõe detalhes internos do Anthropic)
+    
+    DUPLICAÇÃO (alto):
+    - Cria _shared/auth.ts: requireUserAuth, getAllowlistEmails, readBearerToken, normalizeEmail
+    - Cria _shared/utils.ts: safeJsonParse, jsonResponse, nowIso, sleep, firstTextFromAnthropic
+    - Cria _shared/rate_limit.ts: checkRateLimit por usuário via tabela configuracoes
+    - Remove cópias duplicadas de auth/utils em bling-sync e bling-products-sync
+    - Exporta parseDateToIso e fmtDateBrFromIso de utils.js (eliminando lambdas em sync/bling.js)
+    
+    CONFIABILIDADE:
+    - Corrige 6 .catch(()=>{}) críticos em app.js com log + captureError
+    - Corrige .catch(()=>{}) em sync/yampi.js com log adequado
+    - Corrige bug de precedência de operadores em pickNextCursor (viewsApi.js:208)
+    
+    OPERACIONAL:
+    - Adiciona migration 021: pg_cron para prune_sync_log (diário) e limpeza de rate limit keys (horário)
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+app.js
+config.js
+migrations/021_pg_cron_and_cleanup.sql
+supabase/functions/_shared/auth.ts
+supabase/functions/_shared/rate_limit.ts
+supabase/functions/_shared/utils.ts
+supabase/functions/bling-products-sync/index.ts
+supabase/functions/bling-sync/index.ts
+supabase/functions/ia-claude/index.ts
+supabase/functions/ia-commercial/index.ts
+sync/bling.js
+sync/yampi.js
+utils.js
+viewsApi.js
+
+[33mcommit a58a526fd333c2bab74aae902f3387479e279c3f[m
+Merge: ee040b0 9bca821
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:41:04 2026 -0300
+
+    Merge pull request #13 from chivafit/dashboard-skin
+    
+    Merge pull request #12 from chivafit/main
+
+[33mcommit 9bca821d735e5a55ce20fa333262d26ea9d0c75d[m
+Merge: e89eb4c ee040b0
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:39:38 2026 -0300
+
+    Merge pull request #12 from chivafit/main
+    
+    Merge pull request #11 from chivafit/dashboard-skin
+
+[33mcommit ee040b05773cd45288c48fc87352b268bb8cf142[m
+Merge: 46f2012 e89eb4c
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:17:44 2026 -0300
+
+    Merge pull request #11 from chivafit/dashboard-skin
+    
+    Merge pull request #10 from chivafit/main
+
+[33mcommit e89eb4c10e634439bc7daab805abf6a1970e697c[m
+Merge: 6a094cd 46f2012
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:16:42 2026 -0300
+
+    Merge pull request #10 from chivafit/main
+    
+    Merge pull request #9 from chivafit/dashboard-skin
+
+[33mcommit 46f201230bdcd061a4aeb1e0eca71eab8c3b6f2d[m
+Merge: 7d0c205 6a094cd
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:14:11 2026 -0300
+
+    Merge pull request #9 from chivafit/dashboard-skin
+    
+    Merge pull request #8 from chivafit/main
+
+[33mcommit 6a094cd0321fb846c8c05fa06324b1bac1f94a72[m
+Merge: 71ff55f 7d0c205
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:13:43 2026 -0300
+
+    Merge pull request #8 from chivafit/main
+    
+    supa
+
+[33mcommit 7d0c205491c5fdd3eb14832aa9b8fc25ab4a6008[m
+Merge: 5bebe8c 07799fa
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:12:14 2026 -0300
+
+    Merge pull request #7 from chivafit/claude/review-app-bugs-yrTzU
+    
+    fix: corrige config.toml — usa project_id em vez de [project]
+
+[33mcommit 07799fa18b302324cd7d999760e8c3d292a143d3[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 12:11:52 2026 +0000
+
+    fix: corrige config.toml — usa project_id em vez de [project]
+    
+    A seção [project] não é reconhecida pelo Supabase CLI, causando erro
+    'config.config has invalid keys: project'. Substituído pelo formato
+    correto: project_id = "chivafit" no nível raiz.
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+supabase/config.toml
+
+[33mcommit 5bebe8c8d4977e9b674214bb73f88a9e0c58d530[m
+Merge: a037d0f ced747d
+Author: Chiva Fit <loja@chivafit.com.br>
+Date:   Tue Mar 17 09:09:34 2026 -0300
+
+    Merge pull request #6 from chivafit/claude/review-app-bugs-yrTzU
+    
+    Claude/review app bugs yr tz u
+
+[33mcommit ced747d847ce98adecc0e97b19e6fe1aba79780a[m
+Merge: a3e5d67 a037d0f
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 12:08:26 2026 +0000
+
+    chore: resolve merge conflicts com main
+    
+    - supabase-functions-deploy.yml: remove bloco env duplicado no job;
+      adiciona condição if: steps.prep.outputs.ready em checkout, cache,
+      detect-changed e deploy steps (versão do main)
+    - supabase/config.toml: mantém formato [project] com id = "chivafit"
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+[33mcommit a3e5d67c97caeada5098dcfc0a0bf4bc5292c3a1[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 11:58:46 2026 +0000
+
+    fix: re-render alertas ao navegar para a aba
+    
+    renderAlertas() só era chamada no bootstrap via renderAll(). Ao navegar
+    para a aba depois de adicionar pedidos/clientes, os dados ficavam
+    desatualizados. Agora showPage() dispara renderAlertas() sempre que
+    id === "alertas".
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+app.js
+
+[33mcommit 72f5c1ed5e55f028c5cce429af28d25b41bb8cd7[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 04:33:33 2026 +0000
+
+    fix: revisão completa da aba Marca — bugs críticos, UX e funcionalidades ausentes
+    
+    BUGS CRÍTICOS CORRIGIDOS
+    - kpiCard() não estava definida em app.js → renderMarcaKpis() e renderComKpis()
+      quebravam silenciosamente (KPIs ficavam em branco)
+    - miniKpi() não estava definida em nenhum lugar → aba Degustações e aba
+      Resultados crashavam sem renderizar nada
+    
+    BUGS FUNCIONAIS CORRIGIDOS
+    - renderEventosLista() exibia TODOS os eventos de todos os meses ao invés de
+      filtrar pelo mês atual visível no calendário
+    - mudarMes() não resetava filtroDia → trocar de mês mantinha o filtro de dia
+      ativo, mostrando eventos errados do novo mês
+    - deletarEvento() não chamava renderDegustacoes() → aba Degustações ficava
+      desatualizada após excluir evento pelo calendário
+    - salvarEvento() não validava a data → eventos sem data eram salvos com
+      data vazia, quebrando ordenação e exibição
+    - Dados demo com datas de 2025 → todos os eventos apareciam como "no passado",
+      atualizados para março/abril 2026
+    
+    MELHORIAS DE UX ADICIONADAS
+    - Botão "Hoje" no cabeçalho do calendário para voltar ao mês atual
+    - Badge por evento: "HOJE" (roxo) · "Próximo" (verde) · "Realizado" (cinza)
+      com opacidade reduzida para eventos passados
+    - Modal de evento: campos Amostras/Conversões/Receita agora ocultam/exibem
+      automaticamente conforme o tipo selecionado (só aparecem para Degustação e
+      Feira, ocultos para Reunião/Live/Evento genérico)
+    - Título dinâmico na lista de eventos: mostra o mês sendo visualizado
+      ("Eventos de Março") ao invés do genérico "Próximos eventos"
+    - Ao criar novo evento, tipo é resetado para Degustação e campos atualizam
+    
+    ABA RESULTADOS EXPANDIDA
+    - Consolidado agora soma custo e receita de TODOS os tipos (não só degustação)
+    - Nova tabela "Por tipo de evento" com Qtd · Custo · Receita · ROI por tipo
+      colorido (verde = ROI positivo, vermelho = ROI negativo)
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+app.js
+index.html
+
+[33mcommit f28a71c6c8ae5cd083941c7a6da541a1e441981e[m
+Author: Claude <noreply@anthropic.com>
+Date:   Tue Mar 17 04:21:34 2026 +0000
+
+    feat: exportar CSV, funil de conversão por etapa e atribuição de responsável
+    
+    I — EXPORTAR CSV
+    - Botão "⬇ CSV" no header da seção de carrinhos
+    - Exporta a lista atualmente filtrada (respeita busca, status e responsável)
+    - Colunas: Nome, Telefone, Email, Valor, Score, Prioridade, Pipeline,
+      Próxima etapa, Produtos, Criado em, Recuperado em, Pedido, Link, Responsável
+    - Arquivo nomeado carrinhos_abandonados_YYYY-MM-DD.csv com BOM UTF-8 (Excel)
+    - Toast de confirmação com contagem de registros exportados
+    
+    G — FUNIL DE CONVERSÃO POR ETAPA
+    - Botão "📊 Funil" toggle no header
+    - Barras horizontais mostrando contagem e % em cada etapa:
+      Novo → Ajuda enviada → Link enviado → Incentivo → Recuperado ✓ / Perdido ✗
+    - Barras proporcionais ao maior valor, coloridas por etapa
+    - Atualiza automaticamente a cada renderização da lista
+    - Atualizado em tempo real ao sincronizar ou filtrar carrinhos
+    
+    H — ATRIBUIÇÃO DE RESPONSÁVEL
+    - Select inline em cada linha da tabela para atribuir uma operadora
+    - Opções populadas dinamicamente a partir de loadAccessUsers()
+    - Filtro "Responsável" no filterbar para visualizar por operadora
+    - Salvo em localStorage e Supabase imediatamente ao alterar
+    - normalizeCarrinhoAbandonado() agora inclui campos responsavel e perdido/perdido_em
+    - CSV exportado inclui a coluna Responsável
+    
+    https://claude.ai/code/session_013yjKkewbaPPwr5EshHri7X
+
+app.js
+index.html
+style.css

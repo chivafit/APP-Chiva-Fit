@@ -1,0 +1,134 @@
+[1mdiff --git a/app.js b/app.js[m
+[1mindex 662759d..bc8d55c 100644[m
+[1m--- a/app.js[m
+[1m+++ b/app.js[m
+[36m@@ -9,7 +9,7 @@[m [mimport {[m
+   copyWhatsAppMessageForCustomer as copyWhatsAppMessageForCustomerImpl,[m
+   openWhatsAppForCustomer as openWhatsAppForCustomerImpl[m
+ } from "./ia.js?v=20260316-6";[m
+[31m-import { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry } from "./utils.js?v=20260317-3";[m
+[32m+[m[32mimport { escapeHTML, safeJsonParse, escapeJsSingleQuote, safeSetItem, debounce, withRetry, parseDateToIso, fmtDateBrFromIso } from "./utils.js?v=20260317-5";[m
+ import { initSentry, captureError, captureMessage, setSentryUser } from "./sentry.js?v=20260317-3";[m
+ import { CRMStore } from "./store.js?v=20260316-6";[m
+ import { STORAGE_KEYS } from "./constants.js?v=20260316-6";[m
+[36m@@ -33,7 +33,7 @@[m [mimport {[m
+   syncBling as syncBlingImpl,[m
+   syncBlingProdutos as syncBlingProdutosImpl,[m
+   backfillBlingEnderecos as backfillBlingEnderecosImpl[m
+[31m-} from "./sync/bling.js?v=20260316-6";[m
+[32m+[m[32m} from "./sync/bling.js?v=20260317-4";[m
+ import {[m
+   syncYampi as syncYampiImpl,[m
+   syncCarrinhosAbandonadosYampi as syncCarrinhosAbandonadosYampiImpl,[m
+[36m@@ -177,6 +177,9 @@[m [mlet allCustomers = [];[m
+ let customerIntel = [];[m
+ let customerIntelligence = [];[m
+ let activeCh = "all";[m
+[32m+[m[32mlet savedFilters = safeJsonParse("crm_filtros_salvos", []);[m
+[32m+[m[32mlet selectedClientes = new Set();[m
+[32m+[m[32mlet selectedCarrinhos = new Set();[m
+ let charts   = {};[m
+ let activeSegment = null;[m
+ let syncTimer = null;[m
+[36m@@ -413,7 +416,7 @@[m [mfunction checkEstoqueCritico(){[m
+         tipo: "estoque_critico",[m
+         conteudo: { itens: crit.map(i=>({ id: i?.id, nome: i?.nome, estoque_atual: i?.estoque_atual ?? i?.estoque ?? 0, estoque_minimo: i?.estoque_minimo ?? i?.minimo ?? 0 })) },[m
+         created_at: new Date().toISOString()[m
+[31m-      }).then(()=>{}).catch(()=>{});[m
+[32m+[m[32m      }).then(()=>{}).catch(e=>{ console.warn("[alertas] falha ao inserir alerta de estoque crítico:", e?.message || String(e)); captureError(e, { context: "insert_alerta_estoque" }); });[m
+     }[m
+   }[m
+ }[m
+[36m@@ -720,6 +723,320 @@[m [mfunction enterApp(userEmail){[m
+   })();[m
+ }[m
+ window.enterApp = enterApp;[m
+[32m+[m[32mwindow.saveCurrentFilter = saveCurrentFilter;[m
+[32m+[m[32mwindow.applyFilter = applyFilter;[m
+[32m+[m[32mwindow.deleteSavedFilter = deleteSavedFilter;[m
+[32m+[m[32mwindow.toggleClienteSelection = toggleClienteSelection;[m
+[32m+[m[32mwindow.toggleSelectAll = toggleSelectAll;[m
+[32m+[m[32mwindow.clearSelection = clearSelection;[m
+[32m+[m[32mwindow.bulkExportCSV = bulkExportCSV;[m
+[32m+[m[32mwindow.bulkCopyWhatsApp = bulkCopyWhatsApp;[m
+[32m+[m[32mwindow.bulkMarkContacted = bulkMarkContacted;[m
+[32m+[m
+[32m+[m[32m/* ═══════════════════════════════════════════════════[m
+[32m+[m[32m   C — ALERTAS DE CARRINHOS QUENTES EM TEMPO REAL[m
+[32m+[m[32m═══════════════════════════════════════════════════ */[m
+[32m+[m[32mconst CARRINHO_ALERTA_KEY = "crm_carrinhos_alertados_ids";[m
+[32m+[m[32mconst CARRINHO_HOT_MIN = 20; // janela em minutos considerada "quente"[m
+[32m+[m
+[32m+[m[32mfunction getCarrinhosAlertados(){[m
+[32m+[m[32m  try{ return new Set(JSON.parse(localStorage.getItem(CARRINHO_ALERTA_KEY)||"[]")); }catch(_){ return new Set(); }[m
+[32m+[m[32m}[m
+[32m+[m[32mfunction setCarrinhosAlertados(s){[m
+[32m+[m[32m  try{ localStorage.setItem(CARRINHO_ALERTA_KEY, JSON.stringify([...s].slice(-300))); }catch(_){}[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction checkCarrinhosQuentes(){[m
+[32m+[m[32m  const lista = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>c.checkout_id);[m
+[32m+[m[32m  const quentes = lista.filter(c=>!c.recuperado && !c.perdido && minutosDesdeIso(c.criado_em) != null && minutosDesdeIso(c.criado_em) < CARRINHO_HOT_MIN);[m
+[32m+[m
+[32m+[m[32m  // Atualizar badge nav[m
+[32m+[m[32m  const badge = document.getElementById("badge-comercial");[m
+[32m+[m[32m  if(badge){[m
+[32m+[m[32m    if(quentes.length){[m
+[32m+[m[32m      badge.textContent = String(quentes.length);[m
+[32m+[m[32m      badge.style.display = "";[m
+[32m+[m[32m      badge.classList.add("hot");[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      badge.style.display = "none";[m
+[32m+[m[32m      badge.classList.remove("hot");[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  // Alertar apenas carrinhos ainda não avisados[m
+[32m+[m[32m  const jaAlertados = getCarrinhosAlertados();[m
+[32m+[m[32m  const novos = quentes.filter(c=>!jaAlertados.has(String(c.checkout_id)));[m
+[32m+[m[32m  if(!novos.length) return;[m
+[32m+[m
+[32m+[m[32m  novos.forEach(c=>jaAlertados.add(String(c.checkout_id)));[m
+[32m+[m[32m  setCarrinhosAlertados(jaAlertados);[m
+[32m+[m
+[32m+[m[32m  const nomes = novos.slice(0,3).map(c=>String(c.cliente_nome||"").split(" ")[0]||"Cliente").join(", ");[m
+[32m+[m[32m  const extras = novos.length > 3 ? ` +${novos.length-3}` : "";[m
+[32m+[m[32m  const plural = novos.length>1 ? "carrinhos quentes" : "carrinho quente";[m
+[32m+[m[32m  toast(`🔥 ${novos.length} novo${novos.length>1?"s":""} ${plural}: ${nomes}${extras}`, "warning");[m
+[32m+[m
+[32m+[m[32m  // Tenta navegação via Notification API como fallback silencioso[m
+[32m+[m[32m  try{[m
+[32m+[m[32m    if("Notification" in window && Notification.permission === "granted"){[m
+[32m+[m[32m      new Notification("🔥 Carrinho quente — Chiva Fit", {[m
+[32m+[m[32m        body: `${novos.length} novo${novos.length>1?"s":""} ${plural} nos últimos ${CARRINHO_HOT_MIN} min.`,[m
+[32m+[m[32m        silent: true[m
+[32m+[m[32m      });[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }catch(_){}[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m// Exposto globalmente para ser chamado após sync[m
+[32m+[m[32mwindow.checkCarrinhosQuentes = checkCarrinhosQuentes;[m
+[32m+[m
+[32m+[m[32m/* ═══════════════════════════════════════════════════[m
+[32m+[m[32m   I — EXPORTAR CSV DE CARRINHOS ABANDONADOS[m
+[32m+[m[32m═══════════════════════════════════════════════════ */[m
+[32m+[m[32mfunction exportCarrinhosCSV(){[m
+[32m+[m[32m  const lookup = buildClienteLookupParaCarrinhos();[m
+[32m+[m[32m  const q  = String((document.getElementById("car-search")||{}).value||"").trim().toLowerCase();[m
+[32m+[m[32m  const st = String((document.getElementById("car-status")||{}).value||"");[m
+[32m+[m[32m  const resp = String((document.getElementById("car-responsavel")||{}).value||"");[m
+[32m+[m
+[32m+[m[32m  const list = (carrinhosAbandonados||[]).map(normalizeCarrinhoAbandonado).filter(c=>{[m
+[32m+[m[32m    if(!c.checkout_id) return false;[m
+[32m+[m[32m    if(st==="abertos"    && (c.recuperado||c.perdido)) return false;[m
+[32m+[m[32m    if(st==="recuperados" && !c.recuperado) return false;[m
+[32m+[m[32m    if(st==="perdidos"   && !c.perdido) return false;[m
+[32m+[m[32m    if(st==="quentes"    && (c.recuperado||c.perdido||(minutosDesdeIso(c.criado_em)==null||minutosDesdeIso(c.criado_em)>=120))) return false;[m
+[32m+[m[32m    if(resp && (c.responsavel||"")!==resp) return false;[m
+[32m+[m[32m    if(q){[m
+[32m+[m[32m      const hit=String(c.cliente_nome||"").toLowerCase().includes(q)||String(c.email||"").toLowerCase().includes(q)||rawPhone(c.telefone||"").includes(rawPhone(q));[m
+[32m+[m[32m      if(!hit) return false;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return true;[m
+[32m+[m[32m  })
