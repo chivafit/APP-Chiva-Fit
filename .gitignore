@@ -11,6 +11,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+dist/
+supabase/.temp/
+
 .env
 .env.*
 
