@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
 /**
  * Webhook da Yampi para CRM Chiva Fit.
@@ -7,26 +7,27 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
  * Lê eventos da Yampi e grava em "yampi_orders" no Supabase.
  */
 
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "https://chivafit.github.io";
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-yampi-hmac-sha256",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Vary": "Origin",
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-yampi-hmac-sha256',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  Vary: 'Origin',
 };
 
 declare const Deno: any;
 
 function base64FromBytes(bytes: Uint8Array): string {
-  let binary = "";
+  let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
-  const aa = String(a ?? "");
-  const bb = String(b ?? "");
+  const aa = String(a ?? '');
+  const bb = String(b ?? '');
   if (aa.length !== bb.length) return false;
   let out = 0;
   for (let i = 0; i < aa.length; i++) out |= aa.charCodeAt(i) ^ bb.charCodeAt(i);
@@ -35,25 +36,31 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 async function yampiSignatureForPayload(payload: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
   return base64FromBytes(new Uint8Array(sig));
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
-    return new Response("Only POST", { status: 405, headers: corsHeaders });
+  if (req.method !== 'POST') {
+    return new Response('Only POST', { status: 405, headers: corsHeaders });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY", {
+    return new Response('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY', {
       status: 500,
       headers: corsHeaders,
     });
@@ -62,33 +69,35 @@ serve(async (req: Request) => {
   const bodyText = await req.text();
 
   if (!bodyText || !bodyText.trim()) {
-    return new Response("Empty body", { status: 400, headers: corsHeaders });
+    return new Response('Empty body', { status: 400, headers: corsHeaders });
   }
 
-  const yampiSecret = String(Deno.env.get("YAMPI_SECRET") || "").trim();
+  const yampiSecret = String(Deno.env.get('YAMPI_SECRET') || '').trim();
   if (!yampiSecret) {
-    return new Response("Missing YAMPI_SECRET", { status: 500, headers: corsHeaders });
+    return new Response('Missing YAMPI_SECRET', { status: 500, headers: corsHeaders });
   }
 
-  const receivedSig = String(req.headers.get("X-Yampi-Hmac-SHA256") || req.headers.get("x-yampi-hmac-sha256") || "").trim();
+  const receivedSig = String(
+    req.headers.get('X-Yampi-Hmac-SHA256') || req.headers.get('x-yampi-hmac-sha256') || '',
+  ).trim();
   if (!receivedSig) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    return new Response('Unauthorized', { status: 401, headers: corsHeaders });
   }
 
   const expectedSig = await yampiSignatureForPayload(bodyText, yampiSecret);
   if (!timingSafeEqual(receivedSig, expectedSig)) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    return new Response('Unauthorized', { status: 401, headers: corsHeaders });
   }
 
   let payload: any;
   try {
     payload = JSON.parse(bodyText);
   } catch {
-    return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
+    return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
   }
 
-  if (!payload || typeof payload !== "object") {
-    return new Response("Invalid payload", { status: 400, headers: corsHeaders });
+  if (!payload || typeof payload !== 'object') {
+    return new Response('Invalid payload', { status: 400, headers: corsHeaders });
   }
 
   const { event, resource, time, topic } = payload;
@@ -96,52 +105,52 @@ serve(async (req: Request) => {
 
   if (!finalEvent) {
     console.error("Payload missing 'event' or 'topic':", JSON.stringify(payload));
-    return new Response(JSON.stringify({ error: "Missing event", received: payload }), { 
-      status: 400, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    return new Response(JSON.stringify({ error: 'Missing event', received: payload }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
   const isAbandonedCart =
-    finalEvent === "cart.abandoned" ||
-    finalEvent === "checkout.abandoned" ||
-    finalEvent === "abandoned_cart";
+    finalEvent === 'cart.abandoned' ||
+    finalEvent === 'checkout.abandoned' ||
+    finalEvent === 'abandoned_cart';
 
   const order = {
-    external_id: String(resource?.id ?? resource?.code ?? payload?.id ?? ""),
-    canal: "yampi",
+    external_id: String(resource?.id ?? resource?.code ?? payload?.id ?? ''),
+    canal: 'yampi',
     event: String(finalEvent),
     status: resource?.status ?? null,
     total: Number(resource?.total ?? resource?.total_price ?? 0),
     created_at: resource?.created_at ?? time ?? new Date().toISOString(),
     updated_at: resource?.updated_at ?? new Date().toISOString(),
     is_abandoned_cart: isAbandonedCart,
-    customer_name: resource?.customer?.name ?? "",
-    customer_email: resource?.customer?.email ?? "",
-    customer_phone: resource?.customer?.phone ?? "",
-    city: resource?.shipping_address?.city ?? "",
-    state: resource?.shipping_address?.state ?? "",
+    customer_name: resource?.customer?.name ?? '',
+    customer_email: resource?.customer?.email ?? '',
+    customer_phone: resource?.customer?.phone ?? '',
+    city: resource?.shipping_address?.city ?? '',
+    state: resource?.shipping_address?.state ?? '',
     raw: resource ?? payload,
   };
 
-  const table = "yampi_orders";
+  const table = 'yampi_orders';
 
   const upsertRes = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       apikey: serviceRoleKey,
       Authorization: `Bearer ${serviceRoleKey}`,
-      Prefer: "resolution=merge-duplicates",
+      Prefer: 'resolution=merge-duplicates',
     },
     body: JSON.stringify([order]),
   });
 
   if (!upsertRes.ok) {
     const err = await upsertRes.text();
-    console.error("Supabase upsert error:", err);
-    return new Response("Supabase error", { status: 500, headers: corsHeaders });
+    console.error('Supabase upsert error:', err);
+    return new Response('Supabase error', { status: 500, headers: corsHeaders });
   }
 
-  return new Response("OK", { status: 200, headers: corsHeaders });
+  return new Response('OK', { status: 200, headers: corsHeaders });
 });

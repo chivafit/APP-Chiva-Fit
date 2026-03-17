@@ -4,30 +4,30 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Modo de execução"
+        description: 'Modo de execução'
         required: true
-        default: "persist"
+        default: 'persist'
         type: choice
         options:
           - persist
           - reprocess_items
       limit:
-        description: "Tamanho do lote (limit) usado no reprocessamento"
+        description: 'Tamanho do lote (limit) usado no reprocessamento'
         required: false
-        default: "50"
+        default: '50'
         type: string
       concurrency:
-        description: "Concorrência do reprocessamento"
+        description: 'Concorrência do reprocessamento'
         required: false
-        default: "6"
+        default: '6'
         type: string
       max_batches:
-        description: "Máximo de lotes por execução"
+        description: 'Máximo de lotes por execução'
         required: false
-        default: "200"
+        default: '200'
         type: string
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: '*/30 * * * *'
 
 concurrency:
   group: bling-cron-sync

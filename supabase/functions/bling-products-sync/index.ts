@@ -1,18 +1,19 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
-import { captureToSentry } from "../_shared/sentry.ts";
-import { requireUserAuth } from "../_shared/auth.ts";
-import { safeJsonParse, nowIso, sleep } from "../_shared/utils.ts";
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { captureToSentry } from '../_shared/sentry.ts';
+import { requireUserAuth } from '../_shared/auth.ts';
+import { safeJsonParse, nowIso, sleep } from '../_shared/utils.ts';
 
 declare const Deno: any;
 
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "https://chivafit.github.io";
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Vary": "Origin",
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-cron-secret',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  Vary: 'Origin',
 };
 
 type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_token?: string };
@@ -20,7 +21,7 @@ type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_t
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
@@ -48,29 +49,32 @@ async function rateLimitWait() {
   if (waitMs > 0) await sleep(waitMs);
 }
 
-async function getStoredBlingAccessToken(supabaseUrl: string, serviceRoleKey: string): Promise<string> {
+async function getStoredBlingAccessToken(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<string> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const { data, error } = await supabase
-    .from("configuracoes")
-    .select("valor_texto")
-    .eq("chave", "bling_access_token")
+    .from('configuracoes')
+    .select('valor_texto')
+    .eq('chave', 'bling_access_token')
     .maybeSingle();
   if (error) throw error;
-  return String(data?.valor_texto || "").trim();
+  return String(data?.valor_texto || '').trim();
 }
 
 async function renewBlingTokenViaEdgeFunction(
   supabaseUrl: string,
   serviceRoleKey: string,
 ): Promise<BlingTokenResponse> {
-  const url = `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/bling-renew-token`;
+  const url = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/bling-renew-token`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25_000);
   try {
     const resp = await fetch(url, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${serviceRoleKey}`,
         apikey: serviceRoleKey,
       },
@@ -78,7 +82,7 @@ async function renewBlingTokenViaEdgeFunction(
       signal: controller.signal,
     });
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
+      const txt = await resp.text().catch(() => '');
       let details = txt;
       try {
         const parsed = JSON.parse(txt);
@@ -86,23 +90,28 @@ async function renewBlingTokenViaEdgeFunction(
         if (parsed?.message) details = String(parsed.message);
       } catch (_e) {}
       if (resp.status === 401) {
-        throw new Error(`BLING_REAUTH_REQUIRED:${details || "invalid_grant"}`);
+        throw new Error(`BLING_REAUTH_REQUIRED:${details || 'invalid_grant'}`);
       }
-      throw new Error(`Falha ao renovar token: ${resp.status} ${details || "sem detalhes"}`);
+      throw new Error(`Falha ao renovar token: ${resp.status} ${details || 'sem detalhes'}`);
     }
     const data = (await resp.json()) as BlingTokenResponse;
-    const access_token = String(data?.access_token || "").trim();
-    if (!access_token) throw new Error("bling-renew-token returned no access_token");
+    const access_token = String(data?.access_token || '').trim();
+    if (!access_token) throw new Error('bling-renew-token returned no access_token');
     return data;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-async function getBlingAccessToken(supabaseUrl: string, serviceRoleKey: string, forceRenew = false) {
+async function getBlingAccessToken(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  forceRenew = false,
+) {
   const now = Date.now();
   const safetyWindowMs = 120_000;
-  if (!forceRenew && tokenCache?.token && now < tokenCache.expiresAtMs - safetyWindowMs) return tokenCache.token;
+  if (!forceRenew && tokenCache?.token && now < tokenCache.expiresAtMs - safetyWindowMs)
+    return tokenCache.token;
 
   if (!forceRenew) {
     try {
@@ -131,9 +140,9 @@ async function blingFetchJson(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await rateLimitWait();
     const resp = await fetch(url, {
-      method: "GET",
+      method: 'GET',
       headers: {
-        Accept: "application/json",
+        Accept: 'application/json',
         Authorization: `Bearer ${tokenRef.value}`,
       },
     });
@@ -144,7 +153,7 @@ async function blingFetchJson(
     }
 
     if (resp.status === 429 && attempt < maxAttempts) {
-      const retryAfter = String(resp.headers.get("retry-after") || "").trim();
+      const retryAfter = String(resp.headers.get('retry-after') || '').trim();
       let waitMs = 0;
       if (retryAfter) {
         const seconds = Number(retryAfter);
@@ -156,20 +165,22 @@ async function blingFetchJson(
     }
 
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
+      const txt = await resp.text().catch(() => '');
       throw new Error(`Bling API error: ${resp.status} ${txt}`);
     }
     return await resp.json();
   }
-  throw new Error("Bling API error: 429 Too Many Requests");
+  throw new Error('Bling API error: 429 Too Many Requests');
 }
 
 function mapBlingProduct(row: any) {
   const data = row?.data ?? row ?? {};
-  const id = String(data?.id ?? "").trim();
-  const codigo = String(data?.codigo ?? data?.codigoItem ?? data?.codigoProduto ?? data?.sku ?? "").trim();
-  const nome = String(data?.nome ?? data?.descricao ?? data?.descricaoCurta ?? "").trim();
-  const situacao = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? "").trim();
+  const id = String(data?.id ?? '').trim();
+  const codigo = String(
+    data?.codigo ?? data?.codigoItem ?? data?.codigoProduto ?? data?.sku ?? '',
+  ).trim();
+  const nome = String(data?.nome ?? data?.descricao ?? data?.descricaoCurta ?? '').trim();
+  const situacao = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? '').trim();
   const preco = data?.preco ?? data?.precoVenda ?? data?.valor ?? data?.precoVenda1;
   const estoqueRaw =
     data?.estoque?.saldo ??
@@ -188,7 +199,7 @@ function mapBlingProduct(row: any) {
     estoque,
     preco: precoNum,
     situacao: situacao || null,
-    origem: "bling",
+    origem: 'bling',
     updated_at: nowIso(),
     raw: data,
   };
@@ -199,13 +210,13 @@ async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, 
   const now = nowIso();
   const rows = products
     .map((p) => ({
-      id: String(p?.id ?? "").trim(),
+      id: String(p?.id ?? '').trim(),
       codigo: p?.codigo ?? null,
       nome: p?.nome ?? null,
       estoque: p?.estoque ?? null,
       preco: p?.preco ?? null,
       situacao: p?.situacao ?? null,
-      origem: "bling",
+      origem: 'bling',
       updated_at: now,
       raw: p?.raw ?? {},
     }))
@@ -213,45 +224,49 @@ async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, 
 
   for (let i = 0; i < rows.length; i += 200) {
     const batch = rows.slice(i, i + 200);
-    const { error } = await supabase.from("v2_produtos").upsert(batch, { onConflict: "id" });
+    const { error } = await supabase.from('v2_produtos').upsert(batch, { onConflict: 'id' });
     if (error) throw error;
   }
 
-  await supabase.from("configuracoes").upsert([{ chave: "ultima_sync_bling_produtos", valor_texto: now, updated_at: now }], {
-    onConflict: "chave",
-  });
+  await supabase
+    .from('configuracoes')
+    .upsert([{ chave: 'ultima_sync_bling_produtos', valor_texto: now, updated_at: now }], {
+      onConflict: 'chave',
+    });
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResponse({ error: "Only POST" }, 405);
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST' }, 405);
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    if (!supabaseUrl || !serviceRoleKey) return jsonResponse({ error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }, 500);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    if (!supabaseUrl || !serviceRoleKey)
+      return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500);
 
-    const cronSecret = Deno.env.get("CRON_SECRET") || "";
+    const cronSecret = Deno.env.get('CRON_SECRET') || '';
 
-    const bodyText = await req.text().catch(() => "");
+    const bodyText = await req.text().catch(() => '');
     const parsed = safeJsonParse(bodyText);
-    if (parsed === null) return jsonResponse({ error: "Invalid JSON" }, 400);
-    const body = (parsed && typeof parsed === "object" ? parsed : {}) as any;
+    if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
 
     const persist = body?.persist === true;
     if (persist) {
-      const headerSecret = String(req.headers.get("x-cron-secret") || "").trim();
-      if (!cronSecret || headerSecret !== cronSecret) return jsonResponse({ error: "Unauthorized" }, 401);
+      const headerSecret = String(req.headers.get('x-cron-secret') || '').trim();
+      if (!cronSecret || headerSecret !== cronSecret)
+        return jsonResponse({ error: 'Unauthorized' }, 401);
     } else {
       const auth = await requireUserAuth(req, supabaseUrl, serviceRoleKey);
-      if (!auth.ok) return jsonResponse({ error: "Unauthorized" }, 401);
+      if (!auth.ok) return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
     const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 100) || 100));
     const maxPages = Math.min(500, Math.max(1, Number(body?.maxPages ?? 200) || 200));
 
     const tokenRef = { value: await getBlingAccessToken(supabaseUrl, serviceRoleKey) };
-    const base = "https://api.bling.com.br/Api/v3/produtos";
+    const base = 'https://api.bling.com.br/Api/v3/produtos';
 
     const out: any[] = [];
     for (let page = 1; page <= maxPages; page++) {
@@ -273,19 +288,21 @@ serve(async (req: Request) => {
 
     return jsonResponse({ products: out, count: out.length }, 200);
   } catch (e) {
-    await captureToSentry(e, { function: "bling-products-sync" }).catch(() => {});
+    await captureToSentry(e, { function: 'bling-products-sync' }).catch(() => {});
     const err = e as any;
-    const msg = String(err?.message || String(err) || "");
-    if (msg.startsWith("BLING_REAUTH_REQUIRED:")) {
+    const msg = String(err?.message || String(err) || '');
+    if (msg.startsWith('BLING_REAUTH_REQUIRED:')) {
       return jsonResponse(
         {
-          error: "bling_reauthorize_required",
-          message: msg.replace(/^BLING_REAUTH_REQUIRED:/, "").trim() || "Reautorize o Bling nas Configurações.",
+          error: 'bling_reauthorize_required',
+          message:
+            msg.replace(/^BLING_REAUTH_REQUIRED:/, '').trim() ||
+            'Reautorize o Bling nas Configurações.',
           reauthorize: true,
         },
         401,
       );
     }
-    return jsonResponse({ error: msg }, msg.startsWith("Bling API error:") ? 400 : 500);
+    return jsonResponse({ error: msg }, msg.startsWith('Bling API error:') ? 400 : 500);
   }
 });

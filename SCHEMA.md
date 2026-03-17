@@ -5,11 +5,13 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 ## Tabelas principais
 
 ### configuracoes
+
 - chave (text, pk lógica)
 - valor_texto (text)
 - updated_at (timestamptz)
 
 ### v2_clientes
+
 - id (uuid)
 - nome (text)
 - doc (text)
@@ -33,6 +35,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### v2_pedidos
+
 - id (uuid)
 - numero (text)
 - data (date ou text ISO)
@@ -45,6 +48,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### v2_pedidos_items
+
 - id (uuid)
 - pedido_id (uuid)
 - produto_id (uuid)
@@ -55,6 +59,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - valor_total (numeric) ou total (numeric)
 
 ### v2_produtos
+
 - id (uuid)
 - codigo (text)
 - nome (text)
@@ -65,6 +70,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### v2_canais
+
 - id (uuid)
 - slug (text, único)
 - nome (text)
@@ -74,6 +80,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 ## Produção
 
 ### insumos
+
 - id (uuid ou text)
 - nome (text)
 - unidade (text)
@@ -85,6 +92,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### receitas_produtos
+
 - id (uuid)
 - produto_id (uuid)
 - insumo_id (uuid)
@@ -93,6 +101,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### ordens_producao
+
 - id (uuid)
 - lote (text)
 - produto_id (uuid/text)
@@ -105,6 +114,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - created_at (timestamptz)
 
 ### movimentos_estoque
+
 - id (uuid)
 - insumo_id (uuid/text)
 - ordem_id (uuid/text)
@@ -119,11 +129,13 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 ## Comercial / Marketing
 
 ### yampi_orders
+
 - id (uuid)
 - payload (jsonb) e/ou campos normalizados
 - updated_at (timestamptz)
 
 ### carrinhos_abandonados
+
 - checkout_id (text, único)
 - email (text)
 - nome (text)
@@ -134,6 +146,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - updated_at (timestamptz)
 
 ### v2_tarefas
+
 - id (uuid)
 - titulo (text)
 - desc (text)
@@ -146,6 +159,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 ## IA / Logs
 
 ### v2_insights
+
 - id (uuid)
 - tipo (text)
 - conteudo (text)
@@ -153,6 +167,7 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 - created_at (timestamptz)
 
 ### interactions
+
 - customer_id (uuid)
 - type (text)
 - description (text)
@@ -164,14 +179,15 @@ Este documento descreve o schema esperado pelo frontend do CRM.
 ## Geo
 
 ### estados
+
 - id (uuid/int)
 - uf (text)
 - nome (text)
 
 ### cidades
+
 - id (uuid/int)
 - uf (text)
 - nome (text)
 - lat (numeric, opcional)
 - lon (numeric, opcional)
-

@@ -2,13 +2,13 @@ export const CRMStore = {
   session: {
     user: null,
     empresaId: null,
-    permissions: []
+    permissions: [],
   },
   ui: {
-    currentPage: "dashboard",
-    theme: "dark",
+    currentPage: 'dashboard',
+    theme: 'dark',
     sidebarOpen: false,
-    loading: false
+    loading: false,
   },
   data: {
     customers: [],
@@ -17,18 +17,18 @@ export const CRMStore = {
     products: [],
     cities: [],
     production: [],
-    alerts: []
+    alerts: [],
   },
   intelligence: {
     customerScores: [],
     opportunities: [],
     dailyActions: [],
     forecast: {},
-    segments: {}
+    segments: {},
   },
   integrations: {
     supabase: { connected: false },
     bling: { connected: false },
-    shopify: { connected: false }
-  }
+    shopify: { connected: false },
+  },
 };
