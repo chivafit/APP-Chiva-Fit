@@ -33,12 +33,35 @@ concurrency:
   group: bling-cron-sync
   cancel-in-progress: true
 
+env:
+  SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+  CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Prepare
+        id: prep
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${SUPABASE_PROJECT_ID:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Secrets ausentes; job será ignorado (skipped)."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Validate secrets
+        if: steps.prep.outputs.ready == 'true'
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -67,6 +90,7 @@ jobs:
           fi
 
       - name: Trigger bling-sync (persist)
+        if: steps.prep.outputs.ready == 'true'
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
