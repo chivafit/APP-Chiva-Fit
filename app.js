@@ -293,7 +293,9 @@ window.CRMStore = CRMStore;
           });
           supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
         }
-      } catch (_e) {}
+      } catch (_e) {
+        console.warn('[auth] falha ao registrar onAuthStateChange:', _e?.message || _e);
+      }
 
       console.log('DEBUG AUTH: Verificando sessão existente...');
       const session = await refreshSupabaseSession();
@@ -403,7 +405,7 @@ function mergeOrders() {
     seen.add(sk);
     try {
       o._source = 'bling';
-    } catch (_e) {}
+    } catch (_e) {} // object may be frozen/sealed — source is set defensively
     nextOrders.push(normalizeOrderForCRM(o, 'bling'));
   });
 
@@ -427,7 +429,7 @@ function mergeOrders() {
 
     try {
       o._source = 'yampi';
-    } catch (_e) {}
+    } catch (_e) {} // object may be frozen/sealed — source is set defensively
     nextOrders.push(normalizeOrderForCRM(o, 'yampi'));
   });
 
@@ -440,7 +442,7 @@ function mergeOrders() {
     seen.add(sk);
     try {
       o._source = 'shopify';
-    } catch (_e) {}
+    } catch (_e) {} // object may be frozen/sealed — source is set defensively
     nextOrders.push(normalizeOrderForCRM(o, 'shopify'));
   });
 
@@ -761,7 +763,9 @@ async function handleLoginSubmit(e) {
             });
             supaAuthUnsub = res?.data?.subscription || res?.subscription || null;
           }
-        } catch (_e) {}
+        } catch (_e) {
+          console.warn('[auth] falha ao registrar onAuthStateChange:', _e?.message || _e);
+        }
       } catch (_e) {
         if (errEl) errEl.textContent = 'Supabase JS não carregou corretamente neste ambiente.';
         return false;
@@ -13847,9 +13851,9 @@ async function loadSupabaseData() {
   }
 
   // Renderiza imediatamente com o que tiver em cache — libera o shell
-  try { mergeOrders(); } catch (_e) {}
-  try { populateUFs(); } catch (_e) {}
-  try { renderAll(); } catch (_e) {}
+  try { mergeOrders(); } catch (_e) { console.warn('[init] mergeOrders falhou:', _e?.message || _e); }
+  try { populateUFs(); } catch (_e) { console.warn('[init] populateUFs falhou:', _e?.message || _e); }
+  try { renderAll(); } catch (_e) { console.warn('[init] renderAll falhou:', _e?.message || _e); }
   dataReady = true;
   isLoadingData = false;
   console.log('[loadSupabaseData] ✅ Fase 1 OK — shell liberado, carregando dados em background…');
@@ -13897,8 +13901,8 @@ async function loadSupabaseData() {
     } catch (e) {
       console.error('[loadSupabaseData] ❌ erro no background:', e?.message || e);
       captureError(e, { context: 'loadSupabaseData-background' });
-      try { mergeOrders(); } catch (_e) {}
-      try { renderAll(); } catch (_e) {}
+      try { mergeOrders(); } catch (_e) { console.warn('[recovery] mergeOrders falhou:', _e?.message || _e); }
+      try { renderAll(); } catch (_e) { console.warn('[recovery] renderAll falhou:', _e?.message || _e); }
     }
   })();
 }
