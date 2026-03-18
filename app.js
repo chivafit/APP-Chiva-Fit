@@ -992,6 +992,17 @@ function enterApp(userEmail) {
       }
     }
   })();
+
+  // REMOÇÃO DE TRAVAS DE BOOTSTRAP
+  {
+    const shell = document.getElementById('app-shell');
+    if (shell) {
+      shell.style.display = 'flex';
+      shell.style.opacity = '1';
+      shell.classList.add('visible');
+      console.log("🚀 App Shell liberado via JS.");
+    }
+  }
 }
 // EXPORTS removidos daqui e movidos para o final do arquivo para evitar ReferenceError (Temporal Dead Zone)
 
@@ -3511,7 +3522,10 @@ document.addEventListener('click', (e) => {
 // ═══════════════════════════════════════════════════
 function showPage(id) {
   // Hide all pages
-  document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+  document.querySelectorAll('.page').forEach((p) => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
 
   // Update sidebar nav active state
   document.querySelectorAll('.nav-item').forEach((t) => t.classList.remove('active'));
@@ -3547,7 +3561,10 @@ function showPage(id) {
   if (titleEl) titleEl.textContent = titles[id] || id;
 
   const pageEl = document.getElementById('page-' + id);
-  if (pageEl) pageEl.classList.add('active');
+  if (pageEl) {
+    pageEl.classList.add('active');
+    pageEl.style.setProperty('display', 'block', 'important');
+  }
 
   try {
     document.documentElement.classList.toggle('skin-dashboard', id === 'dashboard');
