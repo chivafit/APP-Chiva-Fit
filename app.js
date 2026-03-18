@@ -14816,7 +14816,7 @@ async function upsertOrdersToSupabase(orders) {
       const payload = batch.map(sanitizePayload).filter(Boolean);
       const { error } = await supaClient
         .from('v2_clientes')
-        .upsert(payload, { onConflict: 'doc', ignoreDuplicates: true });
+        .upsert(payload, { onConflict: 'doc' });
       if (error) {
         hadUpsertError = true;
         try {
@@ -14831,7 +14831,7 @@ async function upsertOrdersToSupabase(orders) {
           try {
             const { error: rowErr } = await supaClient
               .from('v2_clientes')
-              .upsert([sanitizePayload(row)], { onConflict: 'doc', ignoreDuplicates: true });
+              .upsert([sanitizePayload(row)], { onConflict: 'doc' });
             if (rowErr) {
               hadUpsertError = true;
               try {
