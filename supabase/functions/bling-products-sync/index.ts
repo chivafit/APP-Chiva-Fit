@@ -2,28 +2,11 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { captureToSentry } from '../_shared/sentry.ts';
 import { requireUserAuth } from '../_shared/auth.ts';
-import { safeJsonParse, nowIso, sleep } from '../_shared/utils.ts';
+import { safeJsonParse, nowIso, sleep, jsonResponse, getCorsHeaders } from '../_shared/utils.ts';
 
 declare const Deno: { env: { get(key: string): string | undefined } };
 
-const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-cron-secret',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  Vary: 'Origin',
-};
-
 type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_token?: string };
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
 
 // sleep e nowIso importados de ../_shared/utils.ts
 
@@ -251,30 +234,25 @@ async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, 
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST' }, 405);
+  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST' }, 405, req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     if (!supabaseUrl || !serviceRoleKey)
-      return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500);
-
-    const cronSecret = Deno.env.get('CRON_SECRET') || '';
+      return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500, req);
 
     const bodyText = await req.text().catch(() => '');
     const parsed = safeJsonParse(bodyText);
-    if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
-    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
-
+    if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400, req);
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
     const persist = body?.persist === true;
-    if (persist) {
-      const headerSecret = String(req.headers.get('x-cron-secret') || '').trim();
-      if (!cronSecret || headerSecret !== cronSecret)
-        return jsonResponse({ error: 'Unauthorized' }, 401);
-    } else {
+
+    if (!persist) {
       const auth = await requireUserAuth(req, supabaseUrl, serviceRoleKey);
-      if (!auth.ok) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!auth.ok) return jsonResponse({ error: 'Unauthorized' }, 401, req);
     }
 
     const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 100) || 100));
@@ -299,10 +277,10 @@ serve(async (req: Request) => {
 
     if (persist) {
       await persistProductsToDb(supabaseUrl, serviceRoleKey, out);
-      return jsonResponse({ ok: true, persisted: true, count: out.length }, 200);
+      return jsonResponse({ ok: true, persisted: true, count: out.length }, 200, req);
     }
 
-    return jsonResponse({ products: out, count: out.length }, 200);
+    return jsonResponse({ products: out, count: out.length }, 200, req);
   } catch (e) {
     await captureToSentry(e, { function: 'bling-products-sync' }).catch(() => {});
     const msg = String(e instanceof Error ? e.message : String(e) || '');
@@ -316,8 +294,9 @@ serve(async (req: Request) => {
           reauthorize: true,
         },
         401,
+        req,
       );
     }
-    return jsonResponse({ error: msg }, msg.startsWith('Bling API error:') ? 400 : 500);
+    return jsonResponse({ error: msg }, msg.startsWith('Bling API error:') ? 400 : 500, req);
   }
 });

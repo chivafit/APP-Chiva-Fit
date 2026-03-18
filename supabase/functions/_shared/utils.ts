@@ -15,8 +15,13 @@ export function safeJsonParse(text: string): unknown {
 export function jsonResponse(
   body: unknown,
   status = 200,
-  corsHeaders: Record<string, string> = {},
+  req?: Request,
 ): Response {
+  const corsHeaders = req ? getCorsHeaders(req) : {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  };
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -29,6 +34,24 @@ export function nowIso(): string {
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retorna os headers de CORS baseados na origem da requisição.
+ */
+export function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '*';
+  // Se a origem terminar com '/', removemos para evitar mismatch
+  const cleanOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+
+  return {
+    'Access-Control-Allow-Origin': cleanOrigin,
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type, x-cron-secret',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  };
 }
 
 /**

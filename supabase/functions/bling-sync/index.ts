@@ -2,28 +2,11 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { captureToSentry } from '../_shared/sentry.ts';
 import { requireUserAuth } from '../_shared/auth.ts';
-import { safeJsonParse } from '../_shared/utils.ts';
+import { safeJsonParse, jsonResponse, getCorsHeaders } from '../_shared/utils.ts';
 
 declare const Deno: { env: { get(key: string): string | undefined } };
 
-const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-cron-secret',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  Vary: 'Origin',
-};
-
 type BlingTokenResponse = { access_token: string; expires_in?: number; refresh_token?: string };
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
 
 let tokenCache: { token: string; expiresAtMs: number } | null = null;
 
@@ -1138,19 +1121,20 @@ async function mapWithConcurrency<T, R>(
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST' }, 405);
+  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST' }, 405, req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     if (!supabaseUrl || !serviceRoleKey)
-      return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500);
+      return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500, req);
     const cronSecret = Deno.env.get('CRON_SECRET') || '';
 
     const bodyText = await req.text().catch(() => '');
     const parsed = safeJsonParse(bodyText);
-    if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
+    if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400, req);
     const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
     const persist = body?.persist === true;
     const backfillOrigins = body?.backfillOrigins === true;
@@ -1161,12 +1145,12 @@ serve(async (req: Request) => {
     if (persist) {
       const headerSecret = String(req.headers.get('x-cron-secret') || '').trim();
       if (!cronSecret || headerSecret !== cronSecret) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
+        return jsonResponse({ error: 'Unauthorized' }, 401, req);
       }
     } else {
       const auth = await requireUserAuth(req, supabaseUrl, serviceRoleKey);
       if (!auth.ok) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
+        return jsonResponse({ error: 'Unauthorized' }, 401, req);
       }
     }
     const limit = Math.min(100, Math.max(1, Number(body?.limit ?? 50) || 50));
@@ -1189,7 +1173,8 @@ serve(async (req: Request) => {
       if (error) throw error;
       const baseRows = Array.isArray(rows) ? rows : [];
       if (!baseRows.length) {
-        return jsonResponse({
+      return jsonResponse(
+        {
           ok: true,
           mode: 'backfillOrigins',
           updated: 0,
@@ -1197,7 +1182,10 @@ serve(async (req: Request) => {
           offset,
           nextOffset: offset,
           hasMore: false,
-        });
+        },
+        200,
+        req,
+      );
       }
 
       const lojaIdMap = await getBlingLojaIdMap(supabaseUrl, serviceRoleKey).catch(() => ({}));
@@ -1243,15 +1231,19 @@ serve(async (req: Request) => {
 
       const nextOffset = offset + baseRows.length;
       const hasMore = baseRows.length === limit;
-      return jsonResponse({
-        ok: true,
-        mode: 'backfillOrigins',
-        updated: payload.length,
-        limit,
-        offset,
-        nextOffset,
-        hasMore,
-      });
+      return jsonResponse(
+        {
+          ok: true,
+          mode: 'backfillOrigins',
+          updated: payload.length,
+          limit,
+          offset,
+          nextOffset,
+          hasMore,
+        },
+        200,
+        req,
+      );
     }
 
     const reqFrom = String(body?.from ?? '').slice(0, 10);
@@ -1273,7 +1265,7 @@ serve(async (req: Request) => {
       }
     }
 
-    if (!from || !to) return jsonResponse({ error: 'Missing from/to (YYYY-MM-DD)' }, 400);
+    if (!from || !to) return jsonResponse({ error: 'Missing from/to (YYYY-MM-DD)' }, 400, req);
     ({ from, to } = clampDateRange(from, to, 365));
 
     if (persist && !hasExplicitOffset) {
@@ -1344,16 +1336,20 @@ serve(async (req: Request) => {
               onConflict: 'chave',
             });
         } catch (_e) {}
-        return jsonResponse({
-          ok: true,
-          persisted: true,
-          reprocessedExisting: true,
-          count: 0,
-          items: 0,
-          offset: reprocessOffset,
-          nextOffset: reprocessOffset,
-          hasMore: false,
-        });
+        return jsonResponse(
+          {
+            ok: true,
+            persisted: true,
+            reprocessedExisting: true,
+            count: 0,
+            items: 0,
+            offset: reprocessOffset,
+            nextOffset: reprocessOffset,
+            hasMore: false,
+          },
+          200,
+          req,
+        );
       }
 
       const base = 'https://api.bling.com.br/Api/v3/pedidos/vendas';
@@ -1541,9 +1537,26 @@ serve(async (req: Request) => {
           });
         }
       }
-      return jsonResponse({
-        ok: true,
-        persisted: true,
+      return jsonResponse(
+        {
+          ok: true,
+          persisted: true,
+          count: details.length,
+          from,
+          to,
+          limit,
+          offset,
+          nextOffset,
+          hasMore,
+        },
+        200,
+        req,
+      );
+    }
+
+    return jsonResponse(
+      {
+        orders: details,
         count: details.length,
         from,
         to,
@@ -1551,19 +1564,10 @@ serve(async (req: Request) => {
         offset,
         nextOffset,
         hasMore,
-      });
-    }
-
-    return jsonResponse({
-      orders: details,
-      count: details.length,
-      from,
-      to,
-      limit,
-      offset,
-      nextOffset,
-      hasMore,
-    });
+      },
+      200,
+      req,
+    );
   } catch (e) {
     const err = e as any;
     try {
@@ -1582,11 +1586,12 @@ serve(async (req: Request) => {
           reauthorize: true,
         },
         401,
+        req,
       );
     }
     if (isBlingCommunicationError(err)) {
-      return jsonResponse({ error: err?.message || String(err) }, 400);
+      return jsonResponse({ error: err?.message || String(err) }, 400, req);
     }
-    return jsonResponse({ error: err?.message || String(err) }, 500);
+    return jsonResponse({ error: err?.message || String(err) }, 500, req);
   }
 });
