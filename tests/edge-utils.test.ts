@@ -53,9 +53,9 @@ describe('jsonResponse', () => {
   });
 
   it('includes custom CORS headers', () => {
-    const headers = { 'Access-Control-Allow-Origin': '*' };
-    const res = jsonResponse({ ok: true }, 200, headers);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    const req = new Request('https://example.com', { headers: { origin: 'https://example.com' } });
+    const res = jsonResponse({ ok: true }, 200, req);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
   });
 
   it('serializes body as JSON', async () => {

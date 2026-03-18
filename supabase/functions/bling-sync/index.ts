@@ -498,6 +498,12 @@ async function persistSyncResultToDb(
     })
     .filter(Boolean);
 
+  const orderItensByBlingId: Record<string, any[]> = {};
+  orders.forEach((o) => {
+    const blingId = String(o?.id ?? o?.numero ?? '').trim();
+    if (blingId) orderItensByBlingId[blingId] = Array.isArray(o?.itens) ? o.itens : [];
+  });
+
   const blingIds = pedidosRows.map((p: any) => String(p?.bling_id ?? '').trim()).filter(Boolean);
   const pedidoIdByBlingId: Record<string, string> = {};
   if (pedidosLayout.idType === 'uuid' && pedidosLayout.hasBlingId) {
@@ -546,7 +552,7 @@ async function persistSyncResultToDb(
         ? pedidoIdByBlingId[blingId]
         : String(p?.id ?? '').trim();
     if (pid) pedidoIds.push(pid);
-    const itens = Array.isArray(p?.itens) ? p.itens : [];
+    const itens = orderItensByBlingId[blingId] ?? [];
     itens.forEach((it: any) => {
       const codigo = String(it?.codigo ?? '').trim();
       const nome = String(it?.descricao ?? '').trim();
@@ -622,7 +628,7 @@ async function persistSyncResultToDb(
         ? pedidoIdByBlingId[blingId]
         : String(p?.id ?? '').trim();
     if (!pid) return;
-    const itens = Array.isArray(p?.itens) ? p.itens : [];
+    const itens = orderItensByBlingId[blingId] ?? [];
     if (!itens.length) {
       ordersWithoutItems += 1;
       try {
