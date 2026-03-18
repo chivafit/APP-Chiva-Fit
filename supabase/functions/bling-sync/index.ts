@@ -488,7 +488,6 @@ async function persistSyncResultToDb(
         origem_canal: std.origem,
         origem_canal_nome: std.nome,
         tipo_venda: tipoVenda,
-        itens,
         created_at: now,
       };
 
@@ -503,10 +502,7 @@ async function persistSyncResultToDb(
   const pedidoIdByBlingId: Record<string, string> = {};
   if (pedidosLayout.idType === 'uuid' && pedidosLayout.hasBlingId) {
     for (let i = 0; i < pedidosRows.length; i += 100) {
-      const batch = pedidosRows.slice(i, i + 100).map((p: any) => {
-        const { id: _id, ...rest } = p;
-        return rest;
-      });
+      const batch = pedidosRows.slice(i, i + 100);
       const { error } = await supabase.from('v2_pedidos').upsert(batch, { onConflict: 'bling_id' });
       if (error) {
         console.error('[Upsert v2_pedidos]', error);
