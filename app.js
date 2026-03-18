@@ -5807,6 +5807,11 @@ function renderDashNow() {
   try {
     renderDashGeoMini(ordersSales);
   } catch (_e) {}
+  try { renderTopCli(ordersSales); } catch (_e) {}
+  try { renderTopProd(ordersSales); } catch (_e) {}
+  renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo }).catch((e) => {
+    console.warn('[dashboard] falha ao renderizar listas extras:', e?.message || String(e));
+  });
   updateDashSecondaryFromSupabase().catch((e) => {
     console.warn(
       '[dashboard] falha ao atualizar KPIs secundários do Supabase:',
