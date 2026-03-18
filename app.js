@@ -1743,6 +1743,7 @@ function renderPedidosPage() {
 
   let orders = allOrders.slice();
   if (ch) orders = orders.filter((o) => detectCh(o) === ch);
+  console.log('[renderPedidosPage] Total após filtro canal:', orders.length);
   if (sf) orders = orders.filter((o) => normSt(o.situacao) === sf);
   if (from) orders = orders.filter((o) => String(o.data || '') >= from);
   if (to) orders = orders.filter((o) => String(o.data || '') <= to);
@@ -1761,11 +1762,13 @@ function renderPedidosPage() {
       );
     });
   }
+  console.log('[renderPedidosPage] Total final renderizável:', orders.length);
   orders.sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
 
   // KPIs
   const total = orders.reduce((s, o) => s + val(o), 0);
   const kpiEl = document.getElementById('ped-kpi-row');
+  console.log('[renderPedidosPage] Container KPIs existe?', !!kpiEl);
   if (kpiEl)
     kpiEl.innerHTML = [
       { label: 'Total Pedidos', val: orders.length.toLocaleString('pt-BR') },
@@ -1787,6 +1790,7 @@ function renderPedidosPage() {
       .join('');
 
   const wrap = document.getElementById('pedidos-list-wrap');
+  console.log('[renderPedidosPage] Container Lista existe?', !!wrap);
   if (!wrap) return;
   if (!orders.length) {
     wrap.innerHTML = `<div class="pedidos-empty">Nenhum pedido encontrado.</div>`;
@@ -8930,7 +8934,9 @@ function renderClientes() {
   if (selectedClientes.size) clearSelection();
 
   if (usingViews) {
+    console.log('[renderClientes] Início (usingViews=true). Cache size:', clientesIntelCache.length);
     if (!clientesIntelCache.length) {
+      console.log('[renderClientes] Cache vazio, disparando load...');
       loadClientesInteligenciaCache()
         .then(() => {
           renderClientes();
@@ -9043,6 +9049,10 @@ function renderClientes() {
       'clientes encontrados:',
       rows.length,
     );
+
+    if (rows.length === 0 && clientesIntelCache.length > 0) {
+      console.warn('[Filtro Clientes] ZEROU após filtros. Exemplo de dados no cache:', clientesIntelCache[0]);
+    }
 
     const suffix = clientesIntelHasMore ? '+' : '';
     document.getElementById('cli-label').textContent = isDefaultFilters
@@ -9158,6 +9168,9 @@ function renderClientes() {
 
 function renderCliIntelCard(c, eid, idx) {
   const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ''));
+  if (!id) {
+    console.warn('[renderCliIntelCard] cliente_id inválido em idx:', idx, c);
+  }
   const nome = String(c?.nome || 'Cliente').trim();
   const canal =
     String(c?.canal_principal || 'outros')
@@ -10092,6 +10105,7 @@ async function renderOportunidadesFromSupabase() {
   groupsEl.innerHTML = `<div class="empty">Carregando radar…</div>`;
 
   try {
+    console.log('[renderOportunidadesFromSupabase] Início do fetch...');
     let healthMap = {};
     let intelMap = {};
     try {
@@ -10099,6 +10113,7 @@ async function renderOportunidadesFromSupabase() {
         .from('vw_customer_health_score')
         .select('*')
         .range(0, Math.max(0, oppRemoteLimit - 1));
+      console.log('[renderOportunidadesFromSupabase] Health score rows:', hRows?.length, 'error:', hErr);
       if (!hErr && Array.isArray(hRows)) {
         hRows.forEach((r) => {
           const id = String(
@@ -10134,6 +10149,7 @@ async function renderOportunidadesFromSupabase() {
       .from('v2_clientes')
       .select('*')
       .range(0, Math.max(0, oppRemoteLimit - 1));
+    console.log('[renderOportunidadesFromSupabase] Clientes (radar) rows:', data?.length, 'error:', error);
     if (error) throw error;
     const rows = Array.isArray(data) ? data : [];
     const segMeta = (seg) => {
@@ -10609,6 +10625,7 @@ async function renderOportunidadesFromSupabase() {
 
     groupsEl.innerHTML =
       groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
+    console.log('[renderOportunidadesFromSupabase] Render finalizado. Itens:', allItems.length, 'HTML gerado?', !!groupsHtml);
     radarOppLastModel = {
       items: allItems,
       filtered,
@@ -14068,6 +14085,7 @@ async function loadClientesInteligenciaCache(forceReset = false) {
       if (seg) clientesIntelSegSet.add(seg);
     });
     if (fresh.length) clientesIntelCache.push(...fresh);
+    console.log('[loadClientesInteligenciaCache] Novos registros normalizados:', fresh.length, 'Total agora:', clientesIntelCache.length);
     clientesIntelCursor = nextCursor;
     clientesIntelHasMore = hasMore;
     clientesIntelLoadedAt = Date.now();
