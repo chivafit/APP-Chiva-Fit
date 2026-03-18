@@ -365,6 +365,7 @@ const DB_SCHEMA = {
     PEDIDOS_ITEMS: {
       PEDIDO_ID: 'pedido_id',
       PRODUTO_NOME: 'produto_nome',
+      PRODUTO_ID: 'produto_id',
       QUANTIDADE: 'quantidade',
       VALOR_UNITARIO: 'valor_unitario',
       VALOR_TOTAL: 'valor_total'
@@ -404,11 +405,11 @@ const DAL = {
   items: {
     async listByPedidoIds(ids) {
       if (!supaClient || !ids.length) return { data: [], error: null };
-      const { PEDIDO_ID, PRODUTO_NOME, QUANTIDADE, VALOR_UNITARIO, VALOR_TOTAL } = DB_SCHEMA.COLUMNS.PEDIDOS_ITEMS;
+      const { PEDIDO_ID, PRODUTO_NOME, PRODUTO_ID, QUANTIDADE, VALOR_UNITARIO, VALOR_TOTAL } = DB_SCHEMA.COLUMNS.PEDIDOS_ITEMS;
       return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS)
-        .select(`${PEDIDO_ID},${PRODUTO_NOME},${QUANTIDADE},${VALOR_UNITARIO},${VALOR_TOTAL}`)
+        .select(`${PEDIDO_ID},${PRODUTO_NOME},${PRODUTO_ID},${QUANTIDADE},${VALOR_UNITARIO},${VALOR_TOTAL}`)
         .in(PEDIDO_ID, ids)
-        .limit(20000);
+        .limit(50000);
     },
     async deleteByPedidoIds(ids) {
       return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS).delete().in('pedido_id', ids);
@@ -2855,6 +2856,108 @@ function getPedidoItens(o) {
   });
   return out;
 }
+
+/**
+ * Normaliza um produto do catálogo para formato canônico de matching.
+ * Retorna { id, nome_normalizado, sku_normalizado }
+ */
+function normalizeProduto(produto) {
+  const p = produto && typeof produto === 'object' ? produto : {};
+  const normStr = (v) =>
+    String(v || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  return {
+    id: String(p.id || '').trim(),
+    nome_normalizado: normStr(p.nome || p.name || p.descricao || ''),
+    sku_normalizado: String(p.codigo || p.sku || p.code || '').trim().toLowerCase(),
+    _raw: p,
+  };
+}
+
+/**
+ * Faz match entre um item de pedido e o catálogo de produtos.
+ * Prioridade: 1) SKU exato 2) ID 3) Nome normalizado
+ * Retorna o produto encontrado ou null com log detalhado.
+ */
+function matchProduto(item, produtos) {
+  if (!item || !Array.isArray(produtos) || !produtos.length) return null;
+  const normStr = (v) =>
+    String(v || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const itemSku = String(item.codigo || item.sku || '').trim().toLowerCase();
+  const itemId = String(item.id || '').trim();
+  const itemNome = normStr(item.descricao || item.nome || item.name || '');
+
+  // 1. SKU exato
+  if (itemSku) {
+    const byCode = produtos.find((p) => String(p.codigo || p.sku || '').trim().toLowerCase() === itemSku);
+    if (byCode) return byCode;
+  }
+  // 2. ID
+  if (itemId) {
+    const byId = produtos.find((p) => String(p.id || '').trim() === itemId);
+    if (byId) return byId;
+  }
+  // 3. Nome normalizado
+  if (itemNome) {
+    const byName = produtos.find((p) => normStr(p.nome || p.name || p.descricao || '') === itemNome);
+    if (byName) return byName;
+  }
+
+  console.warn('[matchProduto] Produto não encontrado:', {
+    descricao: item.descricao,
+    sku: itemSku,
+    id: itemId,
+    nome_norm: itemNome,
+  });
+  return null;
+}
+
+/**
+ * Normaliza um pedido para o formato canônico do CRM.
+ * Wrapper sobre normalizeOrderForCRM que garante estrutura documentada.
+ */
+function normalizePedido(pedido) {
+  const src = String(pedido?._source || pedido?.source || 'bling').toLowerCase();
+  const norm = typeof normalizeOrderForCRM === 'function'
+    ? normalizeOrderForCRM(pedido, src)
+    : pedido || {};
+  const rawItens = getPedidoItens(norm);
+  if (!rawItens.length && (pedido?.itens?.length || pedido?.items?.length)) {
+    console.warn('[normalizePedido] Itens perdidos na normalização:', {
+      id: pedido?.id || pedido?.numero,
+      estrutura: Object.keys(pedido || {}),
+      itens_raw: (pedido?.itens || pedido?.items || []).slice(0, 2),
+    });
+  }
+  return {
+    id: String(norm.id || norm.numero || ''),
+    cliente_id: norm.contato?.id || norm.cliente_id || null,
+    data: String(norm.data || '').slice(0, 10),
+    total: Number(norm.total || norm.totalProdutos || 0) || 0,
+    canal: String(norm._canal || norm.canal || '').toLowerCase(),
+    _source: src,
+    itens: rawItens.map((it) => ({
+      id: String(it.codigo || it.id || ''),
+      nome: String(it.descricao || it.nome || ''),
+      sku: String(it.codigo || ''),
+      quantidade: Number(it.quantidade || 1) || 1,
+      valor_unitario: Number(it.valor || it.valor_unitario || 0) || 0,
+      valor_total: Number(it.valor_total || 0) || (Number(it.valor || 0) * (Number(it.quantidade || 1) || 1)),
+    })),
+  };
+}
+
 function cliKey(o) {
   const contato = o?.contato || {};
   const docDigits = String(contato.cpfCnpj || contato.numeroDocumento || '').replace(/\D/g, '');
@@ -4683,7 +4786,8 @@ function selectSegment(id) {
 
 function renderAll() {
   safeInvokeName('renderDash');
-  safeInvokeName('renderClientes');
+  if (document.getElementById('page-clientes')?.classList.contains('active'))
+    safeInvokeName('renderClientes');
   safeInvokeName('renderInteligencia');
   safeInvokeName('renderProdutos');
   safeInvokeName('renderCidades');
@@ -5374,8 +5478,20 @@ function renderDashNow() {
   const fromEl = document.getElementById('dash-from');
   const toEl = document.getElementById('dash-to');
   if (fromEl && toEl) {
-    const storedFrom = String(localStorage.getItem('crm_dash_from') || '').trim();
-    const storedTo = String(localStorage.getItem('crm_dash_to') || '').trim();
+    let storedFrom = String(localStorage.getItem('crm_dash_from') || '').trim();
+    let storedTo = String(localStorage.getItem('crm_dash_to') || '').trim();
+    // Limpar datas antigas (>2 anos) — evita dashboard travado em período do passado
+    if (storedFrom) {
+      const _sfTs = new Date(storedFrom + 'T12:00:00').getTime();
+      const _staleMs = 730 * 24 * 60 * 60 * 1000;
+      if (!isFinite(_sfTs) || Date.now() - _sfTs > _staleMs) {
+        localStorage.removeItem('crm_dash_from');
+        localStorage.removeItem('crm_dash_to');
+        storedFrom = '';
+        storedTo = '';
+        console.log('[renderDashNow] Período do dashboard resetado (data armazenada > 2 anos).');
+      }
+    }
     if (storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
     if (storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
 
@@ -8098,6 +8214,51 @@ function renderTopCli(ordersOverride) {
     })
     .join('');
 }
+/**
+ * Agrega pedidos por produto retornando array ordenado por receita.
+ * { name, code, qty, total, peds }
+ */
+function calcularTopProdutos(orders) {
+  const list = Array.isArray(orders) ? orders : [];
+  if (!list.length) return [];
+  const m = {};
+  let semItens = 0;
+  let comItens = 0;
+  list.forEach((o) => {
+    const itens = getPedidoItens(o);
+    if (!itens.length) {
+      semItens++;
+      return;
+    }
+    comItens++;
+    itens.forEach((it) => {
+      const desc = String(it?.descricao || '').trim();
+      const code = String(it?.codigo || '').trim();
+      const k = desc || code || '?';
+      if (!m[k]) m[k] = { name: desc || code || '—', code, qty: 0, total: 0, peds: new Set() };
+      const qty = Number(it?.quantidade ?? 1) || 1;
+      const valorTotal =
+        it?.valor_total != null
+          ? Number(it.valor_total) || 0
+          : (Number(it?.valor || 0) || 0) * qty;
+      m[k].qty += qty;
+      m[k].total += valorTotal;
+      m[k].peds.add(o?.id || o?.numero);
+    });
+  });
+  if (semItens > 0) {
+    console.warn(
+      `[calcularTopProdutos] ${semItens}/${list.length} pedidos sem itens — ${comItens} com itens.`,
+      'Se semItens > 0, verifique se v2_pedidos_items está populado e o DAL está carregando todos os IDs.',
+    );
+  } else {
+    console.log(`[calcularTopProdutos] OK — ${comItens} pedidos com itens processados.`);
+  }
+  return Object.values(m)
+    .map((p) => ({ ...p, peds: p.peds.size }))
+    .sort((a, b) => b.total - a.total);
+}
+
 function renderTopProd(ordersOverride) {
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const el = document.getElementById('top-produtos-dash');
@@ -8110,37 +8271,13 @@ function renderTopProd(ordersOverride) {
     el.innerHTML = `<div class="empty">Sem dados no período${btn}</div>`;
     return;
   }
-  const m = {};
-  orders.forEach((o) => {
-    const itens = getPedidoItens(o);
-    if (!itens.length) {
-      try {
-        console.warn('[TopProd] pedido sem itens:', o?.id, Object.keys(o || {}));
-      } catch (_e) {}
-      return;
-    }
-    itens.forEach((it) => {
-      const desc = String(it?.descricao || '').trim();
-      const code = String(it?.codigo || '').trim();
-      const k = desc || code || '?';
-      if (!m[k]) m[k] = { n: desc || code || '—', t: 0 };
-      m[k].t +=
-        Number(
-          it?.valor_total != null
-            ? it.valor_total
-            : (Number(it?.valor || 0) || 0) * (Number(it?.quantidade || 1) || 1),
-        ) || 0;
-    });
-  });
-  const top = Object.values(m)
-    .sort((a, b) => b.t - a.t)
-    .slice(0, 5);
-  const max = top[0]?.t || 1;
+  const top = calcularTopProdutos(orders).slice(0, 5);
+  const max = top[0]?.total || 1;
   el.innerHTML = top.length
     ? top
         .map(
           (p, i) =>
-            `<div class="top-item"><span class="top-rank">#${i + 1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.n)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${((p.t / max) * 100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.t)}</span></div>`,
+            `<div class="top-item"><span class="top-rank">#${i + 1}</span><div style="flex:1;overflow:hidden"><div class="top-name">${escapeHTML(p.name)}</div><div class="top-bar-wrap"><div class="top-bar" style="width:${((p.total / max) * 100).toFixed(0)}%"></div></div></div><span class="top-val">${fmtBRL(p.total)}</span></div>`,
         )
         .join('')
     : `<div class="empty">Sem dados no período</div>`;
@@ -9003,7 +9140,8 @@ function renderClientes() {
       if (!clientesIntelCache.length) {
         loadClientesInteligenciaCache()
           .then(() => {
-            renderClientes();
+            if (document.getElementById('page-clientes')?.classList.contains('active'))
+              renderClientes();
           })
           .catch((e) => {
             console.error('[renderClientes] falha ao carregar cache:', e);
@@ -14460,10 +14598,8 @@ async function loadOrdersFromSupabaseForCRM() {
       const okItems = await ensureV2PedidosItemsAvailable();
       if (okItems && Array.isArray(pedRows) && pedRows.length) {
         console.log(`[Produtos] Carregando itens de ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS} para ${pedRows.length} pedidos...`);
-        const pedidoIds = Array.from(new Set(pedRows.map((p) => p?.id).filter(Boolean))).slice(
-          0,
-          1000,
-        );
+        const pedidoIds = Array.from(new Set(pedRows.map((p) => p?.id).filter(Boolean)));
+        console.log(`[Produtos] Carregando itens para ${pedidoIds.length} pedidos únicos (sem limite)…`);
         for (let i = 0; i < pedidoIds.length; i += 200) {
           const batchIds = pedidoIds.slice(i, i + 200);
           const { data, error } = await DAL.items.listByPedidoIds(batchIds);
@@ -14490,7 +14626,7 @@ async function loadOrdersFromSupabaseForCRM() {
               descricao: String(
                 r.produto_nome || r.nome_produto || r.descricao || r.produto || '',
               ).trim(),
-              codigo: '',
+              codigo: String(r.produto_id || r.codigo || '').trim(),
               quantidade: qty,
               valor: unit,
               valor_total: total,

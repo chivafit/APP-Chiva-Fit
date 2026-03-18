@@ -3305,7 +3305,8 @@ body {
   font-size: 11px;
   font-family: var(--font);
   outline: none;
-  width: 120px;
+  width: 150px;
+  min-width: 130px;
 }
 .saas-chip-input::placeholder {
   color: var(--text-3);
