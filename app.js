@@ -72,11 +72,18 @@ import brazilStatesSvgUrl from './assets/brazil-states.svg?url';
 
 // ── Vercel Analytics: inicializa ──
 import { inject } from '@vercel/analytics';
-inject();
+// Detecta modo de desenvolvimento através das variáveis de ambiente do Vite
+const isDev = import.meta.env.DEV;
+inject({
+  mode: isDev ? 'development' : 'production',
+  debug: isDev, // Ativa logs no console em desenvolvimento
+});
 
 // ── Vercel Speed Insights: inicializa ──
 import { injectSpeedInsights } from '@vercel/speed-insights';
-injectSpeedInsights();
+injectSpeedInsights({
+  debug: isDev, // Ativa logs no console em desenvolvimento
+});
 
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
