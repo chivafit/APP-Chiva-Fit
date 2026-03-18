@@ -260,9 +260,8 @@ ALTER TABLE public.v2_insights ENABLE ROW LEVEL SECURITY;
 
 
 -- ==========================================
--- CONFIGURAÇÃO DE RLS (ACESSO PÚBLICO/ANON)
--- Importante: Para um CRM estático, as tabelas 
--- precisam permitir acesso via anon key.
+-- CONFIGURAÇÃO DE RLS (ACESSO AUTENTICADO)
+-- Importante: Em produção, o acesso anônimo deve ser restrito.
 -- ==========================================
 
 -- Habilitar RLS em todas as tabelas
@@ -280,13 +279,11 @@ ALTER TABLE public.configuracoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.v2_tarefas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.v2_insights ENABLE ROW LEVEL SECURITY;
 
--- Criar políticas de acesso total para a anon key (simplificado para CRM interno)
--- NOTA: Em produção com dados sensíveis, o ideal é usar Auth.
+-- Criar políticas de acesso total apenas para usuários AUTENTICADOS
 DO $$ 
 DECLARE 
     t text;
 BEGIN
-    -- Filtramos apenas por tabelas REAIS ('BASE TABLE'), ignorando VIEWS
     FOR t IN 
         SELECT table_name 
         FROM information_schema.tables 
@@ -299,8 +296,16 @@ BEGIN
     END LOOP;
 END $$;
 
-DROP POLICY IF EXISTS "Anon Read Config" ON public.configuracoes;
-CREATE POLICY "Anon Read Config" ON public.configuracoes
-  FOR SELECT
-  TO anon
-  USING (true);
+-- Política específica para configuracoes: Ver apenas chaves não sensíveis
+ALTER TABLE public.configuracoes ADD COLUMN IF NOT EXISTS is_sensitive boolean DEFAULT false;
+
+DROP POLICY IF EXISTS "Auth Read Non-Sensitive Config" ON public.configuracoes;
+CREATE POLICY "Auth Read Non-Sensitive Config" ON public.configuracoes
+    FOR SELECT
+    TO authenticated
+    USING (is_sensitive = false);
+
+-- Por padrão, anon não tem acesso a nada.
+-- Se houver necessidade de anon select em algo específico (ex: landing page),
+-- deve ser criado uma política individual para isso.
+
