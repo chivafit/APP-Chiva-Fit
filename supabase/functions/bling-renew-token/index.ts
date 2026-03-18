@@ -1,14 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
-
-const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://chivafit.github.io';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  Vary: 'Origin',
-};
+import { safeJsonParse, jsonResponse, getCorsHeaders, nowIso, sleep } from '../_shared/utils.ts';
 
 type BlingTokenResponse = {
   access_token: string;
@@ -19,30 +11,6 @@ type BlingTokenResponse = {
 };
 
 declare const Deno: { env: { get(key: string): string | undefined } };
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function safeJsonParse(text: string): unknown {
-  if (!text || !text.trim()) return {};
-  try {
-    return JSON.parse(text);
-  } catch (_e) {
-    return null;
-  }
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function isInvalidGrant(status: number, bodyText: string) {
   if (status === 400 || status === 401) {
@@ -156,6 +124,7 @@ async function releaseRefreshLock(supabase: SupabaseClient, lockKey: string, loc
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -169,7 +138,7 @@ serve(async (req: Request) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const auth = req.headers.get('authorization') || '';
     if (!supabaseKey || auth !== `Bearer ${supabaseKey}`) {
-      return json({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: 'Unauthorized' }, 401, req);
     }
     if (!supabaseUrl) {
       throw new Error('Missing SUPABASE_URL environment variable.');
@@ -190,7 +159,7 @@ serve(async (req: Request) => {
 
     const rawBody = await req.text().catch(() => '');
     const bodyParsed = safeJsonParse(rawBody);
-    if (bodyParsed === null) return json({ error: 'Invalid JSON' }, 400);
+    if (bodyParsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400, req);
     const body = (bodyParsed && typeof bodyParsed === 'object' ? bodyParsed : {}) as Record<string, unknown>;
 
     const bodyRefresh = String(body?.refresh_token || body?.refreshToken || '').trim();
@@ -201,9 +170,13 @@ serve(async (req: Request) => {
         (await getConfigValue(supabase, 'bling_access_token')) || '',
       ).trim();
       if (latestAccess) {
-        return json({ access_token: latestAccess, token_type: 'bearer', expires_in: 0, scope: '' });
+        return jsonResponse(
+          { access_token: latestAccess, token_type: 'bearer', expires_in: 0, scope: '' },
+          200,
+          req,
+        );
       }
-      return json({ error: 'Token refresh in progress. Tente novamente.' }, 429);
+      return jsonResponse({ error: 'Token refresh in progress. Tente novamente.' }, 429, req);
     }
     lockValue = lock.lockValue;
 
@@ -253,7 +226,7 @@ serve(async (req: Request) => {
         } catch (_e) {}
         lockValue = null; // impede double-release no finally
         await releaseRefreshLock(supabase, lockKey, lock.lockValue!);
-        return json(
+        return jsonResponse(
           {
             error: 'invalid_grant',
             message:
@@ -261,6 +234,7 @@ serve(async (req: Request) => {
             reauthorize: true,
           },
           401,
+          req,
         );
       }
       throw new Error(`Erro API Bling: ${response.status} ${txt || '- Verifique o Refresh Token'}`);
@@ -288,7 +262,7 @@ serve(async (req: Request) => {
 
     lockValue = null; // impede double-release no finally
     await releaseRefreshLock(supabase, lockKey, lock.lockValue!);
-    return json(safeResponse, 200);
+    return jsonResponse(safeResponse, 200, req);
   } catch (error) {
     const errMsg = (error instanceof Error ? error.message : String(error));
     // Registrar erro genérico para visibilidade no painel
@@ -305,7 +279,7 @@ serve(async (req: Request) => {
         );
       }
     } catch (_e) {}
-    return json({ error: errMsg }, 500);
+    return jsonResponse({ error: errMsg }, 500, req);
   } finally {
     if (supabase && lockValue) {
       await releaseRefreshLock(supabase, lockKey, lockValue);

@@ -72,11 +72,14 @@ jobs:
         id: changed
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            FUNCTIONS=$(ls supabase/functions/ | tr '\n' ' ')
+            # Lista todas as funções, removendo diretórios que começam com "_" (como _shared)
+            FUNCTIONS=$(ls supabase/functions/ | grep -v '^_' | tr '\n' ' ')
             echo "Trigger manual — deployando todas as funções: $FUNCTIONS"
           else
+            # Lista funções alteradas, filtrando o que não é função (como _shared)
             FUNCTIONS=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/**' \
               | grep -oP 'supabase/functions/\K[^/]+' \
+              | grep -v '^_' \
               | sort -u \
               | tr '\n' ' ')
             echo "Push detectado — funções alteradas: ${FUNCTIONS:-nenhuma}"
