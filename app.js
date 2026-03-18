@@ -241,7 +241,10 @@ function safeInvokeName(name, ...args) {
     const fn = window[name];
     if (typeof fn === 'function') return fn(...args);
   } catch (e) {
-    console.warn(name + ':', e?.message || String(e));
+    console.error('[safeInvokeName] erro:', name, e);
+    try {
+      if (typeof captureError === 'function') captureError(e, { context: 'safeInvokeName', name });
+    } catch (_e) {}
   }
 }
 
@@ -3603,7 +3606,13 @@ function showPage(id) {
     safeInvokeName('renderCalendario');
   }
   if (id === 'pedidos-page') setTimeout(() => safeInvokeName('renderPedidosPage'), 50);
-  if (id === 'clientes') setTimeout(() => safeInvokeName('renderClientes'), 50);
+  if (id === 'clientes') {
+    console.log('[router] clientes: showPage() abriu a view, agendando renderClientes...');
+    setTimeout(() => {
+      console.log('[router] clientes: chamando renderClientes()');
+      safeInvokeName('renderClientes');
+    }, 50);
+  }
   if (id === 'cliente') setTimeout(() => safeInvokeName('renderClientePage'), 0);
   if (id === 'inteligencia')
     setTimeout(() => {
@@ -8866,6 +8875,7 @@ function bulkMarkContacted() {
 
 function renderClientes() {
   try {
+    console.log('renderClientes iniciado');
     renderSavedFilterChips();
     const usingViews = !!(supaConnected && supaClient);
     const q = (document.getElementById('search-cli')?.value || '').toLowerCase();
@@ -8889,6 +8899,7 @@ function renderClientes() {
             renderClientes();
           })
           .catch((e) => {
+            console.error('[renderClientes] falha ao carregar cache:', e);
             captureError(e, { context: 'load_clientes_intel_cache' });
           });
 
@@ -8990,7 +9001,9 @@ function renderClientes() {
       }
 
       const listEl = getListEl();
+      console.log('[renderClientes] container encontrado:', listEl);
       if (!listEl) {
+        console.error('[renderClientes] container de clientes não encontrado no DOM.');
         if (!globalThis.__renderClientesRetry) {
           globalThis.__renderClientesRetry = true;
           setTimeout(() => {
@@ -9001,6 +9014,11 @@ function renderClientes() {
         return;
       }
 
+      console.log('[renderClientes] dados recebidos:', {
+        usingViews,
+        cache: clientesIntelCache.length,
+        filtrados: rows.length,
+      });
       if (!rows.length) {
         const canalFiltro2 = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
         const clearBtn = canalFiltro2
@@ -9020,7 +9038,8 @@ function renderClientes() {
           .slice(0, sliceN)
           .map((c, i) => renderCliIntelCard(c, 'cli' + i, i))
           .join('');
-      } catch (_e) {
+      } catch (e) {
+        console.error('[renderClientes] erro ao montar cards (renderCliIntelCard):', e);
         html = '';
       }
 
@@ -9032,6 +9051,7 @@ function renderClientes() {
       }
 
       listEl.innerHTML = html || `<div class="empty">Nenhum cliente encontrado.</div>`;
+      console.log('[renderClientes] renderClientes concluído');
       clientesIntelDomMode = 'rendered';
       clientesIntelDomCount = Math.min(rows.length, 2000);
       observeClientesSentinel();
@@ -9089,8 +9109,10 @@ function renderClientes() {
     }
 
     const listEl = getListEl();
+    console.log('[renderClientes] container encontrado:', listEl);
     if (!listEl) return;
 
+    console.log('[renderClientes] dados recebidos:', { usingViews, filtrados: clis.length });
     if (!clis.length) {
       const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
       const clearBtn = canalFiltro
@@ -9104,6 +9126,7 @@ function renderClientes() {
     }
 
     listEl.innerHTML = clis.map((c, i) => renderCliCard(c, 'cl' + i)).join('');
+    console.log('[renderClientes] renderClientes concluído');
   } catch (e) {
     console.error('[renderClientes] erro:', e);
     try {
@@ -17166,12 +17189,20 @@ function renderChartsCom() {
 //  ROUTER & NAVEGAÇÃO
 // ═══════════════════════════════════════════════════
 function handleRoute() {
-  let hash = window.location.hash.replace('#', '').trim();
+  const raw = String(window.location.hash || '');
+  let hash = raw.replace(/^#/, '').trim();
+  if (hash.startsWith('/')) hash = hash.slice(1);
+  hash = hash.split('?')[0] || '';
+  hash = hash.replace(/^\/+/, '').replace(/\/+$/, '');
   if (!hash) hash = 'dashboard';
 
-  // Tratamento de rotas com nomes divergentes
-  const routeMap = { 'pedidos': 'pedidos-page' };
+  const routeMap = { pedidos: 'pedidos-page' };
   const pageId = routeMap[hash] || hash;
+
+  if (pageId === 'clientes') {
+    console.log('rota clientes detectada');
+  }
+  console.log('[router] rota detectada:', { raw, hash, pageId });
 
   if (typeof showPage === 'function') showPage(pageId);
 }
@@ -17181,6 +17212,7 @@ function initNavigation() {
   if (_navBound) return;
   _navBound = true;
 
+  console.log('[router] initNavigation: binding click + hashchange');
   document.addEventListener('click', (e) => {
     const item = e.target && e.target.closest ? e.target.closest('.nav-item') : null;
     if (!item) return;
@@ -17188,6 +17220,7 @@ function initNavigation() {
     if (page) window.location.hash = page;
   });
   window.addEventListener('hashchange', handleRoute);
+  console.log('[router] initNavigation: calling handleRoute()');
   handleRoute();
 }
 if (document.readyState === 'loading') {
