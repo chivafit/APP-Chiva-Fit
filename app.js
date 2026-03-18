@@ -344,7 +344,15 @@ const DB_SCHEMA = {
     INSIGHTS: 'v2_insights',
     TAREFAS: 'v2_tarefas',
     CONFIG: 'configuracoes',
-    YAMPI_ORDERS: 'yampi_orders'
+    YAMPI_ORDERS: 'yampi_orders',
+    CUSTOMER_INTEL: 'customer_intelligence',
+    INTERACTIONS: 'interactions',
+    PRODUTOS: 'v2_produtos',
+    CANAIS: 'v2_canais',
+    INSUMOS: 'insumos',
+    RECEITAS: 'receitas_produtos',
+    ORDENS: 'ordens_producao',
+    ESTOQUE_MOV: 'movimentos_estoque'
   },
   COLUMNS: {
     PEDIDOS_ITEMS: {
@@ -367,6 +375,7 @@ const DAL = {
       if (!supaClient) return { data: [], error: 'SupaClient not initialized' };
       // Tenta as colunas de data em ordem de prioridade
       const dateCols = ['data_pedido', 'data', 'created_at'];
+      let lastRes = { data: [], error: null };
       for (const col of dateCols) {
         try {
           const res = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS)
@@ -374,9 +383,12 @@ const DAL = {
             .order(col, { ascending: false })
             .limit(limit);
           if (!res.error) return res;
-        } catch (e) { /* continua para a próxima coluna */ }
+          lastRes = res;
+        } catch (e) {
+          lastRes = { data: [], error: e };
+        }
       }
-      return { data: [], error: 'Failed to fetch pedidos with any date column' };
+      return lastRes;
     },
     async upsert(payload) {
       return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).upsert(payload, { onConflict: 'id' });
@@ -9104,17 +9116,21 @@ function renderClientes() {
 
       try {
         const pageEl = document.getElementById('page-clientes');
-        if (pageEl) {
+        // SÓ forçamos visibilidade se a página de clientes estiver ativa no roteamento
+        const isActive = pageEl?.classList.contains('active');
+        if (pageEl && isActive) {
           pageEl.style.visibility = 'visible';
           pageEl.style.opacity = '1';
           pageEl.style.display = 'block';
           pageEl.style.position = 'relative';
           pageEl.style.zIndex = '1';
         }
-        listEl.style.display = 'flex';
-        listEl.style.visibility = 'visible';
-        listEl.style.opacity = '1';
-        if (!listEl.style.minHeight) listEl.style.minHeight = '200px';
+        if (isActive) {
+          listEl.style.display = 'flex';
+          listEl.style.visibility = 'visible';
+          listEl.style.opacity = '1';
+          if (!listEl.style.minHeight) listEl.style.minHeight = '200px';
+        }
       } catch (e) {
         console.error('[renderClientes] erro ao forçar visibilidade:', e);
       }
@@ -10203,7 +10219,7 @@ async function renderOportunidadesFromSupabase() {
     if (!Object.keys(healthMap).length) {
       try {
         const { data: ciRows, error: ciErr } = await supaClient
-          .from('customer_intelligence')
+          .from(DB_SCHEMA.TABLES.CUSTOMER_INTEL)
           .select('cliente_id,segmento,next_best_action,score_final,updated_at')
           .limit(5000);
         if (!ciErr && Array.isArray(ciRows)) {
@@ -13544,7 +13560,7 @@ async function logInteraction(customerKey, type, description, metadata) {
     metadata: metadata && typeof metadata === 'object' ? metadata : {},
   };
   try {
-    await supaClient.from('interactions').insert(payload);
+    await supaClient.from(DB_SCHEMA.TABLES.INTERACTIONS).insert(payload);
   } catch (_e) {}
 }
 
@@ -15018,9 +15034,9 @@ async function upsertOrdersToSupabase(orders) {
       const prodRows = Object.values(productsById);
       for (let i = 0; i < prodRows.length; i += 200) {
         const batch = prodRows.slice(i, i + 200);
-        const { error } = await supaClient.from('v2_produtos').upsert(batch, { onConflict: 'id' });
+        const { error } = await supaClient.from(DB_SCHEMA.TABLES.PRODUTOS).upsert(batch, { onConflict: 'id' });
         if (error) {
-          logSupabaseUpsertError('upsert v2_produtos error', error, batch.slice(0, 5));
+          logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PRODUTOS} error`, error, batch.slice(0, 5));
           throw error;
         }
       }
