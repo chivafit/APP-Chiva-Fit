@@ -2983,74 +2983,8 @@ async function loadCarrinhosAbandonadosFromSupabase() {
 }
 
 async function upsertCarrinhosAbandonadosToSupabase(list) {
-  // NOTE: Temporarily disabled to prevent potential 400 Bad Request errors.
-  // The schema and data mapping need to be validated before re-enabling.
-  /*
-  if (!supaConnected || !supaClient) return;
-  if (!Array.isArray(list) || !list.length) return;
-  const nowIso = new Date().toISOString();
-  const baseRows = list
-    .filter((x) => x && x.checkout_id)
-    .map((c) => ({
-      checkout_id: String(c.checkout_id),
-      cliente_nome: c.cliente_nome || null,
-      telefone: c.telefone || null,
-      email: c.email || null,
-      valor: Number(c.valor || 0) || 0,
-      produtos: c.produtos && typeof c.produtos === 'object' ? c.produtos : [],
-      criado_em: c.criado_em || null,
-      recuperado: !!c.recuperado,
-      recuperado_em: c.recuperado_em || null,
-      recuperado_pedido_id: c.recuperado_pedido_id || null,
-      score_recuperacao: c.score_recuperacao == null ? null : Number(c.score_recuperacao || 0) || 0,
-      link_finalizacao: c.link_finalizacao || null,
-      last_etapa_enviada: c.last_etapa_enviada || null,
-      last_mensagem_at: c.last_mensagem_at || null,
-    }));
-  if (!baseRows.length) return;
-  const rowsWithUpdatedAt = baseRows.map((r) => ({ ...r, updated_at: nowIso }));
-  const rowsFallback = baseRows;
-  const rowsFallbackCore = rowsFallback.map(
-    ({ score_recuperacao, link_finalizacao, last_etapa_enviada, last_mensagem_at, ...rest }) =>
-      rest,
-  );
-  try {
-    if (globalThis.__carrinhosHasUpdatedAt == null) {
-      try {
-        const { error } = await supaClient
-          .from('carrinhos_abandonados')
-          .select('checkout_id,updated_at')
-          .limit(1);
-        globalThis.__carrinhosHasUpdatedAt = !error;
-      } catch (_e) {
-        globalThis.__carrinhosHasUpdatedAt = false;
-      }
-    }
-    const useUpdatedAt = !!globalThis.__carrinhosHasUpdatedAt;
-    for (let i = 0; i < baseRows.length; i += 1000) {
-      const { error } = await supaClient
-        .from('carrinhos_abandonados')
-        .upsert((useUpdatedAt ? rowsWithUpdatedAt : rowsFallback).slice(i, i + 1000), {
-          onConflict: 'checkout_id',
-        });
-      if (error && useUpdatedAt) {
-        globalThis.__carrinhosHasUpdatedAt = false;
-        const { error: e2 } = await supaClient
-          .from('carrinhos_abandonados')
-          .upsert(rowsFallback.slice(i, i + 1000), { onConflict: 'checkout_id' });
-        if (e2) {
-          await supaClient
-            .from('carrinhos_abandonados')
-            .upsert(rowsFallbackCore.slice(i, i + 1000), { onConflict: 'checkout_id' });
-        }
-      } else if (error) {
-        await supaClient
-          .from('carrinhos_abandonados')
-          .upsert(rowsFallbackCore.slice(i, i + 1000), { onConflict: 'checkout_id' });
-      }
-    }
-  } catch (_e) {}
-  */
+  void list;
+  return;
 }
 
 async function fetchYampiAbandoned() {
@@ -8931,248 +8865,252 @@ function bulkMarkContacted() {
 }
 
 function renderClientes() {
-  renderSavedFilterChips();
-  const usingViews = !!(supaConnected && supaClient);
-  const q = (document.getElementById('search-cli')?.value || '').toLowerCase();
-  const statusFil = document.getElementById('fil-cli-status')?.value || '';
-  const segFil = document.getElementById('fil-cli-seg')?.value || '';
-  const canalFil = document.getElementById('fil-cli-canal')?.value || '';
-  const uf = document.getElementById('fil-estado')?.value || '';
-  const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === 'all';
-  // Limpa seleção sempre que os filtros são reaplicados
-  if (selectedClientes.size) clearSelection();
+  try {
+    renderSavedFilterChips();
+    const usingViews = !!(supaConnected && supaClient);
+    const q = (document.getElementById('search-cli')?.value || '').toLowerCase();
+    const statusFil = document.getElementById('fil-cli-status')?.value || '';
+    const segFil = document.getElementById('fil-cli-seg')?.value || '';
+    const canalFil = document.getElementById('fil-cli-canal')?.value || '';
+    const uf = document.getElementById('fil-estado')?.value || '';
+    const isDefaultFilters = !q && !statusFil && !segFil && !canalFil && !uf && activeCh === 'all';
 
-  if (usingViews) {
-    console.log('[renderClientes] Início (usingViews=true). Cache size:', clientesIntelCache.length);
-    if (!clientesIntelCache.length) {
-      console.log('[renderClientes] Cache vazio, disparando load...');
-      loadClientesInteligenciaCache()
-        .then(() => {
-          renderClientes();
-        })
-        .catch((e) => {
-          console.warn(
-            '[clientes] falha ao carregar cache de inteligência:',
-            e?.message || String(e),
-          );
-          captureError(e, { context: 'load_clientes_intel_cache' });
+    if (selectedClientes.size) clearSelection();
+
+    const getListEl = () =>
+      document.getElementById('client-list') ||
+      document.querySelector('#page-clientes #client-list') ||
+      document.querySelector('[data-client-list]');
+
+    if (usingViews) {
+      if (!clientesIntelCache.length) {
+        loadClientesInteligenciaCache()
+          .then(() => {
+            renderClientes();
+          })
+          .catch((e) => {
+            captureError(e, { context: 'load_clientes_intel_cache' });
+          });
+
+        const labelEl = document.getElementById('cli-label');
+        if (labelEl) labelEl.textContent = '';
+        const listEl = getListEl();
+        if (listEl) listEl.innerHTML = renderClienteSkeletons(7);
+        const pillsEl = document.getElementById('ch-pills-cli');
+        if (pillsEl) pillsEl.innerHTML = '';
+        return;
+      }
+
+      const cc = {};
+      clientesIntelCache.forEach((c) => {
+        const ch =
+          String(c.canal_principal || 'outros')
+            .toLowerCase()
+            .trim() || 'outros';
+        cc[ch] = (cc[ch] || 0) + 1;
+      });
+      const pills = [
+        { id: 'all', l: 'Todos', n: clientesIntelCache.length },
+        ...['cnpj', 'shopify', 'ml', 'shopee', 'amazon', 'yampi', 'outros']
+          .filter((c) => cc[c])
+          .map((c) => ({ id: c, l: CH[c] || c, n: cc[c] })),
+      ];
+      const pillsEl = document.getElementById('ch-pills-cli');
+      if (pillsEl) {
+        pillsEl.innerHTML = pills
+          .map(
+            (p) =>
+              `<div class="ch-pill ${p.id} ${activeCh === p.id ? 'active' : ''}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`,
+          )
+          .join('');
+      }
+
+      let rows = clientesIntelCache.slice();
+      const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
+      if (canalFiltro) {
+        rows = rows.filter((c) => {
+          const cid = String(c?.cliente_id || c?.id || '').trim();
+          const docDigits = String(c?.doc || '').replace(/\D/g, '');
+          const email = String(c?.email || '')
+            .trim()
+            .toLowerCase();
+          const tel = String(c?.telefone || c?.celular || '').replace(/\D/g, '');
+          const key = docDigits || email || tel || cid;
+          return clienteTemPedidoNoCanal(key, canalFiltro);
         });
-      document.getElementById('cli-label').textContent = '';
-      document.getElementById('client-list').innerHTML = renderClienteSkeletons(7);
-      document.getElementById('ch-pills-cli').innerHTML = '';
+      }
+      if (uf)
+        rows = rows.filter((c) => String(c.uf || '').toUpperCase() === String(uf).toUpperCase());
+      if (statusFil) {
+        const st = String(statusFil || '')
+          .trim()
+          .toLowerCase();
+        rows = rows.filter(
+          (c) =>
+            String(c.status || '')
+              .trim()
+              .toLowerCase() === st,
+        );
+      }
+      if (segFil) {
+        const sg = String(segFil || '')
+          .trim()
+          .toLowerCase();
+        rows = rows.filter(
+          (c) =>
+            String(c.segmento_crm || '')
+              .trim()
+              .toLowerCase() === sg,
+        );
+      }
+      if (q) {
+        const qDigits = q.replace(/\D/g, '');
+        rows = rows.filter((c) => {
+          const hay = [c.nome, c.email, c.telefone, c.celular, c.doc, c.cidade, c.uf]
+            .map((x) => String(x || '').toLowerCase())
+            .join(' ');
+          if (hay.includes(q)) return true;
+          if (
+            qDigits &&
+            (String(c.telefone || '').includes(qDigits) ||
+              String(c.celular || '').includes(qDigits) ||
+              String(c.doc || '').includes(qDigits))
+          )
+            return true;
+          return false;
+        });
+      }
+
+      const suffix = clientesIntelHasMore ? '+' : '';
+      const labelEl = document.getElementById('cli-label');
+      if (labelEl) {
+        labelEl.textContent = isDefaultFilters
+          ? `${rows.length}${suffix} cliente${rows.length !== 1 ? 's' : ''}`
+          : `${rows.length} encontrado${rows.length !== 1 ? 's' : ''}`;
+      }
+
+      const listEl = getListEl();
+      if (!listEl) {
+        if (!globalThis.__renderClientesRetry) {
+          globalThis.__renderClientesRetry = true;
+          setTimeout(() => {
+            globalThis.__renderClientesRetry = false;
+            renderClientes();
+          }, 0);
+        }
+        return;
+      }
+
+      if (!rows.length) {
+        const canalFiltro2 = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
+        const clearBtn = canalFiltro2
+          ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>`
+          : '';
+        const msg = canalFiltro2
+          ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro2] || canalFiltro2)} — limpar filtro?`
+          : 'Nenhum cliente encontrado.';
+        listEl.innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+        return;
+      }
+
+      let html = '';
+      try {
+        const sliceN = Math.min(2000, rows.length);
+        html = rows
+          .slice(0, sliceN)
+          .map((c, i) => renderCliIntelCard(c, 'cli' + i, i))
+          .join('');
+      } catch (_e) {
+        html = '';
+      }
+
+      if (!html) {
+        html = rows
+          .slice(0, Math.min(200, rows.length))
+          .map((c) => `<div class="client-card">${escapeHTML(String(c?.nome || 'Cliente'))}</div>`)
+          .join('');
+      }
+
+      listEl.innerHTML = html || `<div class="empty">Nenhum cliente encontrado.</div>`;
+      clientesIntelDomMode = 'rendered';
+      clientesIntelDomCount = Math.min(rows.length, 2000);
+      observeClientesSentinel();
       return;
     }
 
     const cc = {};
-    clientesIntelCache.forEach((c) => {
-      const ch =
-        String(c.canal_principal || 'outros')
-          .toLowerCase()
-          .trim() || 'outros';
-      cc[ch] = (cc[ch] || 0) + 1;
+    allOrders.forEach((o) => {
+      const c = detectCh(o);
+      cc[c] = (cc[c] || 0) + 1;
     });
     const pills = [
-      { id: 'all', l: 'Todos', n: clientesIntelCache.length },
+      { id: 'all', l: 'Todos', n: allOrders.length },
       ...['cnpj', 'shopify', 'ml', 'shopee', 'amazon', 'yampi', 'outros']
         .filter((c) => cc[c])
         .map((c) => ({ id: c, l: CH[c] || c, n: cc[c] })),
     ];
-    document.getElementById('ch-pills-cli').innerHTML = pills
-      .map(
-        (p) =>
-          `<div class="ch-pill ${p.id} ${activeCh === p.id ? 'active' : ''}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`,
-      )
-      .join('');
-
-    let rows = clientesIntelCache.slice();
-    const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
-    if (canalFiltro) {
-      let count = 0;
-      rows = rows.filter((c) => {
-        const cid = String(c?.cliente_id || c?.id || '').trim();
-        const docDigits = String(c?.doc || '').replace(/\D/g, '');
-        const email = String(c?.email || '')
-          .trim()
-          .toLowerCase();
-        const tel = String(c?.telefone || c?.celular || '').replace(/\D/g, '');
-        const key = docDigits || email || tel || cid;
-        const ok = clienteTemPedidoNoCanal(key, canalFiltro);
-        if (ok) count += 1;
-        return ok;
-      });
-      console.log('[Filtro Canal]', canalFiltro, 'clientes que têm pedidos nesse canal:', count);
-      if (lastDetectChDebugCanal !== canalFiltro) {
-        lastDetectChDebugCanal = canalFiltro;
-        try {
-          (Array.isArray(allOrders) ? allOrders.slice(0, 10) : []).forEach((o) => {
-            console.log('[detectCh]', o?.numero || o?.numero_pedido || o?.id, detectCh(o));
-          });
-        } catch (_e) {}
-      }
-    }
-    if (uf)
-      rows = rows.filter((c) => String(c.uf || '').toUpperCase() === String(uf).toUpperCase());
-    if (statusFil) {
-      const st = String(statusFil || '')
-        .trim()
-        .toLowerCase();
-      rows = rows.filter(
-        (c) =>
-          String(c.status || '')
-            .trim()
-            .toLowerCase() === st,
-      );
-    }
-    if (segFil) {
-      const sg = String(segFil || '')
-        .trim()
-        .toLowerCase();
-      rows = rows.filter(
-        (c) =>
-          String(c.segmento_crm || '')
-            .trim()
-            .toLowerCase() === sg,
-      );
-    }
-    if (q) {
-      const qDigits = q.replace(/\D/g, '');
-      rows = rows.filter((c) => {
-        const hay = [c.nome, c.email, c.telefone, c.celular, c.doc, c.cidade, c.uf]
-          .map((x) => String(x || '').toLowerCase())
-          .join(' ');
-        if (hay.includes(q)) return true;
-        if (
-          qDigits &&
-          (String(c.telefone || '').includes(qDigits) ||
-            String(c.celular || '').includes(qDigits) ||
-            String(c.doc || '').includes(qDigits))
+    const pillsEl = document.getElementById('ch-pills-cli');
+    if (pillsEl) {
+      pillsEl.innerHTML = pills
+        .map(
+          (p) =>
+            `<div class="ch-pill ${p.id} ${activeCh === p.id ? 'active' : ''}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`,
         )
-          return true;
-        return false;
-      });
+        .join('');
     }
 
-    console.log(
-      '[Filtro Clientes]',
-      { busca: q, status: statusFil, segmento: segFil, canal: canalFiltro, uf },
-      'clientes encontrados:',
-      rows.length,
+    const filt = allOrders.filter((o) => {
+      if (activeCh !== 'all' && detectCh(o) !== activeCh) return false;
+      const ufOrder = String(
+        o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || o?.uf || '',
+      )
+        .toUpperCase()
+        .trim();
+      if (uf && ufOrder !== uf) return false;
+      if (q) {
+        const n = (o.contato?.nome || '').toLowerCase(),
+          e = (o.contato?.email || '').toLowerCase(),
+          t = rawPhone(o.contato?.telefone || '');
+        if (!n.includes(q) && !e.includes(q) && !t.includes(q.replace(/\D/g, ''))) return false;
+      }
+      return true;
+    });
+
+    let clis = Object.values(buildCli(filt)).sort(
+      (a, b) =>
+        b.orders.reduce((s, o) => s + val(o), 0) - a.orders.reduce((s, o) => s + val(o), 0),
     );
 
-    if (rows.length === 0 && clientesIntelCache.length > 0) {
-      console.warn('[Filtro Clientes] ZEROU após filtros. Exemplo de dados no cache:', clientesIntelCache[0]);
+    const labelEl = document.getElementById('cli-label');
+    if (labelEl) {
+      labelEl.textContent = isDefaultFilters
+        ? `${clis.length} cliente${clis.length !== 1 ? 's' : ''}`
+        : `${clis.length} encontrado${clis.length !== 1 ? 's' : ''}`;
     }
 
-    const suffix = clientesIntelHasMore ? '+' : '';
-    document.getElementById('cli-label').textContent = isDefaultFilters
-      ? `${rows.length}${suffix} cliente${rows.length !== 1 ? 's' : ''}`
-      : `${rows.length} encontrado${rows.length !== 1 ? 's' : ''}`;
-    const listEl = document.getElementById('client-list');
+    const listEl = getListEl();
     if (!listEl) return;
 
-    if (isDefaultFilters) {
-      if (clientesIntelDomMode !== 'default') {
-        clientesIntelDomMode = 'default';
-        clientesIntelDomCount = 0;
-        listEl.innerHTML = '';
-      }
-      const next = rows.slice(clientesIntelDomCount);
-      if (next.length) {
-        const html = next
-          .map((c, i) => renderCliIntelCard(c, 'cli' + (clientesIntelDomCount + i), i))
-          .join('');
-        appendClienteCards(html);
-        clientesIntelDomCount += next.length;
-      }
-      if (!rows.length) listEl.innerHTML = `<div class="empty">Nenhum cliente encontrado.</div>`;
-    } else {
-      clientesIntelDomMode = 'filtered';
-      clientesIntelDomCount = 0;
-      if (rows.length) {
-        listEl.innerHTML = rows
-          .slice(0, 800)
-          .map((c, i) => renderCliIntelCard(c, 'cli' + i, i))
-          .join('');
-      } else {
-        const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
-        const clearBtn = canalFiltro
-          ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>`
-          : '';
-        const msg = canalFiltro
-          ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro] || canalFiltro)} — limpar filtro?`
-          : 'Nenhum cliente encontrado.';
-        listEl.innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
-      }
+    if (!clis.length) {
+      const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
+      const clearBtn = canalFiltro
+        ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>`
+        : '';
+      const msg = canalFiltro
+        ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro] || canalFiltro)} — limpar filtro?`
+        : 'Nenhum cliente encontrado.';
+      listEl.innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
+      return;
     }
-    observeClientesSentinel();
-    return;
+
+    listEl.innerHTML = clis.map((c, i) => renderCliCard(c, 'cl' + i)).join('');
+  } catch (e) {
+    console.error('[renderClientes] erro:', e);
+    try {
+      const listEl = document.getElementById('client-list');
+      if (listEl) listEl.innerHTML = `<div class="empty">Erro ao renderizar clientes.</div>`;
+    } catch (_e) {}
   }
-
-  const cc = {};
-  allOrders.forEach((o) => {
-    const c = detectCh(o);
-    cc[c] = (cc[c] || 0) + 1;
-  });
-  const pills = [
-    { id: 'all', l: 'Todos', n: allOrders.length },
-    ...['cnpj', 'shopify', 'ml', 'shopee', 'amazon', 'yampi', 'outros']
-      .filter((c) => cc[c])
-      .map((c) => ({ id: c, l: CH[c] || c, n: cc[c] })),
-  ];
-  document.getElementById('ch-pills-cli').innerHTML = pills
-    .map(
-      (p) =>
-        `<div class="ch-pill ${p.id} ${activeCh === p.id ? 'active' : ''}" onclick="setChCli('${p.id}')">${p.l} <strong>${p.n}</strong></div>`,
-    )
-    .join('');
-
-  const filt = allOrders.filter((o) => {
-    if (activeCh !== 'all' && detectCh(o) !== activeCh) return false;
-    const ufOrder = String(
-      o?.uf_entrega || o?.contato?.endereco?.uf || o?.contato?.uf || o?.uf || '',
-    )
-      .toUpperCase()
-      .trim();
-    if (uf && ufOrder !== uf) return false;
-    if (q) {
-      const n = (o.contato?.nome || '').toLowerCase(),
-        e = (o.contato?.email || '').toLowerCase(),
-        t = rawPhone(o.contato?.telefone || '');
-      if (!n.includes(q) && !e.includes(q) && !t.includes(q.replace(/\D/g, ''))) return false;
-    }
-    return true;
-  });
-
-  let clis = Object.values(buildCli(filt)).sort(
-    (a, b) => b.orders.reduce((s, o) => s + val(o), 0) - a.orders.reduce((s, o) => s + val(o), 0),
-  );
-
-  console.log(
-    '[Filtro Clientes]',
-    { busca: q, status: statusFil, segmento: segFil, canal: canalFil || activeCh, uf },
-    'clientes encontrados:',
-    clis.length,
-  );
-
-  const labelEl = document.getElementById('cli-label');
-  if (labelEl)
-    labelEl.textContent = isDefaultFilters
-      ? `${clis.length} cliente${clis.length !== 1 ? 's' : ''}`
-      : `${clis.length} encontrado${clis.length !== 1 ? 's' : ''}`;
-  if (!clis.length) {
-    const canalFiltro = normCanalKey(canalFil || (activeCh !== 'all' ? activeCh : ''));
-    const clearBtn = canalFiltro
-      ? `<div style="margin-top:10px"><button class="btn" onclick="(function(){var s=document.getElementById('fil-cli-canal'); if(s) s.value=''; activeCh='all'; renderClientes();})()">Limpar filtro</button></div>`
-      : '';
-    const msg = canalFiltro
-      ? `Nenhum cliente via ${escapeHTML(CH[canalFiltro] || canalFiltro)} — limpar filtro?`
-      : 'Nenhum cliente encontrado.';
-    document.getElementById('client-list').innerHTML = `<div class="empty">${msg}${clearBtn}</div>`;
-    return;
-  }
-  document.getElementById('client-list').innerHTML = clis
-    .map((c, i) => renderCliCard(c, 'cl' + i))
-    .join('');
 }
 
 function renderCliIntelCard(c, eid, idx) {
