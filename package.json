@@ -35,6 +35,6 @@
     "@vercel/speed-insights": "^2.0.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   }
 }
