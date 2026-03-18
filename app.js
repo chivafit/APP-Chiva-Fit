@@ -15086,12 +15086,14 @@ async function loadOrdersFromSupabaseForCRM() {
       blingOrders.length = 0;
       blingOrders.push(...nextBling);
       safeSetItem('crm_bling_orders', JSON.stringify(blingOrders));
-      console.log(`[loadOrdersFromSupabaseForCRM] \u2713 blingOrders: ${nextBling.length} de ${pedRows.length} linhas de v2_pedidos`);
-    } else {
-      console.warn(
-        `[loadOrdersFromSupabaseForCRM] \u26a0 v2_pedidos vazio \u2014 blingOrders preservado (${blingOrders.length} pedidos em cache).`,
-        'Sincronize o Bling para popular v2_pedidos.',
+      const comItens = nextBling.filter((o) => Array.isArray(o?.itens) && o.itens.length > 0).length;
+      const semItens = nextBling.length - comItens;
+      console.log(
+        `[loadOrdersFromSupabaseForCRM] ✓ blingOrders: ${nextBling.length} pedidos de v2_pedidos` +
+        ` | com itens: ${comItens} | sem itens: ${semItens}`,
       );
+    } else {
+      console.warn(`[loadOrdersFromSupabaseForCRM] ⚠ v2_pedidos vazio — blingOrders preservado (${blingOrders.length} em cache). Sincronize o Bling.`);
     }
     // Só sobrescreve yampiOrders se yampi retornou dados reais.
     if (Array.isArray(yampiRows) && yampiRows.length > 0) {
@@ -15114,7 +15116,7 @@ async function loadOrdersFromSupabaseForCRM() {
         cliRows.length === 0;
       if (shouldBackfill) {
         upsertOrdersToSupabase([...nextBling, ...nextYampi], { silent: true }).catch((e) =>
-          console.warn('[backfill upsert]', e?.message || e),
+          console.error('[backfill upsert] ❌', e?.message || e, { code: e?.code, details: e?.details }),
         );
       }
     }
@@ -18006,6 +18008,9 @@ Object.assign(window, {
   openWhatsAppForCustomer,
   runPostFixValidation,
   runClienteDebug,
+  normalizeCliente,
+  normalizePedido,
+  normalizePedidoItens,
   detectCh,
   initSupabase,
   loadSupabaseData,
