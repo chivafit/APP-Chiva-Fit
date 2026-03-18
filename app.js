@@ -14952,23 +14952,7 @@ async function upsertOrdersToSupabase(orders) {
       })
       .filter((p) => p.id); // id é obrigatório (PK)
     const { ok: validPedRows } = splitValidRows(pedRows, ['id'], '[Upsert v2_pedidos]');
-    const { ok: validPedRowsWithCli } = splitValidRows(
-      validPedRows,
-      ['cliente_id'],
-      '[Upsert v2_pedidos]',
-    );
-    validPedRows.forEach((r) => {
-      if (!isNil(r.cliente_id) && !isUuid(r.cliente_id)) {
-        try {
-          console.warn(
-            '[Upsert v2_pedidos] registro ignorado (cliente_id inválido)',
-            sanitizeForSupabaseLog(r),
-          );
-        } catch (_e) {}
-        r.__invalid_cliente_id = true;
-      }
-    });
-    const finalPedRows = validPedRowsWithCli.filter((r) => !r.__invalid_cliente_id);
+    const finalPedRows = validPedRows.filter((r) => !r.__invalid_cliente_id);
     for (let i = 0; i < finalPedRows.length; i += 100) {
       const batch = finalPedRows.slice(i, i + 100);
       const payload = batch.map(sanitizePayload).filter(Boolean);

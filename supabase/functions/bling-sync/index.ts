@@ -427,7 +427,7 @@ async function persistSyncResultToDb(
     const batch = customerRows.slice(i, i + 100);
     const { error } = await supabase
       .from('v2_clientes')
-      .upsert(batch, { onConflict: 'doc', ignoreDuplicates: true });
+      .upsert(batch, { onConflict: 'doc' });
     if (error) {
       console.error('[Upsert v2_clientes]', error, batch);
       throw error;
