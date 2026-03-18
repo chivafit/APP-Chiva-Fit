@@ -8346,14 +8346,14 @@ html.light .dash-filterbar {
   box-shadow: var(--shadow-sm);
 }
 
-html.light.skin-dashboard #page-dashboard .dash-shell {
+#page-dashboard .dash-shell {
   display: grid;
   grid-template-columns: 1fr 360px;
   gap: 18px;
   margin-top: 10px;
 }
 @media (max-width: 1160px) {
-  html.light.skin-dashboard #page-dashboard .dash-shell {
+  #page-dashboard .dash-shell {
     grid-template-columns: 1fr;
   }
 }
@@ -8361,11 +8361,13 @@ html.light.skin-dashboard #page-dashboard .dash-shell {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 .dash-side-col {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .dash-top-grid {
