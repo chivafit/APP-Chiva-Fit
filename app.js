@@ -753,7 +753,8 @@ async function bootstrapFromSupabase() {
       ).then(({ data: tokenErrRow }) => {
         const tokenErr = String(tokenErrRow?.valor_texto || '').trim();
         if (tokenErr) {
-          const parsed = JSON.parse(tokenErr);
+          let parsed;
+          try { parsed = JSON.parse(tokenErr); } catch (_je) { parsed = null; }
           if (parsed?.type && parsed?.message) {
             setTimeout(() => toast(`⚠ Bling: ${parsed.message}`, 'error'), 3500);
           }
@@ -14067,6 +14068,8 @@ async function loadClientesInteligenciaCache(forceReset = false) {
       );
     }
   } catch (_e) {
+    console.error('[loadClientesInteligenciaCache] erro ao carregar inteligência de clientes:', _e?.message || _e);
+    captureError(_e, { context: 'loadClientesInteligenciaCache' });
   } finally {
     clientesIntelInFlight = false;
     // Garante que o cooldown seja setado mesmo em falha, evitando loop de retry
