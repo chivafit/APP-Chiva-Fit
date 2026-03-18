@@ -1,0 +1,5 @@
+dist/
+supabase/.temp/
+migrations/
+scripts/*.sql
+package-lock.json

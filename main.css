@@ -1,1 +1,3 @@
-@import url("./styles/main.css?v=20260316-6");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
