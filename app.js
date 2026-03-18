@@ -2638,6 +2638,9 @@ function getSyncCtx() {
     mergeOrders,
     populateUFs,
     upsertOrdersToSupabase,
+    normalizeCliente,
+    normalizePedido,
+    normalizePedidoItens,
     renderAll,
     startTimers,
     toast,
@@ -3765,37 +3768,16 @@ async function recarregar(silent = false) {
   bar?.classList.add('show');
   const syncTxt = document.getElementById('sync-txt');
   if (syncTxt) syncTxt.textContent = '⟳ Sincronizando...';
+  const knownIds = new Set(blingOrders.map((o) => String(o.id || o.numero)));
   try {
-    const from = iso(new Date(new Date().getFullYear(), new Date().getMonth() - 17, 1));
-    const to = iso(new Date());
-    const resp = await fetch(getSupaFnBase() + '/bling-sync', {
-      method: 'POST',
-      headers: await supaFnHeadersAsync(),
-      body: JSON.stringify({ from, to }),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      const fresh = (data.orders || []).map((o) => {
-        o._source = 'bling';
-        o._canal = detectCh(o);
-        return o;
-      });
-      const known = new Set(blingOrders.map((o) => String(o.id || o.numero)));
-      fresh
-        .filter((o) => !known.has(String(o.id || o.numero)))
-        .forEach((o) => pushNotif(`🛒 Novo pedido #${o.numero || o.id} — ${fmtBRL(val(o))}`));
-      blingOrders.length = 0;
-      blingOrders.push(...fresh);
-      safeSetItem('crm_bling_orders', JSON.stringify(blingOrders));
-    }
-    mergeOrders();
+    await syncBlingImpl(getSyncCtx(), { silent, omitDates: silent });
+    blingOrders
+      .filter((o) => !knownIds.has(String(o.id || o.numero)))
+      .forEach((o) => pushNotif(`🛒 Novo pedido #${o.numero || o.id} — ${fmtBRL(val(o))}`));
     const syncTime = document.getElementById('sync-time');
     if (syncTime) syncTime.textContent = 'Sync: ' + new Date().toLocaleTimeString('pt-BR');
-    populateUFs();
-    renderAll();
-    if (!silent) toast('✓ Atualizado!');
   } catch (e) {
-    if (!silent) toast('⚠ ' + e.message);
+    if (!silent) toast('⚠ ' + (e?.message || String(e)));
   } finally {
     icon?.classList.remove('spinning');
     setTimeout(() => bar?.classList.remove('show'), 3000);
@@ -13542,14 +13524,19 @@ async function ensureV2PedidosItemsAvailable() {
 async function upsertV2PedidosItemsFromOrders(orders) {
   if (!supaConnected || !supaClient) return;
   const ok = await ensureV2PedidosItemsAvailable();
-  if (!ok) return;
+  if (!ok) {
+    console.warn('[Produtos] ⚠ Tabela', DB_SCHEMA.TABLES.PEDIDOS_ITEMS, 'indisponível — itens não persistidos. Verifique se a migration 001/028 foi aplicada no Supabase.');
+    return;
+  }
   const list = Array.isArray(orders) ? orders : [];
   const nums = Array.from(
     new Set(list.map((o) => String(o?.numero || o?.id || '').trim()).filter(Boolean)),
   ).slice(0, 800);
   if (!nums.length) return;
 
+  // Passo 1: resolver numero_pedido → id em v2_pedidos
   let pedidos = [];
+  let lookupErr = null;
   try {
     for (let i = 0; i < nums.length; i += 200) {
       const batch = nums.slice(i, i + 200);
@@ -13558,72 +13545,126 @@ async function upsertV2PedidosItemsFromOrders(orders) {
         .select('id,numero_pedido')
         .in('numero_pedido', batch)
         .limit(2000);
-      if (error) throw error;
+      if (error) { lookupErr = error; break; }
       pedidos = pedidos.concat(Array.isArray(data) ? data : []);
     }
-  } catch (_e) {
+  } catch (e) {
+    lookupErr = e;
+  }
+  if (lookupErr) {
+    console.error('[Produtos] ❌ Falha ao buscar pedidos (numero_pedido) para itens:', lookupErr?.message || lookupErr);
+    logSupabaseUpsertError('lookup v2_pedidos por numero_pedido', lookupErr, { nums: nums.slice(0, 5) });
     return;
   }
+
   const numToId = {};
   pedidos.forEach((p) => {
     const n = String(p?.numero_pedido || '').trim();
     const id = p?.id;
     if (n && id) numToId[n] = id;
   });
-  const pedidoIds = Array.from(new Set(Object.values(numToId))).slice(0, 1500);
-  if (!pedidoIds.length) return;
 
-  try {
-    for (let i = 0; i < pedidoIds.length; i += 200) {
-      const batch = pedidoIds.slice(i, i + 200);
-      await DAL.items.deleteByPedidoIds(batch);
+  // Fallback: para ordens não encontradas por numero_pedido, tentar por id direto
+  const notFound = nums.filter((n) => !numToId[n]);
+  if (notFound.length) {
+    try {
+      for (let i = 0; i < notFound.length; i += 200) {
+        const batch = notFound.slice(i, i + 200);
+        const { data, error } = await supaClient
+          .from(DB_SCHEMA.TABLES.PEDIDOS)
+          .select('id,numero_pedido')
+          .in('id', batch)
+          .limit(2000);
+        if (error) break;
+        (Array.isArray(data) ? data : []).forEach((p) => {
+          const id = String(p?.id || '').trim();
+          const n = String(p?.numero_pedido || id).trim();
+          if (id && n && !numToId[n]) numToId[n] = id;
+          if (id && !numToId[id]) numToId[id] = id;
+        });
+      }
+    } catch (_e) {}
+    const stillMissing = notFound.filter((n) => !numToId[n]);
+    if (stillMissing.length) {
+      console.warn(`[Produtos] ⚠ ${stillMissing.length} número(s) de pedido sem ID em ${DB_SCHEMA.TABLES.PEDIDOS}:`, stillMissing.slice(0, 5), '— esses itens não serão persistidos. Execute a sincronização do Bling primeiro.');
     }
-  } catch (_e) {}
+  }
 
+  const pedidoIds = Array.from(new Set(Object.values(numToId))).slice(0, 1500);
+  if (!pedidoIds.length) {
+    console.warn('[Produtos] ⚠ Nenhum pedido resolvido em', DB_SCHEMA.TABLES.PEDIDOS, 'para', nums.length, 'números — itens não persistidos.');
+    return;
+  }
+
+  // Passo 2: deletar itens antigos — verificar { error } explicitamente (Supabase retorna, não lança)
+  for (let i = 0; i < pedidoIds.length; i += 200) {
+    const batch = pedidoIds.slice(i, i + 200);
+    const { error: delErr } = await DAL.items.deleteByPedidoIds(batch);
+    if (delErr) {
+      console.error('[Produtos] ❌ Falha ao deletar itens antigos — abortando insert para evitar duplicatas:', delErr?.message || delErr, { code: delErr?.code, details: delErr?.details, hint: delErr?.hint });
+      logSupabaseUpsertError('delete v2_pedidos_items', delErr, { pedidoIds: batch.slice(0, 5) });
+      return;
+    }
+  }
+
+  // Passo 3: construir rows de itens
   const rows = [];
   const getName = (it) =>
     String(it?.produto_nome || it?.descricao || it?.title || it?.nome || it?.name || '').trim();
   const getQty = (it) => Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
   const getUnit = (it) => Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? 0) || 0;
   const getTotal = (it, qty, unit) => Number(it?.valor_total ?? it?.total ?? 0) || qty * unit;
+  let pedidosSemItens = 0;
+  let pedidosComItens = 0;
   list.forEach((o) => {
     const n = String(o?.numero || o?.id || '').trim();
     const pid = numToId[n];
     if (!pid) return;
     const itens = getPedidoItens(o);
+    if (!itens.length) { pedidosSemItens++; return; }
+    pedidosComItens++;
     itens.forEach((it) => {
       const produtoNome = getName(it);
       const quantidade = getQty(it);
       const valorUnitario = getUnit(it);
       const valorTotal = getTotal(it, quantidade, valorUnitario);
       if (!produtoNome) return;
-      const row = {
+      rows.push({
         pedido_id: pid,
         produto_nome: produtoNome,
         quantidade,
         valor_unitario: valorUnitario,
+        valor_total: valorTotal,
         created_at: new Date().toISOString(),
-      };
-      // Forçamos valor_total para garantir consistência com a view e queries
-      row.valor_total = valorTotal;
-      rows.push(row);
+      });
     });
   });
-  if (!rows.length) return;
+  console.log(`[Produtos] Itens coletados: ${rows.length} de ${pedidosComItens} pedidos com itens (${pedidosSemItens} sem itens, de ${list.length} total).`);
+  if (!rows.length) {
+    if (pedidosSemItens > 0) {
+      console.warn(`[Produtos] ⚠ Todos os ${pedidosSemItens} pedidos vieram sem itens. Verifique se o Bling retornou itens na sincronização.`);
+    }
+    return;
+  }
 
+  // Passo 4: inserir itens — logar erro com todos os detalhes
+  let totalInserted = 0;
   try {
     console.log(`[Produtos] Persistindo ${rows.length} itens em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}...`);
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
       const { error } = await DAL.items.insert(batch);
       if (error) {
-        console.error(`[Produtos] Erro ao inserir em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}:`, error.message || error);
+        logSupabaseUpsertError(`insert ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}`, error, batch.slice(0, 3));
+        console.error(`[Produtos] ❌ Erro ao inserir itens:`, error.message || error, { code: error.code, details: error.details, hint: error.hint, status: error.status });
         throw error;
       }
+      totalInserted += batch.length;
     }
-    console.log(`[Produtos] Upsert de itens concluído: ${rows.length} registros.`);
-  } catch (_e) {
-    console.error(`[Produtos] Falha ao persistir itens em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}:`, _e?.message || _e);
+    console.log(`[Produtos] ✓ ${totalInserted}/${rows.length} itens persistidos em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}.`);
+  } catch (e) {
+    console.error(`[Produtos] ❌ Falha ao persistir itens (${totalInserted}/${rows.length} antes do erro):`, e?.message || e);
+    throw e;
   }
 }
 
@@ -13792,9 +13833,13 @@ function sanitizePayload(obj) {
 }
 function logSupabaseUpsertError(label, error, payload) {
   try {
-    console.groupCollapsed(label);
-    console.log('error:', error);
-    if (payload != null) console.log('payload enviado:', sanitizeForSupabaseLog(payload));
+    console.groupCollapsed('[SUPA ERROR] ' + label);
+    console.error('message:', error?.message || String(error));
+    if (error?.code) console.error('code:', error.code);
+    if (error?.details) console.error('details:', error.details);
+    if (error?.hint) console.error('hint:', error.hint);
+    if (error?.status != null) console.error('status:', error.status);
+    if (payload != null) console.log('payload (sanitized):', sanitizeForSupabaseLog(payload));
     console.groupEnd();
   } catch (_e) {}
 }
@@ -15089,6 +15134,110 @@ async function sbSetConfig(chave, valor) {
   } catch (_e) {}
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NORMALIZATION LAYER — validate + normalize antes de qualquer persistência
+// ─────────────────────────────────────────────────────────────────────────────
+function normalizeCliente(c, sc) {
+  const scores = sc || {};
+  const end = c.orders?.[0]?.contato?.endereco || {};
+  const doc = (() => {
+    const d = String(c.doc || '').replace(/\D/g, '');
+    if (d.length === 11 || d.length === 14) return d;
+    const email = cleanEmail(c.email || '');
+    if (email) return email;
+    const tel = cleanPhoneDigits(c.telefone || '');
+    if (tel) return tel;
+    return '';
+  })();
+  const nome = cleanText(c.nome || '') || cleanEmail(c.email || '') || cleanPhoneDigits(c.telefone || '') || doc || 'Cliente';
+  const email = cleanEmail(c.email || '');
+  const telefone = cleanPhoneDigits(c.telefone || '');
+  const cidade = cleanText(c.cidade || end.municipio || '');
+  const uf = normalizeUF(c.uf || end.uf || '');
+  if (!doc) return null;
+  const row = {
+    doc,
+    nome,
+    primeiro_pedido: c.first || null,
+    ultimo_pedido: c.last || null,
+    total_pedidos: Array.isArray(c.orders) ? c.orders.length : 0,
+    total_gasto: scores.ltv ?? 0,
+    ltv: scores.ltv ?? 0,
+    ticket_medio: (Array.isArray(c.orders) && c.orders.length) ? (scores.ltv ?? 0) / c.orders.length : 0,
+    intervalo_medio_dias: scores.avgInterval ?? null,
+    score_recompra: scores.recompraScore ?? null,
+    risco_churn: scores.churnRisk ?? null,
+    status: scores.status ?? null,
+    canal_principal: [...(c.channels || [])][0] || 'outros',
+    updated_at: new Date().toISOString(),
+  };
+  if (email) row.email = email;
+  if (telefone) row.telefone = telefone;
+  if (cidade) row.cidade = cidade;
+  if (uf) row.uf = uf;
+  return row;
+}
+
+function normalizePedido(o, opts = {}) {
+  const { docToUuid = {}, canaisLookupMap = {}, existingLegacyYampiIds = new Set() } = opts;
+  const toDateOrNull = (v) => {
+    const s = String(v || '').trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  };
+  const docDigits = String(o.contato?.cpfCnpj || o.contato?.numeroDocumento || '').replace(/\D/g, '');
+  const doc =
+    docDigits.length === 11 || docDigits.length === 14
+      ? docDigits
+      : (o.contato?.email ? String(o.contato.email).trim().toLowerCase() : '') ||
+        (o.contato?.telefone ? String(o.contato.telefone).replace(/\D/g, '') : '') ||
+        String(o.contato?.nome || '');
+  const canalSlug = detectCh(o);
+  const canalId = canaisLookupMap[canalSlug] || canaisLookupMap['outros'] || null;
+  const source = String(o._source || 'bling').toLowerCase().trim() || 'bling';
+  const baseId = String(o.id || o.numero || '').trim();
+  if (!baseId) return null;
+  let id = baseId;
+  if (source === 'yampi') {
+    id = existingLegacyYampiIds.has(baseId) ? baseId : 'yampi:' + baseId;
+  }
+  const createdAt = toDateOrNull(o.data || o.dataPedido || o.created_at);
+  return {
+    id,
+    bling_id: source === 'bling' ? baseId || null : null,
+    numero_pedido: String(o.numero || o.id || '').trim() || null,
+    cliente_id: docToUuid[doc] || null,
+    canal_id: canalId,
+    data_pedido: createdAt,
+    total: Number(o.total || o.totalProdutos || o.valor || 0) || 0,
+    status: normSt(o.situacao),
+    source,
+    created_at: createdAt ? createdAt + 'T00:00:00Z' : new Date().toISOString(),
+  };
+}
+
+function normalizePedidoItens(o, pedidoId) {
+  const pid = pedidoId || String(o.id || o.numero || '').trim();
+  if (!pid) return [];
+  const itens = getPedidoItens(o);
+  const getName = (it) => String(it?.produto_nome || it?.descricao || it?.title || it?.nome || it?.name || '').trim();
+  const getQty = (it) => Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 0) || 0;
+  const getUnit = (it) => Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? 0) || 0;
+  const getTotal = (it, qty, unit) => Number(it?.valor_total ?? it?.total ?? 0) || qty * unit;
+  return itens
+    .map((it) => {
+      const produtoNome = getName(it);
+      const quantidade = getQty(it);
+      const valorUnitario = getUnit(it);
+      const valorTotal = getTotal(it, quantidade, valorUnitario);
+      if (!produtoNome) return null;
+      return { pedido_id: pid, produto_nome: produtoNome, quantidade, valor_unitario: valorUnitario, valor_total: valorTotal, created_at: new Date().toISOString() };
+    })
+    .filter(Boolean);
+}
+
 async function upsertOrdersToSupabase(orders) {
   const options = arguments?.[1] && typeof arguments[1] === 'object' ? arguments[1] : {};
   const silent = options.silent === true;
@@ -15399,9 +15548,13 @@ async function upsertOrdersToSupabase(orders) {
       logSupabaseUpsertError('upsert v2_produtos from orders error', e, null);
       throw e;
     }
-    upsertV2PedidosItemsFromOrders(orders).catch((e) =>
-      console.warn('[items upsert]', e?.message || e),
-    );
+    try {
+      await upsertV2PedidosItemsFromOrders(orders);
+    } catch (itemsErr) {
+      hadUpsertError = true;
+      console.error('[items upsert] ❌ Falha ao persistir itens de pedidos:', itemsErr?.message || itemsErr);
+      logSupabaseUpsertError('upsertV2PedidosItemsFromOrders', itemsErr, null);
+    }
     if (hadUpsertError) {
       toast('⚠️ Erro ao salvar dados. Ver console F12.');
     } else {
@@ -15496,6 +15649,53 @@ async function runPostFixValidation() {
     }
   } catch (e) {
     console.warn(`Validação: erro ao checar ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}`, e);
+  }
+
+  // Schema health check: detectar colunas ausentes (migrations não aplicadas)
+  result.schema = { warnings: [] };
+  try {
+    const { data: pedSample, error: pedSampleErr } = await supaClient
+      .from('v2_pedidos')
+      .select('id,bling_id,numero_pedido,origem_canal,tipo_venda,canal_id,cliente_id')
+      .limit(1);
+    if (pedSampleErr) {
+      const msg = pedSampleErr.message || String(pedSampleErr);
+      if (/column.*does not exist/i.test(msg) || /relation.*does not exist/i.test(msg)) {
+        result.schema.warnings.push('v2_pedidos: ' + msg + ' — aplique as migrations 018 e/ou 029 no Supabase.');
+        console.warn('[Schema] ⚠', result.schema.warnings[result.schema.warnings.length - 1]);
+      }
+    }
+    if (Array.isArray(pedSample) && pedSample.length) {
+      const row = pedSample[0];
+      if (!('bling_id' in row)) result.schema.warnings.push('v2_pedidos: coluna bling_id ausente — aplique migration 000 ou 029.');
+      if (!('origem_canal' in row)) result.schema.warnings.push('v2_pedidos: coluna origem_canal ausente — aplique migration 018.');
+      if (!('tipo_venda' in row)) result.schema.warnings.push('v2_pedidos: coluna tipo_venda ausente — aplique migration 018.');
+      result.schema.warnings.forEach((w) => console.warn('[Schema] ⚠', w));
+    }
+  } catch (e) {
+    console.warn('Validação: erro no schema check de v2_pedidos', e);
+  }
+  try {
+    const { data: cliSample, error: cliSampleErr } = await supaClient
+      .from('v2_clientes')
+      .select('id,doc,nome,email,telefone,ltv,score_recompra,risco_churn,canal_principal')
+      .limit(1);
+    if (cliSampleErr) {
+      const msg = cliSampleErr.message || String(cliSampleErr);
+      if (/column.*does not exist/i.test(msg)) {
+        result.schema.warnings.push('v2_clientes: ' + msg + ' — verifique as migrations.');
+        console.warn('[Schema] ⚠', result.schema.warnings[result.schema.warnings.length - 1]);
+      }
+    }
+  } catch (e) {
+    console.warn('Validação: erro no schema check de v2_clientes', e);
+  }
+  if (result.schema.warnings.length) {
+    console.groupCollapsed('[Schema] ⚠ Warnings de schema detectados (' + result.schema.warnings.length + ')');
+    result.schema.warnings.forEach((w) => console.warn(w));
+    console.groupEnd();
+  } else {
+    console.log('[Schema] ✓ Schema v2_pedidos e v2_clientes OK');
   }
 
   try {
