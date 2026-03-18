@@ -1021,11 +1021,13 @@ async function handleLoginSubmit(e) {
     if (isAdmin) {
       const hasAdmin = !!getAccessUserByEmail('admin@chivafit.com');
       if (!hasAdmin) {
-        const bootPass = localStorage.getItem('crm_bootstrap_pass');
+        const bootPass = sessionStorage.getItem('crm_bootstrap_pass');
         if (errEl) {
-          errEl.textContent = bootPass
-            ? `Administrador não cadastrado neste navegador. Use a senha temporária ${bootPass}.`
-            : 'Administrador não cadastrado neste navegador. Cadastre um usuário em Configurações.';
+          if (bootPass) {
+            renderMaskedBootstrapPass(errEl, bootPass);
+          } else {
+            errEl.textContent = 'Administrador não cadastrado neste navegador. Cadastre um usuário em Configurações.';
+          }
         }
       } else {
         if (errEl) errEl.textContent = 'Senha do administrador inválida.';
@@ -1055,10 +1057,10 @@ async function handleLoginSubmit(e) {
 function enterApp(userEmail) {
   setSentryUser({ email: userEmail || 'admin' });
   try {
-    localStorage.removeItem('crm_bootstrap_pass');
+    sessionStorage.removeItem('crm_bootstrap_pass');
   } catch (_e) {}
   try {
-    localStorage.removeItem('crm_bootstrap_pass_ts');
+    sessionStorage.removeItem('crm_bootstrap_pass_ts');
   } catch (_e) {}
   try {
     localStorage.removeItem('crm_dash_canal');
@@ -2049,7 +2051,16 @@ async function sha256Hex(str) {
 }
 
 async function hashPassword(password, salt) {
-  return sha256Hex(String(salt || '') + '::' + String(password || ''));
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(String(password || '')), 'PBKDF2', false, ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(String(salt || '')), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, 256,
+  );
+  const bytes = new Uint8Array(bits);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function verifyAccessUser(email, password) {
@@ -2058,6 +2069,22 @@ async function verifyAccessUser(email, password) {
   const users = loadAccessUsers();
   const u = users.find((x) => normalizeAccessEmail(x.email) === em);
   if (!u || !u.salt || !u.hash) return false;
+  // Hash legado SHA-256 (sem campo v ou v<2): verificar e migrar para PBKDF2
+  if (!u.v || u.v < 2) {
+    const legacyHash = await sha256Hex(String(u.salt || '') + '::' + String(password || ''));
+    if (legacyHash !== u.hash) return false;
+    try {
+      const saltBytes = new Uint8Array(16);
+      crypto.getRandomValues(saltBytes);
+      const newSalt = bytesToBase64(saltBytes);
+      const newHash = await hashPassword(password, newSalt);
+      const upgraded = users.map((x) =>
+        normalizeAccessEmail(x.email) === em ? { ...x, salt: newSalt, hash: newHash, v: 2 } : x,
+      );
+      saveAccessUsers(upgraded);
+    } catch (_e) {}
+    return true;
+  }
   const h = await hashPassword(password, u.salt);
   return h === u.hash;
 }
@@ -2071,14 +2098,45 @@ function generateBootstrapPassword() {
   return out;
 }
 
+function revealBootstrapPass() {
+  const e = document.getElementById('login-error');
+  const s = document.getElementById('bs-pass-reveal');
+  if (!e || !s) return;
+  const p = e.dataset.bsPass || '';
+  if (s.textContent.includes('\u2022')) {
+    s.textContent = p;
+    const btn = e.querySelector('.bs-reveal-btn');
+    if (btn) btn.textContent = 'Ocultar';
+  } else {
+    s.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+    const btn = e.querySelector('.bs-reveal-btn');
+    if (btn) btn.textContent = 'Revelar';
+  }
+}
+function copyBootstrapPass(btn) {
+  const e = document.getElementById('login-error');
+  const p = e?.dataset?.bsPass || '';
+  navigator.clipboard?.writeText(p).catch(() => {});
+  if (btn) { btn.textContent = 'Copiado!'; setTimeout(() => { btn.textContent = 'Copiar'; }, 2000); }
+}
+function renderMaskedBootstrapPass(errEl, pass) {
+  if (!errEl || !pass) return;
+  errEl.dataset.bsPass = pass;
+  const bs = 'border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
+  errEl.innerHTML =
+    'Primeiro acesso: <strong>admin@chivafit.com</strong> &mdash; Senha:&nbsp;' +
+    '<span id="bs-pass-reveal" style="font-family:monospace;letter-spacing:2px">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022</span>&nbsp;' +
+    '<button class="bs-reveal-btn" onclick="revealBootstrapPass()" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;' + bs + '">Revelar</button>&nbsp;' +
+    '<button onclick="copyBootstrapPass(this)" style="background:rgba(52,211,153,.2);border:1px solid rgba(52,211,153,.4);color:rgba(52,211,153,1);' + bs + '">Copiar</button>';
+  errEl.style.color = 'rgba(52,211,153,1)';
+}
 function showBootstrapHintIfNeeded(pass) {
   const loggedIn = localStorage.getItem(STORAGE_KEYS.loginFlag) === 'true';
   if (loggedIn) return;
   const errEl = document.getElementById('login-error');
   if (!errEl) return;
   if (String(errEl.textContent || '').trim()) return;
-  errEl.textContent = `Primeiro acesso: use admin@chivafit.com e a senha temporária ${pass}.`;
-  errEl.style.color = 'rgba(52,211,153,1)';
+  renderMaskedBootstrapPass(errEl, pass);
 }
 
 async function ensureBootstrapAdminUser() {
@@ -2089,7 +2147,7 @@ async function ensureBootstrapAdminUser() {
   const users = loadAccessUsers();
   if (users.length) return;
 
-  const storedPlain = localStorage.getItem('crm_bootstrap_pass');
+  const storedPlain = sessionStorage.getItem('crm_bootstrap_pass');
   const pass = storedPlain || generateBootstrapPassword();
 
   const saltBytes = new Uint8Array(16);
@@ -2098,10 +2156,10 @@ async function ensureBootstrapAdminUser() {
   const hash = await hashPassword(pass, salt);
 
   const email = 'admin@chivafit.com';
-  saveAccessUsers([{ email, salt, hash, created_at: new Date().toISOString(), bootstrap: true }]);
+  saveAccessUsers([{ email, salt, hash, v: 2, created_at: new Date().toISOString(), bootstrap: true }]);
   if (!storedPlain) {
-    localStorage.setItem('crm_bootstrap_pass', pass);
-    localStorage.setItem('crm_bootstrap_pass_ts', new Date().toISOString());
+    sessionStorage.setItem('crm_bootstrap_pass', pass);
+    sessionStorage.setItem('crm_bootstrap_pass_ts', new Date().toISOString());
   }
 
   if (document.readyState === 'loading') {
@@ -2153,7 +2211,7 @@ async function addAccessUser() {
   const salt = bytesToBase64(saltBytes);
   const hash = await hashPassword(pass, salt);
 
-  users.push({ email, salt, hash, created_at: new Date().toISOString() });
+  users.push({ email, salt, hash, v: 2, created_at: new Date().toISOString() });
   saveAccessUsers(users);
   if (emailEl) emailEl.value = '';
   if (passEl) passEl.value = '';
@@ -2454,7 +2512,7 @@ function getSupabaseShareUrl() {
   const params = new URLSearchParams();
   params.set('supa_url', u);
   params.set('supa_key', k);
-  return base + '?' + params.toString() + '#config';
+  return base + '#config?' + params.toString();
 }
 
 function renderSupabaseShareLink() {
@@ -2537,6 +2595,31 @@ function copySupabaseShareLink() {
     if (toEl && !toEl.value) {
       toEl.value = fmtDate(new Date().toISOString().slice(0, 10));
     }
+  } catch (_e) {}
+})();
+
+// Lê credenciais do hash fragment (URL de compartilhamento — não chega ao servidor)
+(function () {
+  try {
+    const hashStr = String(window.location.hash || '');
+    const qIdx = hashStr.indexOf('?');
+    if (qIdx < 0) return;
+    const p = new URLSearchParams(hashStr.slice(qIdx + 1));
+    const hu = (p.get('supa_url') || '').trim();
+    const hk = (p.get('supa_key') || '').trim();
+    if (!hu && !hk) return;
+    if (hu) {
+      localStorage.setItem('crm_supa_url', hu);
+      const el = document.getElementById('inp-supa-url');
+      if (el) el.value = hu;
+    }
+    if (hk) {
+      localStorage.setItem('crm_supa_key', hk);
+      const el = document.getElementById('inp-supa-key');
+      if (el) el.value = hk;
+    }
+    renderSupabaseShareLink();
+    try { history.replaceState(null, '', window.location.pathname + '#config'); } catch (_e) {}
   } catch (_e) {}
 })();
 

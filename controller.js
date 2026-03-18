@@ -12,7 +12,8 @@ function bindNavigation() {
 function pageFromHash() {
   const raw = String(window.location.hash || '')
     .replace(/^#/, '')
-    .trim();
+    .trim()
+    .split('?')[0];
   if (!raw) return '';
   if (raw === 'pedidos') return 'pedidos-page';
   if (raw === 'cliente') return '';
