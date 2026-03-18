@@ -1,5 +1,40 @@
 const clientsByConfig = new Map();
 
+const DEFAULT_FETCH_TIMEOUT_MS = 20000;
+
+function createTimeoutFetch(timeoutMs){
+  const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_FETCH_TIMEOUT_MS;
+  return async (input, init = {}) => {
+    const baseFetch = globalThis.fetch;
+    if(typeof baseFetch !== "function") throw new Error("fetch não disponível neste ambiente.");
+
+    const controller = new AbortController();
+    const existingSignal = init && init.signal ? init.signal : null;
+    if(existingSignal){
+      try{
+        if(existingSignal.aborted){
+          controller.abort(existingSignal.reason);
+        }else{
+          existingSignal.addEventListener("abort", () => controller.abort(existingSignal.reason), { once: true });
+        }
+      }catch(_e){}
+    }
+
+    const timer = setTimeout(() => {
+      try{ controller.abort(new DOMException("Timeout", "AbortError")); }catch(_e){ controller.abort(); }
+    }, ms);
+
+    try{
+      const nextInit = { ...(init || {}), signal: controller.signal };
+      return await baseFetch(input, nextInit);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+const timeoutFetch = createTimeoutFetch(DEFAULT_FETCH_TIMEOUT_MS);
+
 export function getSupabaseClient(projectUrl, anonKey){
   const url = String(projectUrl || "").trim().replace(/\/+$/,"");
   const key = String(anonKey || "").trim();
@@ -13,6 +48,9 @@ export function getSupabaseClient(projectUrl, anonKey){
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true
+    },
+    global: {
+      fetch: timeoutFetch
     }
   });
   clientsByConfig.set(cacheKey, client);

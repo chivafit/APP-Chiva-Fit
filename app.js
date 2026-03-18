@@ -88,6 +88,61 @@ let clientesIntelDomCount = 0;
 let clientesIntelUfSet = new Set();
 let clientesIntelSegSet = new Set();
 
+let computeCustomerIntelligenceHandle = null;
+
+function showRuntimeErrorBanner(message){
+  const msg = String(message || "Erro inesperado.");
+  try{
+    const overlay = document.getElementById("app-loader");
+    if(overlay){ overlay.style.display="none"; overlay.style.pointerEvents="none"; }
+  }catch(_e){}
+  try{
+    let el = document.getElementById("crm-runtime-error");
+    if(!el){
+      el = document.createElement("div");
+      el.id = "crm-runtime-error";
+      el.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:100000;background:rgba(40,11,11,.96);color:#fff;padding:10px 12px;border:1px solid rgba(255,255,255,.14);border-radius:12px;font-size:12px;line-height:1.35;max-height:40vh;overflow:auto;box-shadow:0 18px 55px rgba(0,0,0,.55)";
+      el.addEventListener("click", ()=>{ try{ el.style.display="none"; }catch(_e){} });
+      document.body.appendChild(el);
+    }
+    el.textContent = "⚠ " + msg;
+    el.style.display = "block";
+  }catch(_e){}
+}
+
+function scheduleComputeCustomerIntelligence(){
+  try{
+    if(computeCustomerIntelligenceHandle != null){
+      try{
+        if(typeof cancelIdleCallback === "function") cancelIdleCallback(computeCustomerIntelligenceHandle);
+        else clearTimeout(computeCustomerIntelligenceHandle);
+      }catch(_e){}
+      computeCustomerIntelligenceHandle = null;
+    }
+    const run = () => {
+      computeCustomerIntelligenceHandle = null;
+      try{ computeCustomerIntelligence(); }catch(e){ console.warn("[computeCustomerIntelligence]", e?.message || String(e)); }
+    };
+    if(typeof requestIdleCallback === "function") computeCustomerIntelligenceHandle = requestIdleCallback(run, { timeout: 1500 });
+    else computeCustomerIntelligenceHandle = setTimeout(run, 0);
+  }catch(_e){}
+}
+
+try{
+  if(!globalThis.__crmErrorHooksInstalled){
+    globalThis.__crmErrorHooksInstalled = true;
+    window.addEventListener("error", (ev)=>{
+      const msg = ev?.error?.message || ev?.message || "Erro de execução.";
+      showRuntimeErrorBanner(msg);
+    });
+    window.addEventListener("unhandledrejection", (ev)=>{
+      const r = ev?.reason;
+      const msg = r?.message ? String(r.message) : String(r || "Promise rejeitada.");
+      showRuntimeErrorBanner(msg);
+    });
+  }
+}catch(_e){}
+
 // ═══════════════════════════════════════════════════
 //  SIDEBAR COLLAPSE
 // ═══════════════════════════════════════════════════
@@ -347,10 +402,16 @@ function mergeOrders(){
   allCustomers.length = 0;
   allCustomers.push(...nextCustomers);
 
+  const customersByEmail = new Map();
+  allCustomers.forEach(c=>{
+    const em = safeLower(c?.email);
+    if(em) customersByEmail.set(em, c);
+  });
+
   (Array.isArray(yampiOrders) ? yampiOrders : []).forEach((yo)=>{
     const email = safeLower(yo?.email || yo?.contato?.email);
     if(!email) return;
-    const cliente = allCustomers.find(c => safeLower(c?.email) === email);
+    const cliente = customersByEmail.get(email);
     if(!cliente) return;
     const tel = String(yo?.telefone || yo?.contato?.telefone || yo?.contato?.celular || "").trim();
     const doc = String(yo?.doc || yo?.cpfCnpj || yo?.contato?.cpfCnpj || yo?.contato?.numeroDocumento || "").trim();
@@ -369,7 +430,7 @@ function mergeOrders(){
     allOrders.filter(o=>o._source==="shopify").length
   );
 
-  computeCustomerIntelligence();
+  scheduleComputeCustomerIntelligence();
   reconcileCarrinhosRecuperados().catch(e=>console.warn("[reconcile carrinhos]", e?.message||e));
   recomputeCarrinhosScoresAndPersist().catch(e=>console.warn("[recompute carrinhos]", e?.message||e));
 }
