@@ -14574,6 +14574,87 @@ async function loadOrdersFromSupabaseForCRM() {
       return { name, email, phone, doc, city, state, cep, logradouro, numero, bairro };
     };
 
+    const extractYampiItems = (raw) => {
+      const obj = raw && typeof raw === 'object' ? raw : {};
+      const data = obj.data && typeof obj.data === 'object' ? obj.data : {};
+      const order = obj.order && typeof obj.order === 'object' ? obj.order : {};
+      const cart = obj.cart && typeof obj.cart === 'object' ? obj.cart : {};
+      const candidates = [
+        obj.items,
+        obj.line_items,
+        obj.order_items,
+        obj.products,
+        obj.itens,
+        obj.produtos,
+        data.items,
+        data.line_items,
+        data.order_items,
+        data.products,
+        order.items,
+        order.line_items,
+        cart.items,
+      ];
+      const arr = candidates.find((c) => Array.isArray(c)) || [];
+      return (Array.isArray(arr) ? arr : [])
+        .map((it) => {
+          const node =
+            it && typeof it === 'object'
+              ? it.item && typeof it.item === 'object'
+                ? it.item
+                : it
+              : {};
+          const product =
+            (node.product && typeof node.product === 'object' ? node.product : null) ||
+            (node.produto && typeof node.produto === 'object' ? node.produto : null) ||
+            null;
+          const descricao = String(
+            node.name ||
+              node.product_name ||
+              node.title ||
+              node.nome ||
+              node.descricao ||
+              product?.name ||
+              product?.nome ||
+              product?.title ||
+              '',
+          ).trim();
+          const codigo = String(
+            node.sku ||
+              node.codigo ||
+              node.product_id ||
+              node.produto_id ||
+              node.id ||
+              product?.sku ||
+              product?.codigo ||
+              product?.id ||
+              '',
+          ).trim();
+          const quantidade = Number(
+            node.quantity ?? node.quantidade ?? node.qty ?? node.qtd ?? node.amount ?? 0,
+          ) || 0;
+          const valor = Number(
+            node.price ??
+              node.valor ??
+              node.valor_unitario ??
+              node.unit_price ??
+              node.preco ??
+              0,
+          ) || 0;
+          const valorTotal =
+            Number(node.total ?? node.total_price ?? node.valor_total ?? 0) ||
+            valor * (quantidade || 1);
+          if (!descricao && !codigo) return null;
+          return {
+            descricao,
+            codigo,
+            quantidade: quantidade || 1,
+            valor,
+            valor_total: valorTotal,
+          };
+        })
+        .filter(Boolean);
+    };
+
     (pedRows || []).forEach((p) => {
       const cli = cliById[p.cliente_id] || null;
       const pid = String(p.id || '');
@@ -14625,6 +14706,7 @@ async function loadOrdersFromSupabaseForCRM() {
       const ex = extractYampiCustomer(raw);
       const city = y.city || ex.city || '';
       const state = y.state || ex.state || '';
+      const itens = extractYampiItems(raw);
       const o = {
         id: y.external_id,
         numero: y.external_id,
@@ -14649,14 +14731,7 @@ async function loadOrdersFromSupabaseForCRM() {
             bairro: ex.bairro || '',
           },
         },
-        itens: Array.isArray(y.raw?.items)
-          ? y.raw.items.map((it) => ({
-              descricao: it.name || it.product_name || '',
-              codigo: it.sku || it.id || '',
-              quantidade: it.quantity,
-              valor: it.price,
-            }))
-          : [],
+        itens,
       };
 
       const normalized = normalizeOrderForCRM(o, 'yampi');
