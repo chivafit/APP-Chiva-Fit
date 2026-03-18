@@ -74,6 +74,10 @@ import brazilStatesSvgUrl from './assets/brazil-states.svg?url';
 import { inject } from '@vercel/analytics';
 inject();
 
+// ── Vercel Speed Insights: inicializa ──
+import { injectSpeedInsights } from '@vercel/speed-insights';
+injectSpeedInsights();
+
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
 window.addEventListener('unhandledrejection', function (event) {
