@@ -3185,8 +3185,40 @@ async function loadCarrinhosAbandonadosFromSupabase() {
 }
 
 async function upsertCarrinhosAbandonadosToSupabase(list) {
-  void list;
-  return;
+  if (!supaConnected || !supaClient) return;
+  const items = Array.isArray(list) ? list : [];
+  if (!items.length) return;
+  const rows = items
+    .filter((c) => c && String(c.checkout_id || '').trim())
+    .map((c) => ({
+      checkout_id: String(c.checkout_id).trim(),
+      cliente_nome: c.cliente_nome || null,
+      telefone: c.telefone || null,
+      email: c.email || null,
+      valor: Number(c.valor || 0) || 0,
+      produtos: Array.isArray(c.produtos) ? c.produtos : [],
+      criado_em: c.criado_em || null,
+      recuperado: !!c.recuperado,
+      recuperado_em: c.recuperado_em || null,
+      recuperado_pedido_id: c.recuperado_pedido_id || null,
+      score_recuperacao: c.score_recuperacao == null ? null : Number(c.score_recuperacao) || 0,
+      link_finalizacao: c.link_finalizacao || null,
+      last_etapa_enviada: c.last_etapa_enviada || null,
+      last_mensagem_at: c.last_mensagem_at || null,
+    }));
+  if (!rows.length) return;
+  const BATCH = 100;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    try {
+      const { error } = await supaClient
+        .from('carrinhos_abandonados')
+        .upsert(chunk, { onConflict: 'checkout_id' });
+      if (error) console.warn('[upsertCarrinhos] batch erro:', error.message);
+    } catch (e) {
+      console.warn('[upsertCarrinhos] batch exceção:', e?.message || e);
+    }
+  }
 }
 
 async function fetchYampiAbandoned() {
@@ -4105,6 +4137,7 @@ function saveTask(id) {
   const prev = id ? allTasks.find((t) => t.id === id) : null;
   const task = {
     id: id || taskIdSeq++,
+    _supaId: prev?._supaId || undefined,
     titulo,
     desc: document.getElementById('tm-desc')?.value.trim() || '',
     cliente: document.getElementById('tm-cliente')?.value.trim() || '',
@@ -4168,7 +4201,7 @@ function saveTask(id) {
   document.getElementById('task-modal-overlay')?.remove();
   renderTarefas();
   if (task.cliente) {
-    const cid = document.getElementById('tm-customer-id')?.value || '';
+    const cid = task.customer_id || '';
     const q = task.cliente.toLowerCase();
     const cust = cid
       ? allCustomers.find((c) => String(c.id || '') === String(cid))
