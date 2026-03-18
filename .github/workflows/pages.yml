@@ -30,7 +30,7 @@ jobs:
         env:
           VITE_BASE_PATH: /APP-Chiva-Fit/
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
