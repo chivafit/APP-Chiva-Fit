@@ -1845,8 +1845,9 @@ function renderPedidosPage() {
   if (ch) orders = orders.filter((o) => detectCh(o) === ch);
   console.log('[renderPedidosPage] Total após filtro canal:', orders.length);
   if (sf) orders = orders.filter((o) => normSt(o.situacao) === sf);
-  if (from) orders = orders.filter((o) => String(o.data || '') >= from);
-  if (to) orders = orders.filter((o) => String(o.data || '') <= to);
+  const toIsoSafe = (v) => parseDateToIso(String(v || '')) || String(v || '');
+  if (from) orders = orders.filter((o) => toIsoSafe(o.data) >= from);
+  if (to) orders = orders.filter((o) => toIsoSafe(o.data) <= to);
   if (minVal != null) orders = orders.filter((o) => val(o) >= minVal);
   if (q) {
     orders = orders.filter((o) => {
@@ -2995,6 +2996,7 @@ function sugerirEtapaMensagem(mins) {
   if (mins == null) return { id: '', label: '—' };
   if (mins < 10) return { id: 'aguardar', label: 'Aguardar' };
   if (mins >= 10 && mins < 120) return { id: 'ajuda', label: 'Ajuda (10–20min)' };
+  if (mins >= 120 && mins < 360) return { id: 'link', label: 'Link (2h)' };
   if (mins >= 360 && mins < 1440) return { id: 'link', label: 'Link (6h)' };
   if (mins >= 1440 && mins < 4320) return { id: 'incentivo', label: 'Incentivo leve (24h)' };
   return { id: 'tarde', label: 'Fora da janela' };
@@ -3006,11 +3008,13 @@ function sugerirEtapaParaCarrinho(c, mins) {
   const last = String(c.last_etapa_enviada || '').trim();
   if (!last) return base;
   if (base.id !== last) return base;
-  if (mins != null && mins >= 1440 && last !== 'incentivo')
-    return { id: 'incentivo', label: 'Incentivo leve (24h)' };
-  if (mins != null && mins >= 360 && mins < 1440 && last !== 'link')
-    return { id: 'link', label: 'Link (6h)' };
-  return { id: 'aguardar', label: 'Já enviado' };
+  // Mesma etapa já foi enviada — avança para a próxima na sequência
+  const NEXT_STAGE = {
+    ajuda:     { id: 'link',     label: 'Link (6h)' },
+    link:      { id: 'incentivo', label: 'Incentivo leve (24h)' },
+    incentivo: { id: 'aguardar', label: 'Já enviado' },
+  };
+  return NEXT_STAGE[last] || { id: 'aguardar', label: 'Já enviado' };
 }
 
 function prioridadePorScore(score) {
@@ -3745,6 +3749,7 @@ function updateBadge() {
 }
 function toggleNotif() {
   const p = document.getElementById('notif-panel');
+  if (!p) return;
   p.classList.toggle('open');
   if (p.classList.contains('open')) {
     notifs.forEach((n) => {
@@ -3753,19 +3758,21 @@ function toggleNotif() {
     if (notifs.length > 30) notifs.length = 30;
     localStorage.setItem('crm_notifs', JSON.stringify(notifs));
     updateBadge();
-    document.getElementById('notif-list').innerHTML = notifs.length
-      ? notifs
-          .map(
-            (n) =>
-              `<div class="np-item"><div class="np-time">${escapeHTML(n.time)}</div>${escapeHTML(n.msg)}</div>`,
-          )
-          .join('')
-      : `<div style="font-size:11px;color:var(--text-3)">Nenhuma notificação.</div>`;
+    const listEl = document.getElementById('notif-list');
+    if (listEl)
+      listEl.innerHTML = notifs.length
+        ? notifs
+            .map(
+              (n) =>
+                `<div class="np-item"><div class="np-time">${escapeHTML(n.time)}</div>${escapeHTML(n.msg)}</div>`,
+            )
+            .join('')
+        : `<div style="font-size:11px;color:var(--text-3)">Nenhuma notificação.</div>`;
   }
 }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#notif-panel') && !e.target.closest('.notif-wrap'))
-    document.getElementById('notif-panel').classList.remove('open');
+    document.getElementById('notif-panel')?.classList.remove('open');
 });
 
 // ═══════════════════════════════════════════════════
