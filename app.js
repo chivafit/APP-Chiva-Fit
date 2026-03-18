@@ -3583,6 +3583,12 @@ function showPage(id) {
   if (pageEl) {
     pageEl.classList.add('active');
     pageEl.style.setProperty('display', 'block', 'important');
+    try {
+      pageEl.style.visibility = 'visible';
+      pageEl.style.opacity = '1';
+      pageEl.style.position = 'relative';
+      pageEl.style.zIndex = '1';
+    } catch (_e) {}
   }
 
   try {
@@ -9012,6 +9018,23 @@ function renderClientes() {
           }, 0);
         }
         return;
+      }
+
+      try {
+        const pageEl = document.getElementById('page-clientes');
+        if (pageEl) {
+          pageEl.style.visibility = 'visible';
+          pageEl.style.opacity = '1';
+          pageEl.style.display = 'block';
+          pageEl.style.position = 'relative';
+          pageEl.style.zIndex = '1';
+        }
+        listEl.style.display = 'flex';
+        listEl.style.visibility = 'visible';
+        listEl.style.opacity = '1';
+        if (!listEl.style.minHeight) listEl.style.minHeight = '200px';
+      } catch (e) {
+        console.error('[renderClientes] erro ao forçar visibilidade:', e);
       }
 
       console.log('[renderClientes] dados recebidos:', {
