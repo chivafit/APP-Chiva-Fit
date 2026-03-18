@@ -37,15 +37,29 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Retorna os headers de CORS baseados na origem da requisição.
+ * Origens permitidas para chamadas às Edge Functions.
+ * Adicione aqui qualquer domínio extra que precise de acesso.
+ */
+const ALLOWED_ORIGINS = new Set([
+  'https://app-chiva-fit.vercel.app',
+]);
+
+/**
+ * Retorna os headers de CORS restritos à lista de origens permitidas.
+ * Origens localhost/127.0.0.1 são sempre permitidas para desenvolvimento local.
  */
 export function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = (req as any)?.headers?.get?.('Origin') || '*';
-  // Se a origem terminar com '/', removemos para evitar mismatch
-  const cleanOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+  const raw = (req as any)?.headers?.get?.('Origin') || '';
+  const cleanOrigin = raw.endsWith('/') ? raw.slice(0, -1) : raw;
+
+  const isAllowed =
+    ALLOWED_ORIGINS.has(cleanOrigin) ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(cleanOrigin);
+
+  const allowOrigin = isAllowed ? cleanOrigin : 'https://app-chiva-fit.vercel.app';
 
   return {
-    'Access-Control-Allow-Origin': cleanOrigin,
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Headers':
       'authorization, x-client-info, apikey, content-type, x-cron-secret',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
