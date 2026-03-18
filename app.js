@@ -15247,7 +15247,10 @@ async function upsertOrdersToSupabase(orders) {
   const options = arguments?.[1] && typeof arguments[1] === 'object' ? arguments[1] : {};
   const silent = options.silent === true;
   if (!supaConnected || !supaClient || !orders.length) return;
-  if (upsertOrdersInFlight) return;
+  if (upsertOrdersInFlight) {
+    console.warn('[upsertOrdersToSupabase] ⚠ Upsert em andamento — chamada ignorada. Tente novamente em alguns segundos.');
+    return;
+  }
   upsertOrdersInFlight = true;
   setSyncDot(true);
   try {
@@ -18009,6 +18012,7 @@ Object.assign(window, {
   gerarMensagemIA,
   copyWhatsAppMessageForCustomer,
   openWhatsAppForCustomer,
+  upsertOrdersToSupabase,
   runPostFixValidation,
   runClienteDebug,
   normalizeCliente,
