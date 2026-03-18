@@ -280,6 +280,7 @@ let shopifyOrders = safeJsonParse('crm_shopify_orders', []);
 let blingProducts = safeJsonParse('crm_bling_products', []);
 let carrinhosAbandonados = safeJsonParse('crm_carrinhos_abandonados', []);
 let allOrders = [];
+let v2PedidosItemsError = null;
 let allCustomers = [];
 let customerIntel = [];
 let customerIntelligence = [];
@@ -331,6 +332,81 @@ let CRM_BOOTSTRAP_ERROR = null;
 let dataReady = false;
 let isLoadingData = false;
 let lastDetectChDebugCanal = '';
+
+// ═══════════════════════════════════════════════════
+//  DEFINITIVE NAMING CONVENTION & DATA ACCESS LAYER (DAL)
+// ═══════════════════════════════════════════════════
+const DB_SCHEMA = {
+  TABLES: {
+    PEDIDOS: 'v2_pedidos',
+    PEDIDOS_ITEMS: 'v2_pedidos_items',
+    CLIENTES: 'v2_clientes',
+    INSIGHTS: 'v2_insights',
+    TAREFAS: 'v2_tarefas',
+    CONFIG: 'configuracoes',
+    YAMPI_ORDERS: 'yampi_orders'
+  },
+  COLUMNS: {
+    PEDIDOS_ITEMS: {
+      PEDIDO_ID: 'pedido_id',
+      PRODUTO_NOME: 'produto_nome',
+      QUANTIDADE: 'quantidade',
+      VALOR_UNITARIO: 'valor_unitario',
+      VALOR_TOTAL: 'valor_total'
+    }
+  }
+};
+
+/**
+ * Camada de Acesso a Dados (DAL) centralizada.
+ * Centraliza as chamadas ao Supabase para evitar nomes hardcoded espalhados.
+ */
+const DAL = {
+  pedidos: {
+    async list(limit = 5000) {
+      if (!supaClient) return { data: [], error: 'SupaClient not initialized' };
+      // Tenta as colunas de data em ordem de prioridade
+      const dateCols = ['data_pedido', 'data', 'created_at'];
+      for (const col of dateCols) {
+        try {
+          const res = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS)
+            .select('*')
+            .order(col, { ascending: false })
+            .limit(limit);
+          if (!res.error) return res;
+        } catch (e) { /* continua para a próxima coluna */ }
+      }
+      return { data: [], error: 'Failed to fetch pedidos with any date column' };
+    },
+    async upsert(payload) {
+      return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).upsert(payload, { onConflict: 'id' });
+    }
+  },
+  items: {
+    async listByPedidoIds(ids) {
+      if (!supaClient || !ids.length) return { data: [], error: null };
+      const { PEDIDO_ID, PRODUTO_NOME, QUANTIDADE, VALOR_UNITARIO, VALOR_TOTAL } = DB_SCHEMA.COLUMNS.PEDIDOS_ITEMS;
+      return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS)
+        .select(`${PEDIDO_ID},${PRODUTO_NOME},${QUANTIDADE},${VALOR_UNITARIO},${VALOR_TOTAL}`)
+        .in(PEDIDO_ID, ids)
+        .limit(20000);
+    },
+    async deleteByPedidoIds(ids) {
+      return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS).delete().in('pedido_id', ids);
+    },
+    async insert(rows) {
+      return supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS).insert(rows);
+    }
+  },
+  clientes: {
+    async list(limit = 5000) {
+      return supaClient.from(DB_SCHEMA.TABLES.CLIENTES).select('*').limit(limit);
+    },
+    async upsert(rows) {
+      return supaClient.from(DB_SCHEMA.TABLES.CLIENTES).upsert(rows, { onConflict: 'doc' });
+    }
+  }
+};
 
 CRMStore.data.orders = allOrders;
 CRMStore.data.customers = allCustomers;
@@ -11132,7 +11208,7 @@ async function openOppClienteResumo(customerKey) {
   let pedidos = [];
   try {
     const { data, error } = await supaClient
-      .from('v2_pedidos')
+      .from(DB_SCHEMA.TABLES.PEDIDOS)
       .select('id,total,data_pedido')
       .eq('cliente_id', uuid)
       .order('data_pedido', { ascending: false })
@@ -11148,11 +11224,7 @@ async function openOppClienteResumo(customerKey) {
     if (okItems && pedidoIds.length) {
       for (let i = 0; i < pedidoIds.length; i += 200) {
         const batch = pedidoIds.slice(i, i + 200);
-        const { data, error } = await supaClient
-          .from('v2_pedidos_items')
-          .select('produto_nome,quantidade,valor_total')
-          .in('pedido_id', batch)
-          .limit(20000);
+        const { data, error } = await DAL.items.listByPedidoIds(batch);
         if (error) throw error;
         (data || []).forEach((r) => {
           const nome = String(r.produto_nome || '').trim();
@@ -12103,7 +12175,10 @@ function renderProdutos(_deferred) {
   const prodsComVenda = prods.filter((p) => p.qty > 0 || p.total > 0);
   console.log('[Produtos] Cruzamento resultou em:', prodsComVenda.length, 'produtos com vendas');
   if (!prodsComVenda.length) {
-    const msg = `Nenhum dos ${catalog.length} produtos do catálogo foi vendido no período. Verifique se os códigos dos itens dos pedidos batem com o catálogo do Bling.`;
+    let msg = `Nenhum dos ${catalog.length} produtos do catálogo foi vendido no período. Verifique se os códigos dos itens dos pedidos batem com o catálogo do Bling.`;
+    if (v2PedidosItemsError) {
+      msg = `Erro técnico ao carregar itens: ${v2PedidosItemsError}. Por favor, verifique a conexão com o banco de dados.`;
+    }
     if (detailedEl) detailedEl.innerHTML = `<div class="empty">${escapeHTML(msg)}</div>`;
     document.getElementById('prod-label').textContent = '0 produtos';
     document.getElementById('prod-kpis-row').innerHTML = '';
@@ -13185,7 +13260,7 @@ async function ensureV2PedidosItemsAvailable() {
   if (v2PedidosItemsAvailable === true) return true;
   if (!supaConnected || !supaClient) return false;
   try {
-    const { error } = await supaClient.from('v2_pedidos_items').select('id').limit(1);
+    const { error } = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS).select('id').limit(1);
     if (error) throw error;
     v2PedidosItemsAvailable = true;
     return true;
@@ -13210,7 +13285,7 @@ async function upsertV2PedidosItemsFromOrders(orders) {
     for (let i = 0; i < nums.length; i += 200) {
       const batch = nums.slice(i, i + 200);
       const { data, error } = await supaClient
-        .from('v2_pedidos')
+        .from(DB_SCHEMA.TABLES.PEDIDOS)
         .select('id,numero_pedido')
         .in('numero_pedido', batch)
         .limit(2000);
@@ -13232,7 +13307,7 @@ async function upsertV2PedidosItemsFromOrders(orders) {
   try {
     for (let i = 0; i < pedidoIds.length; i += 200) {
       const batch = pedidoIds.slice(i, i + 200);
-      await supaClient.from('v2_pedidos_items').delete().in('pedido_id', batch);
+      await DAL.items.deleteByPedidoIds(batch);
     }
   } catch (_e) {}
 
@@ -13268,18 +13343,18 @@ async function upsertV2PedidosItemsFromOrders(orders) {
   if (!rows.length) return;
 
   try {
-    console.log(`[Produtos] Persistindo ${rows.length} itens em v2_pedidos_items...`);
+    console.log(`[Produtos] Persistindo ${rows.length} itens em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}...`);
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
-      const { error } = await supaClient.from('v2_pedidos_items').insert(batch);
+      const { error } = await DAL.items.insert(batch);
       if (error) {
-        console.error('[Produtos] Erro ao inserir em v2_pedidos_items:', error.message || error);
+        console.error(`[Produtos] Erro ao inserir em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}:`, error.message || error);
         throw error;
       }
     }
     console.log(`[Produtos] Upsert de itens concluído: ${rows.length} registros.`);
   } catch (_e) {
-    console.error('[Produtos] Falha ao persistir itens:', _e?.message || _e);
+    console.error(`[Produtos] Falha ao persistir itens em ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}:`, _e?.message || _e);
   }
 }
 
@@ -14340,10 +14415,7 @@ async function loadOrdersFromSupabaseForCRM() {
   const silent = options.silent === true;
   if (!supaConnected || !supaClient) return;
   try {
-    const { data: cliRows, error: cliErr } = await supaClient
-      .from('v2_clientes')
-      .select('*')
-      .limit(5000);
+    const { data: cliRows, error: cliErr } = await DAL.clientes.list();
     if (cliErr) throw cliErr;
     const cliById = {};
     (cliRows || []).forEach((c) => {
@@ -14353,35 +14425,11 @@ async function loadOrdersFromSupabaseForCRM() {
     let pedRows = null;
     let pedErr = null;
     try {
-      ({ data: pedRows, error: pedErr } = await supaClient
-        .from('v2_pedidos')
-        .select('*')
-        .order('data_pedido', { ascending: false })
-        .limit(5000));
+      const res = await DAL.pedidos.list();
+      pedRows = res.data;
+      pedErr = res.error;
     } catch (e) {
       pedErr = e;
-    }
-    if (pedErr) {
-      try {
-        ({ data: pedRows, error: pedErr } = await supaClient
-          .from('v2_pedidos')
-          .select('*')
-          .order('data', { ascending: false })
-          .limit(5000));
-      } catch (e) {
-        pedErr = e;
-      }
-    }
-    if (pedErr) {
-      try {
-        ({ data: pedRows, error: pedErr } = await supaClient
-          .from('v2_pedidos')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(5000));
-      } catch (e) {
-        pedErr = e;
-      }
     }
     if (pedErr) throw pedErr;
 
@@ -14389,7 +14437,7 @@ async function loadOrdersFromSupabaseForCRM() {
     console.log('[loadOrdersFromSupabaseForCRM] cliRows:', cliRows?.length, 'error:', cliErr);
 
     const { data: yampiRows, error: yampiErr } = await supaClient
-      .from('yampi_orders')
+      .from(DB_SCHEMA.TABLES.YAMPI_ORDERS)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(5000);
@@ -14400,24 +14448,21 @@ async function loadOrdersFromSupabaseForCRM() {
   let itemsByPedidoId = {};
   let itemsCount = 0;
   let ordersWithoutItems = 0;
+  v2PedidosItemsError = null;
     try {
       const okItems = await ensureV2PedidosItemsAvailable();
       if (okItems && Array.isArray(pedRows) && pedRows.length) {
-        console.log(`[Produtos] Carregando itens de v2_pedidos_items para ${pedRows.length} pedidos...`);
-        const totalCol = 'valor_total';
+        console.log(`[Produtos] Carregando itens de ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS} para ${pedRows.length} pedidos...`);
         const pedidoIds = Array.from(new Set(pedRows.map((p) => p?.id).filter(Boolean))).slice(
           0,
           1000,
         );
         for (let i = 0; i < pedidoIds.length; i += 200) {
           const batchIds = pedidoIds.slice(i, i + 200);
-          const { data, error } = await supaClient
-            .from('v2_pedidos_items')
-            .select(`pedido_id,produto_nome,quantidade,valor_unitario,${totalCol}`)
-            .in('pedido_id', batchIds)
-            .limit(20000);
+          const { data, error } = await DAL.items.listByPedidoIds(batchIds);
           if (error) {
-            console.error('[Produtos] Erro ao consultar v2_pedidos_items:', error.message || error);
+            v2PedidosItemsError = error.message || String(error);
+            console.error(`[Produtos] Erro ao consultar ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}:`, v2PedidosItemsError);
             throw error;
           }
           const rows = data || [];
@@ -14427,7 +14472,7 @@ async function loadOrdersFromSupabaseForCRM() {
             if (!pid) return;
             if (!itemsByPedidoId[pid]) itemsByPedidoId[pid] = [];
             const qty = Number(r.quantidade || 0) || 0;
-            const total = Number(r[totalCol] || 0) || 0;
+            const total = Number(r.valor_total || 0) || 0;
             const unit =
               r.valor_unitario != null
                 ? Number(r.valor_unitario || 0) || 0
@@ -14457,7 +14502,8 @@ async function loadOrdersFromSupabaseForCRM() {
         }
       }
     } catch (_e) {
-      console.error('[Produtos] Falha crítica ao carregar itens:', _e?.message || _e);
+      v2PedidosItemsError = _e?.message || String(_e);
+      console.error('[Produtos] Falha crítica ao carregar itens:', v2PedidosItemsError);
     }
 
     const nextBling = [];
@@ -14910,26 +14956,24 @@ async function upsertOrdersToSupabase(orders) {
     for (let i = 0; i < finalPedRows.length; i += 100) {
       const batch = finalPedRows.slice(i, i + 100);
       const payload = batch.map(sanitizePayload).filter(Boolean);
-      const { error } = await supaClient.from('v2_pedidos').upsert(payload, { onConflict: 'id' });
+      const { error } = await DAL.pedidos.upsert(payload);
       if (error) {
         hadUpsertError = true;
         try {
-          console.error('[Upsert v2_pedidos]', error, sanitizeForSupabaseLog(payload.slice(0, 10)));
+          console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, error, sanitizeForSupabaseLog(payload.slice(0, 10)));
         } catch (_e) {}
-        logSupabaseUpsertError('upsert v2_pedidos error', error, batch.slice(0, 5));
+        logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error`, error, batch.slice(0, 5));
         for (const row of payload) {
           try {
-            const { error: rowErr } = await supaClient
-              .from('v2_pedidos')
-              .upsert([sanitizePayload(row)], { onConflict: 'id' });
+            const { error: rowErr } = await DAL.pedidos.upsert([sanitizePayload(row)]);
             if (rowErr) {
               hadUpsertError = true;
               try {
                 console.warn(
-                  '[Upsert v2_pedidos] registro ignorado (erro no upsert)',
+                  `[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}] registro ignorado (erro no upsert)`,
                   sanitizeForSupabaseLog(row),
                 );
-                console.error('[Upsert v2_pedidos]', rowErr, sanitizeForSupabaseLog(row));
+                console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, rowErr, sanitizeForSupabaseLog(row));
               } catch (_e) {}
             }
           } catch (_e) {}
@@ -15071,16 +15115,16 @@ async function runPostFixValidation() {
 
   try {
     const ok = await ensureV2PedidosItemsAvailable();
-    result.remote.v2_pedidos_items.available = ok;
+    result.remote[DB_SCHEMA.TABLES.PEDIDOS_ITEMS].available = ok;
     if (ok) {
       const q3 = await supaClient
-        .from('v2_pedidos_items')
+        .from(DB_SCHEMA.TABLES.PEDIDOS_ITEMS)
         .select('id', { count: 'exact', head: true });
       if (q3?.error) throw q3.error;
-      result.remote.v2_pedidos_items.count = q3.count ?? null;
+      result.remote[DB_SCHEMA.TABLES.PEDIDOS_ITEMS].count = q3.count ?? null;
     }
   } catch (e) {
-    console.warn('Validação: erro ao checar v2_pedidos_items', e);
+    console.warn(`Validação: erro ao checar ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}`, e);
   }
 
   try {
@@ -15158,11 +15202,7 @@ async function runClienteDebug(customerKey) {
         );
         for (let i = 0; i < ids.length; i += 200) {
           const batch = ids.slice(i, i + 200);
-          const { data, error } = await supaClient
-            .from('v2_pedidos_items')
-            .select('pedido_id,produto_nome,quantidade,valor_unitario,valor_total')
-            .in('pedido_id', batch)
-            .limit(20000);
+          const { data, error } = await DAL.items.listByPedidoIds(batch);
           if (error) throw error;
           (data || []).forEach((r) => {
             const pid = String(r.pedido_id || '');
@@ -15173,7 +15213,7 @@ async function runClienteDebug(customerKey) {
         }
       }
     } catch (e) {
-      result.errors.push('Erro v2_pedidos_items: ' + (e?.message || String(e)));
+      result.errors.push(`Erro ${DB_SCHEMA.TABLES.PEDIDOS_ITEMS}: ` + (e?.message || String(e)));
     }
   }
 
@@ -15190,9 +15230,9 @@ function setupRealtimeSync() {
   try {
     supaClient
       .channel('tarefas-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'v2_tarefas' }, async () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: DB_SCHEMA.TABLES.TAREFAS }, async () => {
         const { data } = await supaClient
-          .from('v2_tarefas')
+          .from(DB_SCHEMA.TABLES.TAREFAS)
           .select('*')
           .order('created_at', { ascending: false })
           .limit(500);
@@ -15209,7 +15249,7 @@ function setupRealtimeSync() {
       .subscribe();
     supaClient
       .channel('clientes-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'v2_clientes' }, async () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: DB_SCHEMA.TABLES.CLIENTES }, async () => {
         await loadClienteMetaCache();
         if (document.getElementById('page-oportunidades')?.classList.contains('active'))
           renderOportunidades();
