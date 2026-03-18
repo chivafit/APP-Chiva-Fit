@@ -40,7 +40,7 @@ export function sleep(ms: number): Promise<void> {
  * Retorna os headers de CORS baseados na origem da requisição.
  */
 export function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get('Origin') || '*';
+  const origin = (req as any)?.headers?.get?.('Origin') || '*';
   // Se a origem terminar com '/', removemos para evitar mismatch
   const cleanOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
 

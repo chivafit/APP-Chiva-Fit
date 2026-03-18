@@ -12027,29 +12027,7 @@ function renderProdutos(_deferred) {
   const now = new Date();
   const m = {};
   const catalog = Array.isArray(blingProducts) ? blingProducts : [];
-  if (!allOrders.length) {
-    if (detailedEl)
-      detailedEl.innerHTML = `<div class="empty">Nenhum pedido carregado. Sincronize o Bling para ver os dados.</div>`;
-    document.getElementById('prod-label').textContent = '0 produtos';
-    document.getElementById('prod-kpis-row').innerHTML = '';
-    document.getElementById('prod-rankings-row').innerHTML = '';
-    if (charts.produtos) {
-      charts.produtos.destroy();
-      charts.produtos = null;
-    }
-    if (charts.prodParticipacao) {
-      charts.prodParticipacao.destroy();
-      charts.prodParticipacao = null;
-    }
-    if (charts.prodEvolucao) {
-      charts.prodEvolucao.destroy();
-      charts.prodEvolucao = null;
-    }
-    setProdutosChartState('chart-produtos', false);
-    setProdutosChartState('chart-participacao-produtos', false);
-    setProdutosChartState('chart-evolucao-produtos', false);
-    return;
-  }
+  const hasOrders = Array.isArray(allOrders) && allOrders.length > 0;
   if (!catalog.length) {
     if (detailedEl)
       detailedEl.innerHTML = `<div class="empty">Catálogo do Bling não carregado. Vá em Configurações e sincronize os produtos.</div>`;
@@ -12093,63 +12071,66 @@ function renderProdutos(_deferred) {
   });
 
   // Processamento de dados base
-  allOrders
-    .filter((o) => !ch || normCanalKey(detectCh(o)) === ch)
-    .filter((o) => {
-      if (!per) return true;
-      const d = new Date(o.data || o.dataPedido);
-      return (now - d) / 86400000 <= per;
-    })
-    .forEach((o) => {
-      const itens = getPedidoItens(o);
-      itens.forEach((it) => {
-        const code = String(it?.codigo || '').trim();
-        const descRaw = String(it?.descricao || it?.produto_nome || '').trim();
-        const descKey = normProd(descRaw);
-        const catByCode = code && catalogByCode[code] ? catalogByCode[code] : null;
-        const catByName =
-          !catByCode && descKey && catalogByName[descKey] ? catalogByName[descKey] : null;
-        const cat = catByCode || catByName;
-        const k =
-          String((cat?.codigo ? cat.codigo : '') || code || descKey || descRaw || '?').trim() ||
-          '?';
-        const canal = normCanalKey(detectCh(o)) || 'outros';
-        const dataStr = o.data || o.dataPedido || '';
+  if (hasOrders) {
+    allOrders
+      .filter((o) => !ch || normCanalKey(detectCh(o)) === ch)
+      .filter((o) => {
+        if (!per) return true;
+        const d = new Date(o.data || o.dataPedido);
+        return (now - d) / 86400000 <= per;
+      })
+      .forEach((o) => {
+        const itens = getPedidoItens(o);
+        itens.forEach((it) => {
+          const code = String(it?.codigo || '').trim();
+          const descRaw = String(it?.descricao || it?.produto_nome || '').trim();
+          const descKey = normProd(descRaw);
+          const catByCode = code && catalogByCode[code] ? catalogByCode[code] : null;
+          const catByName =
+            !catByCode && descKey && catalogByName[descKey] ? catalogByName[descKey] : null;
+          const cat = catByCode || catByName;
+          const k =
+            String((cat?.codigo ? cat.codigo : '') || code || descKey || descRaw || '?').trim() ||
+            '?';
+          const canal = normCanalKey(detectCh(o)) || 'outros';
+          const dataStr = o.data || o.dataPedido || '';
 
-        if (!m[k])
-          m[k] = {
-            nome: String(cat?.nome || '' || descRaw || k),
-            code: String(cat?.codigo || '' || code || ''),
-            total: 0,
-            qty: 0,
-            peds: new Set(),
-            clis: new Set(),
-            lastVenda: '',
-            canais: { shopify: 0, amazon: 0, shopee: 0, outros: 0, ml: 0, cnpj: 0, yampi: 0 },
-            historico: {}, // { "YYYY-MM-DD": total }
-          };
+          if (!m[k])
+            m[k] = {
+              nome: String(cat?.nome || '' || descRaw || k),
+              code: String(cat?.codigo || '' || code || ''),
+              total: 0,
+              qty: 0,
+              peds: new Set(),
+              clis: new Set(),
+              lastVenda: '',
+              canais: { shopify: 0, amazon: 0, shopee: 0, outros: 0, ml: 0, cnpj: 0, yampi: 0 },
+              historico: {},
+            };
 
-        const qtd = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
-        const valorUnit =
-          Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
-        const valorTotal = it?.valor_total != null ? Number(it.valor_total) || 0 : valorUnit * qtd;
+          const qtd = Number(it?.quantidade ?? it?.quantity ?? it?.qty ?? 1) || 1;
+          const valorUnit =
+            Number(it?.valor ?? it?.valor_unitario ?? it?.price ?? it?.preco ?? 0) || 0;
+          const valorTotal =
+            it?.valor_total != null ? Number(it.valor_total) || 0 : valorUnit * qtd;
 
-        m[k].total += valorTotal;
-        m[k].qty += qtd;
-        m[k].peds.add(o.id || o.numero);
-        m[k].clis.add(cliKey(o));
+          m[k].total += valorTotal;
+          m[k].qty += qtd;
+          m[k].peds.add(o.id || o.numero);
+          m[k].clis.add(cliKey(o));
 
-        if (!m[k].lastVenda || dataStr > m[k].lastVenda) m[k].lastVenda = dataStr;
+          if (!m[k].lastVenda || dataStr > m[k].lastVenda) m[k].lastVenda = dataStr;
 
-        if (Object.prototype.hasOwnProperty.call(m[k].canais, canal)) m[k].canais[canal] += qtd;
-        else m[k].canais.outros += qtd;
+          if (Object.prototype.hasOwnProperty.call(m[k].canais, canal)) m[k].canais[canal] += qtd;
+          else m[k].canais.outros += qtd;
 
-        if (dataStr) {
-          const dStr = dataStr.slice(0, 10);
-          m[k].historico[dStr] = (m[k].historico[dStr] || 0) + valorTotal;
-        }
+          if (dataStr) {
+            const dStr = dataStr.slice(0, 10);
+            m[k].historico[dStr] = (m[k].historico[dStr] || 0) + valorTotal;
+          }
+        });
       });
-    });
+  }
 
   if (catalog.length) {
     catalog.forEach((p) => {
@@ -12189,15 +12170,17 @@ function renderProdutos(_deferred) {
 
   // 1. Cards de KPI no Topo
   const prodsComVenda = prods.filter((p) => p.qty > 0 || p.total > 0);
+  const hasSales = prodsComVenda.length > 0;
   console.log('[Produtos] Cruzamento resultou em:', prodsComVenda.length, 'produtos com vendas');
-  if (!prodsComVenda.length) {
+  if (!hasSales) {
     let msg = `Nenhum dos ${catalog.length} produtos do catálogo foi vendido no período. Verifique se os códigos dos itens dos pedidos batem com o catálogo do Bling.`;
     if (v2PedidosItemsError) {
       msg = `Erro técnico ao carregar itens: ${v2PedidosItemsError}. Por favor, verifique a conexão com o banco de dados.`;
     }
-    if (detailedEl) detailedEl.innerHTML = `<div class="empty">${escapeHTML(msg)}</div>`;
-    document.getElementById('prod-label').textContent = '0 produtos';
-    document.getElementById('prod-kpis-row').innerHTML = '';
+    if (!hasOrders && !v2PedidosItemsError)
+      msg =
+        'Nenhum pedido carregado ainda. Mostrando o catálogo (sem vendas). Vá em Configurações e sincronize os pedidos.';
+    document.getElementById('prod-kpis-row').innerHTML = `<div class="empty" style="padding:10px 0">${escapeHTML(msg)}</div>`;
     document.getElementById('prod-rankings-row').innerHTML = '';
     if (charts.produtos) {
       charts.produtos.destroy();
@@ -12214,71 +12197,71 @@ function renderProdutos(_deferred) {
     setProdutosChartState('chart-produtos', false);
     setProdutosChartState('chart-participacao-produtos', false);
     setProdutosChartState('chart-evolucao-produtos', false);
-    return;
   }
-  const topVendido = prodsComVenda.length
-    ? prodsComVenda.reduce((a, b) => (a.qty > b.qty ? a : b), { nome: '—', qty: 0 })
-    : { nome: '—', qty: 0 };
-  const topReceita = prodsComVenda.length
-    ? prodsComVenda.slice().sort((a, b) => b.total - a.total)[0] || { nome: '—', total: 0 }
-    : { nome: '—', total: 0 };
-
-  // Calcular crescimento (últimos 7 dias vs 7 dias anteriores)
-  const calculateGrowth = (prod) => {
-    const week1 = 7,
-      week2 = 14;
-    const nowTs = now.getTime();
-    let v1 = 0,
-      v2 = 0;
-    Object.entries(prod.historico).forEach(([d, v]) => {
-      const ts = new Date(d).getTime();
-      const diff = (nowTs - ts) / 86400000;
-      const nv = Number(v) || 0;
-      if (diff <= week1) v1 += nv;
-      else if (diff <= week2) v2 += nv;
+  if (hasSales) {
+    const topVendido = prodsComVenda.reduce((a, b) => (a.qty > b.qty ? a : b), {
+      nome: '—',
+      qty: 0,
     });
-    return v2 > 0 ? ((v1 - v2) / v2) * 100 : v1 > 0 ? 100 : 0;
-  };
+    const topReceita =
+      prodsComVenda.slice().sort((a, b) => b.total - a.total)[0] || { nome: '—', total: 0 };
 
-  const growths = prods.map((p) => ({ p, g: calculateGrowth(p) })).sort((a, b) => b.g - a.g);
-  const topGrowth = growths[0]?.g > 0 ? growths[0] : { p: { nome: '—' }, g: 0 };
-  const topDecline =
-    growths[growths.length - 1]?.g < 0 ? growths[growths.length - 1] : { p: { nome: '—' }, g: 0 };
+    const calculateGrowth = (prod) => {
+      const week1 = 7,
+        week2 = 14;
+      const nowTs = now.getTime();
+      let v1 = 0,
+        v2 = 0;
+      Object.entries(prod.historico).forEach(([d, v]) => {
+        const ts = new Date(d).getTime();
+        const diff = (nowTs - ts) / 86400000;
+        const nv = Number(v) || 0;
+        if (diff <= week1) v1 += nv;
+        else if (diff <= week2) v2 += nv;
+      });
+      return v2 > 0 ? ((v1 - v2) / v2) * 100 : v1 > 0 ? 100 : 0;
+    };
 
-  const kpisHtml = `
-    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
-      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Mais Vendido</div>
-      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topVendido.nome)}</div>
-      <div class="stat-sub" style="font-size:11px;color:var(--blue);font-weight:600">${topVendido.qty.toLocaleString('pt-BR')} unidades</div>
-    </div>
-    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
-      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Receita</div>
-      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topReceita.nome)}</div>
-      <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">${fmtBRL(topReceita.total)}</div>
-    </div>
-    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
-      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Crescimento</div>
-      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topGrowth.p.nome)}</div>
-      <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">▲ ${topGrowth.g.toFixed(1)}% (7d)</div>
-    </div>
-    <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
-      <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Queda de Vendas</div>
-      <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topDecline.p.nome)}</div>
-      <div class="stat-sub" style="font-size:11px;color:var(--red);font-weight:600">▼ ${Math.abs(topDecline.g).toFixed(1)}% (7d)</div>
-    </div>
-  `;
-  document.getElementById('prod-kpis-row').innerHTML = kpisHtml;
+    const growths = prods.map((p) => ({ p, g: calculateGrowth(p) })).sort((a, b) => b.g - a.g);
+    const topGrowth = growths[0]?.g > 0 ? growths[0] : { p: { nome: '—' }, g: 0 };
+    const topDecline =
+      growths[growths.length - 1]?.g < 0
+        ? growths[growths.length - 1]
+        : { p: { nome: '—' }, g: 0 };
 
-  // 2. Gráfico de Receita por Produto (TOP 10)
-  const top10 = prods.slice(0, 10);
-  if (charts.produtos) {
-    charts.produtos.destroy();
-    charts.produtos = null;
-  }
-  const barState = setProdutosChartState('chart-produtos', top10.length > 0);
-  const ctxP = barState.canvas;
-  if (barState.shouldRender && ctxP && ctxP.getContext) {
-    charts.produtos = new Chart(ctxP, {
+    const kpisHtml = `
+      <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+        <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Mais Vendido</div>
+        <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topVendido.nome)}</div>
+        <div class="stat-sub" style="font-size:11px;color:var(--blue);font-weight:600">${topVendido.qty.toLocaleString('pt-BR')} unidades</div>
+      </div>
+      <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+        <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Receita</div>
+        <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topReceita.nome)}</div>
+        <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">${fmtBRL(topReceita.total)}</div>
+      </div>
+      <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+        <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Maior Crescimento</div>
+        <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topGrowth.p.nome)}</div>
+        <div class="stat-sub" style="font-size:11px;color:var(--green);font-weight:600">▲ ${topGrowth.g.toFixed(1)}% (7d)</div>
+      </div>
+      <div class="stat" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+        <div class="stat-label" style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase">Queda de Vendas</div>
+        <div class="stat-value" style="font-size:18px;font-weight:800;margin:4px 0">${escapeHTML(topDecline.p.nome)}</div>
+        <div class="stat-sub" style="font-size:11px;color:var(--red);font-weight:600">▼ ${Math.abs(topDecline.g).toFixed(1)}% (7d)</div>
+      </div>
+    `;
+    document.getElementById('prod-kpis-row').innerHTML = kpisHtml;
+
+    const top10 = prods.slice(0, 10);
+    if (charts.produtos) {
+      charts.produtos.destroy();
+      charts.produtos = null;
+    }
+    const barState = setProdutosChartState('chart-produtos', top10.length > 0);
+    const ctxP = barState.canvas;
+    if (barState.shouldRender && ctxP && ctxP.getContext) {
+      charts.produtos = new Chart(ctxP, {
       type: 'bar',
       data: {
         labels: top10.map((p) => (p.nome.length > 18 ? p.nome.slice(0, 16) + '…' : p.nome)),
@@ -12481,6 +12464,7 @@ function renderProdutos(_deferred) {
     </div>
   `;
   document.getElementById('prod-rankings-row').innerHTML = rankingsHtml;
+  }
 
   // 6. Lista Detalhada
   const avgBase = prodsComVenda.length ? prodsComVenda : prods;
@@ -14496,7 +14480,9 @@ async function loadOrdersFromSupabaseForCRM() {
                   ? total / qty
                   : 0;
             itemsByPedidoId[pid].push({
-              descricao: r.produto_nome || '',
+              descricao: String(
+                r.produto_nome || r.nome_produto || r.descricao || r.produto || '',
+              ).trim(),
               codigo: '',
               quantidade: qty,
               valor: unit,
