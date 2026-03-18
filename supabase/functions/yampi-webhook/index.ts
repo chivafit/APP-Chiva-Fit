@@ -140,7 +140,7 @@ serve(async (req: Request) => {
 
   const table = 'yampi_orders';
 
-  const upsertRes = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
+  const upsertRes = await fetch(`${supabaseUrl}/rest/v1/${table}?on_conflict=external_id`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

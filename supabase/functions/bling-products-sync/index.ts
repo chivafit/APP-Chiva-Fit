@@ -249,8 +249,14 @@ serve(async (req: Request) => {
     if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400, req);
     const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
     const persist = body?.persist === true;
+    const cronSecret = Deno.env.get('CRON_SECRET') || '';
 
-    if (!persist) {
+    if (persist) {
+      const headerSecret = String(req.headers.get('x-cron-secret') || '').trim();
+      if (!cronSecret || headerSecret !== cronSecret) {
+        return jsonResponse({ error: 'Unauthorized' }, 401, req);
+      }
+    } else {
       const auth = await requireUserAuth(req, supabaseUrl, serviceRoleKey);
       if (!auth.ok) return jsonResponse({ error: 'Unauthorized' }, 401, req);
     }

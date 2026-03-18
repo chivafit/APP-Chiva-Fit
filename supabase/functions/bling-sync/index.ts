@@ -1404,16 +1404,20 @@ serve(async (req: Request) => {
         });
       } catch (_e) {}
 
-      return jsonResponse({
-        ok: true,
-        persisted: true,
-        reprocessedExisting: true,
-        count: details.length,
-        items,
-        offset: reprocessOffset,
-        nextOffset,
-        hasMore,
-      });
+      return jsonResponse(
+        {
+          ok: true,
+          persisted: true,
+          reprocessedExisting: true,
+          count: details.length,
+          items,
+          offset: reprocessOffset,
+          nextOffset,
+          hasMore,
+        },
+        200,
+        req,
+      );
     }
 
     const base = 'https://api.bling.com.br/Api/v3/pedidos/vendas';
