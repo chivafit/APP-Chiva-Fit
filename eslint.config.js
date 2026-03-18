@@ -54,7 +54,7 @@ const allowEmptyCatchWarn = ['warn', { allowEmptyCatch: true }];
 
 module.exports = [
   {
-    ignores: ['dist/**', 'node_modules/**', 'supabase/.temp/**'],
+    ignores: ['dist/**', 'node_modules/**', 'supabase/.temp/**', '.worktrees/**'],
   },
   js.configs.recommended,
   {

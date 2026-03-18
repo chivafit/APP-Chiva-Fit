@@ -1,0 +1,26 @@
+# Supabase project config
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+
+project_id = "chivafit"
+
+# ── Edge Functions ──────────────────────────────────────────────────────────
+# verify_jwt = false → funções públicas (webhooks, sync Bling/Yampi)
+# verify_jwt = true  → funções protegidas (IA, uso interno)
+
+[functions.bling-renew-token]
+verify_jwt = false
+
+[functions.bling-sync]
+verify_jwt = false
+
+[functions.bling-products-sync]
+verify_jwt = false
+
+[functions.yampi-webhook]
+verify_jwt = false
+
+[functions.ia-claude]
+verify_jwt = true
+
+[functions.ia-commercial]
+verify_jwt = true
