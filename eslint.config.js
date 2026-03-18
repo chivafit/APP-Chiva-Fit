@@ -28,6 +28,8 @@ const browserGlobals = {
   btoa: 'readonly',
   crypto: 'readonly',
   Blob: 'readonly',
+  AbortController: 'readonly',
+  DOMException: 'readonly',
   IntersectionObserver: 'readonly',
   Chart: 'readonly',
 };
