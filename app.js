@@ -2639,7 +2639,7 @@ function getSyncCtx() {
     populateUFs,
     upsertOrdersToSupabase,
     normalizeCliente,
-    normalizePedido,
+    buildPedidoRow,
     normalizePedidoItens,
     renderAll,
     startTimers,
@@ -15183,7 +15183,7 @@ function normalizeCliente(c, sc) {
   return row;
 }
 
-function normalizePedido(o, opts = {}) {
+function buildPedidoRow(o, opts = {}) {
   const { docToUuid = {}, canaisLookupMap = {}, existingLegacyYampiIds = new Set() } = opts;
   const toDateOrNull = (v) => {
     const s = String(v || '').trim();
@@ -18012,7 +18012,7 @@ Object.assign(window, {
   runPostFixValidation,
   runClienteDebug,
   normalizeCliente,
-  normalizePedido,
+  buildPedidoRow,
   normalizePedidoItens,
   detectCh,
   initSupabase,
