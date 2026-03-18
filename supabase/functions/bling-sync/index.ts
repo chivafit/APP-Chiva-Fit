@@ -379,25 +379,10 @@ async function persistSyncResultToDb(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
   const getPedidosItemsLayout = async () => {
-    let totalCol: 'valor_total' | 'total' = 'valor_total';
-    try {
-      const t1 = await supabase.from('v2_pedidos_items').select('valor_total').limit(1);
-      if (t1?.error) throw t1.error;
-    } catch (_e) {
-      try {
-        const t2 = await supabase.from('v2_pedidos_items').select('total').limit(1);
-        if (t2?.error) throw t2.error;
-        totalCol = 'total';
-      } catch (_e2) {}
-    }
-
-    let productNameCol: 'nome_produto' | 'produto_nome' = 'produto_nome';
-    try {
-      const t = await supabase.from('v2_pedidos_items').select('nome_produto').limit(1);
-      if (t?.error) throw t.error;
-      productNameCol = 'nome_produto';
-    } catch (_e) {}
-
+    // Padronizado para valor_total e produto_nome para evitar inconsistências
+    const totalCol = 'valor_total';
+    const productNameCol = 'produto_nome';
+    
     let hasProdutoId = false;
     try {
       const t = await supabase.from('v2_pedidos_items').select('produto_id').limit(1);
@@ -691,6 +676,7 @@ async function persistSyncResultToDb(
   });
 
   if (itemRows.length) {
+    console.log(`[bling-sync] Persistindo ${itemRows.length} itens em v2_pedidos_items...`);
     for (let i = 0; i < itemRows.length; i += 500) {
       const batch = itemRows.slice(i, i + 500);
       const rowsWithId = await Promise.all(
@@ -704,12 +690,15 @@ async function persistSyncResultToDb(
       const { error } = await supabase
         .from('v2_pedidos_items')
         .upsert(rowsWithId, { onConflict: 'id' });
-      if (error) throw error;
+      if (error) {
+        console.error('[bling-sync] Erro ao persistir itens em v2_pedidos_items:', error.message || error);
+        throw error;
+      }
     }
   }
 
   try {
-    console.log('[bling-sync] items persisted', {
+    console.log('[bling-sync] Finalizado: itens vinculados com sucesso', {
       pedidos: pedidosRows.length,
       itens: itemRows.length,
       pedidosSemItens: ordersWithoutItems,

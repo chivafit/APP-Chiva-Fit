@@ -11146,12 +11146,11 @@ async function openOppClienteResumo(customerKey) {
   try {
     const okItems = await ensureV2PedidosItemsAvailable();
     if (okItems && pedidoIds.length) {
-      const totalCol = v2PedidosItemsTotalColumn || 'valor_total';
       for (let i = 0; i < pedidoIds.length; i += 200) {
         const batch = pedidoIds.slice(i, i + 200);
         const { data, error } = await supaClient
           .from('v2_pedidos_items')
-          .select(`produto_nome,quantidade,${totalCol}`)
+          .select('produto_nome,quantidade,valor_total')
           .in('pedido_id', batch)
           .limit(20000);
         if (error) throw error;
@@ -11160,11 +11159,13 @@ async function openOppClienteResumo(customerKey) {
           if (!nome) return;
           if (!itemsAgg[nome]) itemsAgg[nome] = { nome, qty: 0, total: 0 };
           itemsAgg[nome].qty += Number(r.quantidade || 0) || 0;
-          itemsAgg[nome].total += Number(r?.[totalCol] ?? r?.valor_total ?? r?.total ?? 0) || 0;
+          itemsAgg[nome].total += Number(r.valor_total || 0) || 0;
         });
       }
     }
-  } catch (_e) {}
+  } catch (_e) {
+    console.warn('[Radar] erro ao buscar itens:', _e?.message);
+  }
 
   const top = Object.values(itemsAgg)
     .sort((a, b) => b.qty - a.qty || b.total - a.total)
@@ -12089,6 +12090,7 @@ function renderProdutos(_deferred) {
   }
 
   let prods = Object.values(m).sort((a, b) => b.total - a.total);
+  console.log(`[Produtos] Produtos agregados: ${prods.length}`);
   if (q)
     prods = prods.filter(
       (p) => p.nome.toLowerCase().includes(q) || p.code.toLowerCase().includes(q),
@@ -13185,24 +13187,6 @@ async function ensureV2PedidosItemsAvailable() {
   try {
     const { error } = await supaClient.from('v2_pedidos_items').select('id').limit(1);
     if (error) throw error;
-    if (!v2PedidosItemsTotalColumn) {
-      try {
-        const { error: e1 } = await supaClient
-          .from('v2_pedidos_items')
-          .select('valor_total')
-          .limit(1);
-        if (e1) throw e1;
-        v2PedidosItemsTotalColumn = 'valor_total';
-      } catch (_e) {
-        try {
-          const { error: e2 } = await supaClient.from('v2_pedidos_items').select('total').limit(1);
-          if (e2) throw e2;
-          v2PedidosItemsTotalColumn = 'total';
-        } catch (_e2) {
-          v2PedidosItemsTotalColumn = 'valor_total';
-        }
-      }
-    }
     v2PedidosItemsAvailable = true;
     return true;
   } catch (_e) {
@@ -13276,19 +13260,27 @@ async function upsertV2PedidosItemsFromOrders(orders) {
         valor_unitario: valorUnitario,
         created_at: new Date().toISOString(),
       };
-      row[v2PedidosItemsTotalColumn || 'valor_total'] = valorTotal;
+      // Forçamos valor_total para garantir consistência com a view e queries
+      row.valor_total = valorTotal;
       rows.push(row);
     });
   });
   if (!rows.length) return;
 
   try {
+    console.log(`[Produtos] Persistindo ${rows.length} itens em v2_pedidos_items...`);
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
       const { error } = await supaClient.from('v2_pedidos_items').insert(batch);
-      if (error) throw error;
+      if (error) {
+        console.error('[Produtos] Erro ao inserir em v2_pedidos_items:', error.message || error);
+        throw error;
+      }
     }
-  } catch (_e) {}
+    console.log(`[Produtos] Upsert de itens concluído: ${rows.length} registros.`);
+  } catch (_e) {
+    console.error('[Produtos] Falha ao persistir itens:', _e?.message || _e);
+  }
 }
 
 async function loadClienteMetaCache() {
@@ -14406,10 +14398,13 @@ async function loadOrdersFromSupabaseForCRM() {
   console.log('[loadOrdersFromSupabaseForCRM] yampiRows:', yampiRows?.length, 'error:', yampiErr);
 
   let itemsByPedidoId = {};
+  let itemsCount = 0;
+  let ordersWithoutItems = 0;
     try {
       const okItems = await ensureV2PedidosItemsAvailable();
       if (okItems && Array.isArray(pedRows) && pedRows.length) {
-        const totalCol = v2PedidosItemsTotalColumn || 'valor_total';
+        console.log(`[Produtos] Carregando itens de v2_pedidos_items para ${pedRows.length} pedidos...`);
+        const totalCol = 'valor_total';
         const pedidoIds = Array.from(new Set(pedRows.map((p) => p?.id).filter(Boolean))).slice(
           0,
           1000,
@@ -14421,8 +14416,13 @@ async function loadOrdersFromSupabaseForCRM() {
             .select(`pedido_id,produto_nome,quantidade,valor_unitario,${totalCol}`)
             .in('pedido_id', batchIds)
             .limit(20000);
-          if (error) throw error;
-          (data || []).forEach((r) => {
+          if (error) {
+            console.error('[Produtos] Erro ao consultar v2_pedidos_items:', error.message || error);
+            throw error;
+          }
+          const rows = data || [];
+          itemsCount += rows.length;
+          rows.forEach((r) => {
             const pid = String(r.pedido_id || '');
             if (!pid) return;
             if (!itemsByPedidoId[pid]) itemsByPedidoId[pid] = [];
@@ -14443,8 +14443,22 @@ async function loadOrdersFromSupabaseForCRM() {
             });
           });
         }
+
+        // Contabilizar pedidos sem itens
+        pedRows.forEach(p => {
+          if (!itemsByPedidoId[p.id] || !itemsByPedidoId[p.id].length) {
+            ordersWithoutItems++;
+          }
+        });
+
+        console.log(`[Produtos] Join pedidos x items concluído: ${itemsCount} itens vinculados`);
+        if (ordersWithoutItems > 0) {
+          console.warn(`[Produtos] Pedidos sem items: ${ordersWithoutItems}`);
+        }
       }
-    } catch (_e) {}
+    } catch (_e) {
+      console.error('[Produtos] Falha crítica ao carregar itens:', _e?.message || _e);
+    }
 
     const nextBling = [];
     const nextYampi = [];
