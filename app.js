@@ -2947,37 +2947,45 @@ async function recomputeCarrinhosScoresAndPersist() {
 async function loadCarrinhosAbandonadosFromSupabase() {
   if (!supaConnected || !supaClient) return;
   try {
-    let data = null;
-    let error = null;
-    ({ data, error } = await supaClient
+    const { data, error } = await supaClient
       .from('carrinhos_abandonados')
       .select(
         'checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id,score_recuperacao,link_finalizacao,last_etapa_enviada,last_mensagem_at',
       )
       .order('criado_em', { ascending: false })
-      .limit(10000));
+      .limit(1000);
+
     if (error) {
-      ({ data, error } = await supaClient
-        .from('carrinhos_abandonados')
-        .select(
-          'checkout_id,cliente_nome,telefone,email,valor,produtos,criado_em,recuperado,recuperado_em,recuperado_pedido_id',
-        )
-        .order('criado_em', { ascending: false })
-        .limit(10000));
+      if (!window.carrinhosAbandonadosErrorLogged) {
+        console.error('[Supabase] Falha ao carregar carrinhos abandonados:', error.message);
+        window.carrinhosAbandonadosErrorLogged = true;
+      }
+      return;
     }
-    if (error || !Array.isArray(data)) return;
-    carrinhosAbandonados = data.map(normalizeCarrinhoAbandonado);
-    safeSetItem('crm_carrinhos_abandonados', JSON.stringify(carrinhosAbandonados));
-    if (document.getElementById('page-comercial')?.classList.contains('active')) {
-      if (typeof window.renderCarrinhosAbandonados === 'function')
-        window.renderCarrinhosAbandonados();
+
+    if (Array.isArray(data)) {
+      carrinhosAbandonados = data.map(normalizeCarrinhoAbandonado);
+      safeSetItem('crm_carrinhos_abandonados', JSON.stringify(carrinhosAbandonados));
+      if (document.getElementById('page-comercial')?.classList.contains('active')) {
+        if (typeof window.renderCarrinhosAbandonados === 'function') {
+          window.renderCarrinhosAbandonados();
+        }
+      }
+      await reconcileCarrinhosRecuperados();
+      await recomputeCarrinhosScoresAndPersist();
     }
-    await reconcileCarrinhosRecuperados();
-    await recomputeCarrinhosScoresAndPersist();
-  } catch (_e) {}
+  } catch (e) {
+    if (!window.carrinhosAbandonadosErrorLogged) {
+      console.error('[Supabase] Erro inesperado ao carregar carrinhos abandonados:', e.message);
+      window.carrinhosAbandonadosErrorLogged = true;
+    }
+  }
 }
 
 async function upsertCarrinhosAbandonadosToSupabase(list) {
+  // NOTE: Temporarily disabled to prevent potential 400 Bad Request errors.
+  // The schema and data mapping need to be validated before re-enabling.
+  /*
   if (!supaConnected || !supaClient) return;
   if (!Array.isArray(list) || !list.length) return;
   const nowIso = new Date().toISOString();
@@ -3042,6 +3050,7 @@ async function upsertCarrinhosAbandonadosToSupabase(list) {
       }
     }
   } catch (_e) {}
+  */
 }
 
 async function fetchYampiAbandoned() {
