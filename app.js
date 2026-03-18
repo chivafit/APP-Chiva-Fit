@@ -42,7 +42,7 @@ import {
 import { initSentry, captureError, captureMessage, setSentryUser } from './sentry.js';
 import { CRMStore } from './store.js';
 import { STORAGE_KEYS } from './constants.js';
-import { getSupabaseClient } from './supabaseClient.js';
+import { supabase, getSupabaseClient } from './supabaseClient.js';
 import {
   getDashboardKpis as getDashboardKpisView,
   getDashboardDaily as getDashboardDailyView,
@@ -347,9 +347,9 @@ window.CRMStore = CRMStore;
   const key = getSupabaseAnonKey();
   const hasSupabase = !!(url && key);
 
-  if (hasSupabase) {
+  if (hasSupabase || supabase) {
     try {
-      supaClient = getSupabaseClient(url, key);
+      supaClient = supabase || getSupabaseClient(url, key);
       try {
         if (
           !supaAuthUnsub &&
@@ -611,6 +611,7 @@ function checkEstoqueCritico() {
     const lastLogged = String(localStorage.getItem('crm_estoque_critico_logged_day') || '');
     if (lastLogged !== today) {
       localStorage.setItem('crm_estoque_critico_logged_day', today);
+      console.log('[alertas] inserindo alerta de estoque crítico...');
       supaClient
         .from('v2_alertas')
         .insert({
@@ -625,7 +626,10 @@ function checkEstoqueCritico() {
           },
           created_at: new Date().toISOString(),
         })
-        .then(() => {})
+        .then(({ data, error }) => {
+          if (error) throw error;
+          console.log('[alertas] sucesso:', data);
+        })
         .catch((e) => {
           console.warn(
             '[alertas] falha ao inserir alerta de estoque crítico:',
@@ -825,7 +829,7 @@ async function handleLoginSubmit(e) {
 
     if (hasSupabase) {
       try {
-        supaClient = getSupabaseClient(url, key);
+        supaClient = supabase || getSupabaseClient(url, key);
         try {
           if (
             !supaAuthUnsub &&
@@ -13792,7 +13796,7 @@ async function initSupabase() {
   }
 
   try {
-    supaClient = getSupabaseClient(url, key);
+    supaClient = supabase || getSupabaseClient(url, key);
 
     try {
       if (
@@ -13870,6 +13874,7 @@ async function loadSupabaseData() {
       5000
     );
     if (metaRes?.data?.valor_texto) localStorage.setItem('crm_meta', metaRes.data.valor_texto);
+    console.log('[loadSupabaseData] metaRes:', metaRes?.data);
     if (alertRes?.data?.valor_texto) {
       localStorage.setItem('crm_alertdays', alertRes.data.valor_texto);
       const el = document.getElementById('alert-days');
@@ -13885,10 +13890,11 @@ async function loadSupabaseData() {
 
   try {
     // v2_tarefas — campos: descricao (antigo: desc), vencimento (antigo: data), status 'aberta'→'pendente' para UI
-    const { data: tasks } = await supaTimeout(
+    const { data: tasks, error: tasksErr } = await supaTimeout(
       supaClient.from('v2_tarefas').select('*').order('created_at', { ascending: false }).limit(500),
       5000
     );
+    console.log('[loadSupabaseData] tasks:', tasks?.length, 'error:', tasksErr);
     tarefasCache = (tasks || []).map((t) => ({
       ...t,
       desc: t.descricao || '',
@@ -14368,6 +14374,9 @@ async function loadOrdersFromSupabaseForCRM() {
     }
     if (pedErr) throw pedErr;
 
+    console.log('[loadOrdersFromSupabaseForCRM] pedRows:', pedRows?.length, 'error:', pedErr);
+    console.log('[loadOrdersFromSupabaseForCRM] cliRows:', cliRows?.length, 'error:', cliErr);
+
     const { data: yampiRows, error: yampiErr } = await supaClient
       .from('yampi_orders')
       .select('*')
@@ -14375,7 +14384,9 @@ async function loadOrdersFromSupabaseForCRM() {
       .limit(5000);
     if (yampiErr) throw yampiErr;
 
-    let itemsByPedidoId = {};
+  console.log('[loadOrdersFromSupabaseForCRM] yampiRows:', yampiRows?.length, 'error:', yampiErr);
+
+  let itemsByPedidoId = {};
     try {
       const okItems = await ensureV2PedidosItemsAvailable();
       if (okItems && Array.isArray(pedRows) && pedRows.length) {
@@ -17389,9 +17400,15 @@ Object.assign(window, {
   allCustomers,
   blingOrders,
   yampiOrders,
+  // Para debug via console
+  supaClient,
+  supaConnected,
 });
 
 export {
+  supabase,
+  supaClient,
+  supaConnected,
   detectCh,
   saveSupabaseConfig,
   syncBling,

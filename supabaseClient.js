@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+
 const clientsByConfig = new Map();
 
 const DEFAULT_FETCH_TIMEOUT_MS = 20000;
@@ -41,17 +43,34 @@ function createTimeoutFetch(timeoutMs) {
 
 const timeoutFetch = createTimeoutFetch(DEFAULT_FETCH_TIMEOUT_MS);
 
+/**
+ * Singleton client instance based on environment variables
+ */
+const VITE_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const VITE_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const supabase = (VITE_SUPABASE_URL && VITE_SUPABASE_ANON_KEY) 
+  ? createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      global: { fetch: timeoutFetch }
+    })
+  : null;
+
+/**
+ * Legacy support for dynamic client initialization (used in login/bootstrap)
+ */
 export function getSupabaseClient(projectUrl, anonKey) {
-  const url = String(projectUrl || '')
+  const url = String(projectUrl || VITE_SUPABASE_URL || '')
     .trim()
     .replace(/\/+$/, '');
-  const key = String(anonKey || '').trim();
+  const key = String(anonKey || VITE_SUPABASE_ANON_KEY || '').trim();
+  
   if (!url || !key) throw new Error('Supabase não configurado.');
+  
   const cacheKey = url + '::' + key;
   if (clientsByConfig.has(cacheKey)) return clientsByConfig.get(cacheKey);
-  const lib = globalThis.supabase;
-  if (!lib || typeof lib.createClient !== 'function') throw new Error('Supabase JS não carregado.');
-  const client = lib.createClient(url, key, {
+  
+  const client = createClient(url, key, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -61,6 +80,7 @@ export function getSupabaseClient(projectUrl, anonKey) {
       fetch: timeoutFetch,
     },
   });
+  
   clientsByConfig.set(cacheKey, client);
   return client;
 }
