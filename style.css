@@ -697,7 +697,8 @@ body {
   min-height: 100vh;
 }
 #app-shell.visible {
-  display: flex;
+  display: flex !important;
+  opacity: 1 !important;
 }
 
 /* ─── GEOGRAFIA ─────────────────────────────────────────────── */
