@@ -35,14 +35,14 @@ jobs:
           fi
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         if: steps.prep.outputs.ready == 'true'
         with:
           fetch-depth: 2
 
       - name: Cache Supabase CLI
         if: steps.prep.outputs.ready == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.supabase
           key: supabase-cli-${{ runner.os }}-${{ hashFiles('supabase/config.toml') }}
