@@ -15090,12 +15090,15 @@ async function loadOrdersFromSupabaseForCRM() {
       const semItens = nextBling.length - comItens;
       console.log(
         `[loadOrdersFromSupabaseForCRM] ✓ blingOrders: ${nextBling.length} pedidos de v2_pedidos` +
-        ` | com itens: ${comItens} | sem itens: ${semItens}`,
+        ` | com itens: ${comItens} | sem itens: ${semItens}` +
+        (semItens > 0 ? ' ⚠ Pedidos sem itens — v2_pedidos_items pode estar incompleto.' : ''),
       );
     } else {
-      console.warn(`[loadOrdersFromSupabaseForCRM] ⚠ v2_pedidos vazio — blingOrders preservado (${blingOrders.length} em cache). Sincronize o Bling.`);
+      console.warn(
+        `[loadOrdersFromSupabaseForCRM] ⚠ v2_pedidos vazio — blingOrders preservado (${blingOrders.length} pedidos em cache).`,
+        'Sincronize o Bling para popular v2_pedidos.',
+      );
     }
-    // Só sobrescreve yampiOrders se yampi retornou dados reais.
     if (Array.isArray(yampiRows) && yampiRows.length > 0) {
       yampiOrders.length = 0;
       yampiOrders.push(...nextYampi);

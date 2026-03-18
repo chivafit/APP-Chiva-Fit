@@ -143,7 +143,9 @@ export async function syncBling(ctx, options) {
     localStorage.setItem('crm_bling_orders', JSON.stringify(ctx.blingOrders));
     ctx.mergeOrders();
     ctx.populateUFs();
-    Promise.resolve(ctx.upsertOrdersToSupabase(ctx.blingOrders)).catch((e) => console.warn(e));
+    Promise.resolve(ctx.upsertOrdersToSupabase(ctx.blingOrders)).catch((e) => {
+      console.error('[Bling sync] ❌ upsertOrdersToSupabase falhou:', e?.message || e, { code: e?.code, details: e?.details, hint: e?.hint, status: e?.status });
+    });
     ctx.renderAll();
     ctx.startTimers();
     try {
