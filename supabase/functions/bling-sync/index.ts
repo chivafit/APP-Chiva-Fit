@@ -312,11 +312,12 @@ async function ensureCanaisAndGetMap(
       .limit(50);
     if (error) throw error;
     const map: Record<string, string> = {};
-    (data || []).forEach((r: any) => {
-      const slug = String(r?.slug ?? '')
+    (data || []).forEach((r) => {
+      const row = r as Record<string, unknown>;
+      const slug = String(row?.slug ?? '')
         .trim()
         .toLowerCase();
-      const id = String(r?.id ?? '').trim();
+      const id = String(row?.id ?? '').trim();
       if (slug && id) map[slug] = id;
     });
     if (map['mercado_livre'] && !map['ml']) map['ml'] = map['mercado_livre'];
@@ -346,7 +347,7 @@ async function ensureCanaisAndGetMap(
     ativo: true,
     created_at: now,
   }));
-  await supabase.from('canais').upsert(rows as any, { onConflict: 'slug' });
+  await supabase.from('canais').upsert(rows, { onConflict: 'slug' });
   const { data, error } = await supabase
     .from('canais')
     .select('id,slug')
@@ -354,11 +355,12 @@ async function ensureCanaisAndGetMap(
     .limit(100);
   if (error) throw error;
   const map: Record<string, string> = {};
-  (data || []).forEach((r: any) => {
-    const slug = String(r?.slug ?? '')
+  (data || []).forEach((r) => {
+    const row = r as Record<string, unknown>;
+    const slug = String(row?.slug ?? '')
       .trim()
       .toLowerCase();
-    const id = String(r?.id ?? '').trim();
+    const id = String(row?.id ?? '').trim();
     if (slug && id) map[slug] = id;
   });
   if (map['mercado_livre']) map['ml'] = map['mercado_livre'];
@@ -366,10 +368,42 @@ async function ensureCanaisAndGetMap(
   return map;
 }
 
+interface BlingOrderMapped {
+  id: string;
+  numero: string;
+  data: string;
+  total: number;
+  situacao: { nome: string };
+  _source: string;
+  _canal?: string;
+  numeroPedidoEcommerce?: string;
+  loja?: { id?: string; nome?: string };
+  canal?: { nome?: string };
+  cidade_entrega: string | null;
+  uf_entrega: string | null;
+  contato: {
+    nome: string;
+    cpfCnpj: string;
+    email: string;
+    telefone: string;
+    celular: string;
+    endereco: {
+      municipio: string;
+      uf: string;
+      cep: string;
+      logradouro: string;
+      numero: string;
+      bairro: string;
+    };
+  };
+  itens: Array<{ descricao: string; codigo: string; quantidade: number; valor: number }>;
+  _raw: Record<string, unknown>;
+}
+
 async function persistSyncResultToDb(
   supabaseUrl: string,
   serviceRoleKey: string,
-  orders: any[],
+  orders: BlingOrderMapped[],
   canaisMap: Record<string, string>,
   updateLastSync: boolean,
 ) {
@@ -422,7 +456,7 @@ async function persistSyncResultToDb(
       const sel = hasBlingId ? 'id,bling_id' : 'id';
       const { data, error } = await supabase.from('v2_pedidos').select(sel).limit(1);
       if (error) throw error;
-      const sampleId = String((data?.[0] as any)?.id ?? '').trim();
+      const sampleId = String((data?.[0] as Record<string, unknown>)?.id ?? '').trim();
       if (sampleId && isUuidStr(sampleId)) idType = 'uuid';
     } catch (_e) {}
     return { hasBlingId, idType };
@@ -430,7 +464,7 @@ async function persistSyncResultToDb(
 
   const pedidosLayout = await getPedidosLayout();
 
-  const customersByDoc: Record<string, any> = {};
+  const customersByDoc: Record<string, Record<string, unknown>> = {};
   orders.forEach((o) => {
     const docKey = String(makeCustomerDocKey(o) || '').trim();
     if (!docKey) return;
@@ -476,9 +510,10 @@ async function persistSyncResultToDb(
       .in('doc', slice)
       .limit(5000);
     if (error) throw error;
-    (data || []).forEach((r: any) => {
-      const doc = String(r?.doc ?? '').trim();
-      const id = String(r?.id ?? '').trim();
+    (data || []).forEach((r) => {
+      const row = r as Record<string, unknown>;
+      const doc = String(row?.doc ?? '').trim();
+      const id = String(row?.id ?? '').trim();
       if (doc && id) docToId[doc] = id;
     });
   }
@@ -508,7 +543,7 @@ async function persistSyncResultToDb(
       const status = String(o?.situacao?.nome ?? o?.situacao ?? '').trim();
       const itens = Array.isArray(o?.itens) ? o.itens : [];
 
-      const base: any = {
+      const base: Record<string, unknown> = {
         numero_pedido: numero || null,
         bling_id: blingId,
         cliente_id: clienteId,
@@ -531,12 +566,12 @@ async function persistSyncResultToDb(
     })
     .filter(Boolean);
 
-  const blingIds = pedidosRows.map((p: any) => String(p?.bling_id ?? '').trim()).filter(Boolean);
+  const blingIds = pedidosRows.map((p) => String((p as Record<string, unknown>)?.bling_id ?? '').trim()).filter(Boolean);
   const pedidoIdByBlingId: Record<string, string> = {};
   if (pedidosLayout.idType === 'uuid' && pedidosLayout.hasBlingId) {
     for (let i = 0; i < pedidosRows.length; i += 100) {
-      const batch = pedidosRows.slice(i, i + 100).map((p: any) => {
-        const { id: _id, ...rest } = p;
+      const batch = pedidosRows.slice(i, i + 100).map((p) => {
+        const { id: _id, ...rest } = p as Record<string, unknown>;
         return rest;
       });
       const { error } = await supabase.from('v2_pedidos').upsert(batch, { onConflict: 'bling_id' });
@@ -565,27 +600,30 @@ async function persistSyncResultToDb(
         .in('bling_id', slice)
         .limit(5000);
       if (error) throw error;
-      (data || []).forEach((r: any) => {
-        const bid = String(r?.bling_id ?? '').trim();
-        const id = String(r?.id ?? '').trim();
+      (data || []).forEach((r) => {
+        const row = r as Record<string, unknown>;
+        const bid = String(row?.bling_id ?? '').trim();
+        const id = String(row?.id ?? '').trim();
         if (bid && id) pedidoIdByBlingId[bid] = id;
       });
     }
   }
 
-  const productsById: Record<string, any> = {};
+  const productsById: Record<string, Record<string, unknown>> = {};
   const pedidoIds: string[] = [];
-  pedidosRows.forEach((p: any) => {
-    const blingId = String(p?.bling_id ?? '').trim();
+  pedidosRows.forEach((p) => {
+    const pr = p as Record<string, unknown>;
+    const blingId = String(pr?.bling_id ?? '').trim();
     const pid =
       pedidosLayout.idType === 'uuid' && pedidosLayout.hasBlingId
         ? pedidoIdByBlingId[blingId]
-        : String(p?.id ?? '').trim();
+        : String(pr?.id ?? '').trim();
     if (pid) pedidoIds.push(pid);
-    const itens = Array.isArray(p?.itens) ? p.itens : [];
-    itens.forEach((it: any) => {
-      const codigo = String(it?.codigo ?? '').trim();
-      const nome = String(it?.descricao ?? '').trim();
+    const itens = Array.isArray(pr?.itens) ? (pr.itens as unknown[]) : [];
+    itens.forEach((it) => {
+      const item = it as Record<string, unknown>;
+      const codigo = String(item?.codigo ?? '').trim();
+      const nome = String(item?.descricao ?? '').trim();
       const key = String(codigo || nome).trim();
       if (!key) return;
       if (!productsById[key]) {
@@ -607,7 +645,7 @@ async function persistSyncResultToDb(
     });
   });
 
-  const productRows = Object.values(productsById).filter((r: any) => String(r?.id ?? '').trim());
+  const productRows = Object.values(productsById).filter((r) => String(r?.id ?? '').trim());
   if (productRows.length) {
     for (let i = 0; i < productRows.length; i += 200) {
       const batch = productRows.slice(i, i + 200);
@@ -649,16 +687,17 @@ async function persistSyncResultToDb(
     return bytesToUuid(hash);
   };
 
-  const itemRows: any[] = [];
+  const itemRows: Record<string, unknown>[] = [];
   let ordersWithoutItems = 0;
-  pedidosRows.forEach((p: any) => {
-    const blingId = String(p?.bling_id ?? '').trim();
+  pedidosRows.forEach((p) => {
+    const pr = p as Record<string, unknown>;
+    const blingId = String(pr?.bling_id ?? '').trim();
     const pid =
       pedidosLayout.idType === 'uuid' && pedidosLayout.hasBlingId
         ? pedidoIdByBlingId[blingId]
-        : String(p?.id ?? '').trim();
+        : String(pr?.id ?? '').trim();
     if (!pid) return;
-    const itens = Array.isArray(p?.itens) ? p.itens : [];
+    const itens = Array.isArray(pr?.itens) ? (pr.itens as unknown[]) : [];
     if (!itens.length) {
       ordersWithoutItems += 1;
       try {
@@ -666,17 +705,18 @@ async function persistSyncResultToDb(
       } catch (_e) {}
       return;
     }
-    itens.forEach((it: any, idx: number) => {
+    itens.forEach((it, idx: number) => {
+      const item = it as Record<string, unknown>;
       const nomeProduto = String(
-        it?.descricao ?? it?.nome ?? it?.produto_nome ?? it?.nome_produto ?? it?.codigo ?? '',
+        item?.descricao ?? item?.nome ?? item?.produto_nome ?? item?.nome_produto ?? item?.codigo ?? '',
       ).trim();
       if (!nomeProduto) return;
-      const produtoIdCandidate = String(it?.produto_id ?? it?.produtoId ?? it?.codigo ?? '').trim();
+      const produtoIdCandidate = String(item?.produto_id ?? item?.produtoId ?? item?.codigo ?? '').trim();
       const produtoId = produtoIdCandidate || nomeProduto;
-      const quantidade = Number(it?.quantidade ?? 0) || 0;
-      const valorUnitario = Number(it?.valor ?? it?.valor_unitario ?? 0) || 0;
-      const valorTotal = Number(it?.valor_total ?? it?.total ?? quantidade * valorUnitario) || 0;
-      const row: any = {
+      const quantidade = Number(item?.quantidade ?? 0) || 0;
+      const valorUnitario = Number(item?.valor ?? item?.valor_unitario ?? 0) || 0;
+      const valorTotal = Number(item?.valor_total ?? item?.total ?? quantidade * valorUnitario) || 0;
+      const row: Record<string, unknown> = {
         pedido_id: pid,
         quantidade,
         valor_unitario: valorUnitario,
@@ -694,7 +734,7 @@ async function persistSyncResultToDb(
     for (let i = 0; i < itemRows.length; i += 500) {
       const batch = itemRows.slice(i, i + 500);
       const rowsWithId = await Promise.all(
-        batch.map(async (r: any) => {
+        batch.map(async (r) => {
           const key = String(r?._item_id_key ?? '').trim();
           const id = await uuidV5FromString(key);
           const { _item_id_key, ...rest } = r;
@@ -934,11 +974,18 @@ function normUF(v: unknown): string {
   return letters.length >= 2 ? letters.slice(0, 2) : '';
 }
 
-function mapBlingOrder(detail: any) {
-  const data = detail?.data ?? detail ?? {};
-  const contato = data?.contato ?? {};
-  const contatoEndereco = contato?.endereco ?? {};
-  const etiqueta = data?.transporte?.etiqueta ?? data?.etiqueta ?? {};
+function mapBlingOrder(detail: unknown): BlingOrderMapped {
+  const detailObj = (detail && typeof detail === 'object' ? detail : {}) as Record<string, unknown>;
+  const dataRaw = detailObj?.data ?? detailObj ?? {};
+  const data = (dataRaw && typeof dataRaw === 'object' ? dataRaw : {}) as Record<string, unknown>;
+  const contatoRaw = data?.contato ?? {};
+  const contato = (contatoRaw && typeof contatoRaw === 'object' ? contatoRaw : {}) as Record<string, unknown>;
+  const contatoEnderecoRaw = contato?.endereco ?? {};
+  const contatoEndereco = (contatoEnderecoRaw && typeof contatoEnderecoRaw === 'object' ? contatoEnderecoRaw : {}) as Record<string, unknown>;
+  const transporteRaw = data?.transporte ?? {};
+  const transporte = (transporteRaw && typeof transporteRaw === 'object' ? transporteRaw : {}) as Record<string, unknown>;
+  const etiquetaRaw = transporte?.etiqueta ?? data?.etiqueta ?? {};
+  const etiqueta = (etiquetaRaw && typeof etiquetaRaw === 'object' ? etiquetaRaw : {}) as Record<string, unknown>;
 
   const endereco = {
     municipio: String(pick(etiqueta?.municipio, contatoEndereco?.municipio) ?? '').trim(),
@@ -953,12 +1000,15 @@ function mapBlingOrder(detail: any) {
     data?.itensPedido ??
     data?.produtos ??
     data?.items ??
-    []) as any[];
+    []) as unknown[];
   const itens = Array.isArray(itensRaw)
     ? itensRaw
-        .map((it) => {
-          const node = it?.item ?? it?.pedidoItem ?? it?.produtoItem ?? it ?? {};
-          const prod = node?.produto ?? node ?? {};
+        .map((itUnknown) => {
+          const it = (itUnknown && typeof itUnknown === 'object' ? itUnknown : {}) as Record<string, unknown>;
+          const nodeRaw = it?.item ?? it?.pedidoItem ?? it?.produtoItem ?? it ?? {};
+          const node = (nodeRaw && typeof nodeRaw === 'object' ? nodeRaw : {}) as Record<string, unknown>;
+          const prodRaw = node?.produto ?? node ?? {};
+          const prod = (prodRaw && typeof prodRaw === 'object' ? prodRaw : {}) as Record<string, unknown>;
           const descricao = String(prod?.descricao ?? prod?.nome ?? it?.descricao ?? '').trim();
           const codigo = String(prod?.codigo ?? prod?.sku ?? prod?.id ?? it?.codigo ?? '').trim();
           const quantidade =
@@ -986,7 +1036,8 @@ function mapBlingOrder(detail: any) {
   const dataPedido = toIsoDate(
     data?.data ?? data?.dataEmissao ?? data?.dataPedido ?? data?.dataCriacao ?? '',
   );
-  const status = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? '').trim();
+  const situacaoObj = (data?.situacao && typeof data.situacao === 'object' ? data.situacao : {}) as Record<string, unknown>;
+  const status = String(situacaoObj?.nome ?? data?.situacao ?? data?.status ?? '').trim();
 
   const email = String(contato?.email ?? '')
     .trim()
@@ -1012,23 +1063,32 @@ function mapBlingOrder(detail: any) {
           '',
       ).trim() || undefined,
     loja: data?.loja
-      ? {
-          id: String(data?.loja?.id ?? '').trim() || undefined,
-          nome: String(data?.loja?.nome ?? data?.loja?.descricao ?? '').trim() || undefined,
-        }
+      ? (() => {
+          const lojaObj = (data.loja && typeof data.loja === 'object' ? data.loja : {}) as Record<string, unknown>;
+          return {
+            id: String(lojaObj?.id ?? '').trim() || undefined,
+            nome: String(lojaObj?.nome ?? lojaObj?.descricao ?? '').trim() || undefined,
+          };
+        })()
       : undefined,
     canal:
       data?.canalVenda || data?.canal || data?.origem || data?.ecommerce
-        ? {
-            nome:
-              String(
-                data?.canalVenda?.nome ??
-                  data?.canal?.nome ??
-                  data?.origem?.nome ??
-                  data?.ecommerce?.nome ??
-                  '',
-              ).trim() || undefined,
-          }
+        ? (() => {
+            const canalVendaObj = (data.canalVenda && typeof data.canalVenda === 'object' ? data.canalVenda : {}) as Record<string, unknown>;
+            const canalObj = (data.canal && typeof data.canal === 'object' ? data.canal : {}) as Record<string, unknown>;
+            const origemObj = (data.origem && typeof data.origem === 'object' ? data.origem : {}) as Record<string, unknown>;
+            const ecommerceObj = (data.ecommerce && typeof data.ecommerce === 'object' ? data.ecommerce : {}) as Record<string, unknown>;
+            return {
+              nome:
+                String(
+                  canalVendaObj?.nome ??
+                    canalObj?.nome ??
+                    origemObj?.nome ??
+                    ecommerceObj?.nome ??
+                    '',
+                ).trim() || undefined,
+            };
+          })()
         : undefined,
     cidade_entrega: endereco.municipio || null,
     uf_entrega: endereco.uf || null,
@@ -1045,18 +1105,21 @@ function mapBlingOrder(detail: any) {
   };
 }
 
-function mapBlingProduct(row: any) {
-  const data = row?.data ?? row ?? {};
+function mapBlingProduct(row: unknown) {
+  const rowObj = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+  const data = (rowObj?.data ?? rowObj ?? {}) as Record<string, unknown>;
   const id = String(data?.id ?? '').trim();
   const codigo = String(
     data?.codigo ?? data?.codigoItem ?? data?.codigoProduto ?? data?.sku ?? '',
   ).trim();
   const nome = String(data?.nome ?? data?.descricao ?? data?.descricaoCurta ?? '').trim();
-  const situacao = String(data?.situacao?.nome ?? data?.situacao ?? data?.status ?? '').trim();
+  const situacaoProdObj = (data?.situacao && typeof data.situacao === 'object' ? data.situacao : {}) as Record<string, unknown>;
+  const situacao = String(situacaoProdObj?.nome ?? data?.situacao ?? data?.status ?? '').trim();
   const preco = data?.preco ?? data?.precoVenda ?? data?.valor ?? data?.precoVenda1;
+  const estoqueObj = (data?.estoque && typeof data.estoque === 'object' ? data.estoque : {}) as Record<string, unknown>;
   const estoqueRaw =
-    data?.estoque?.saldo ??
-    data?.estoque?.saldoFisico ??
+    estoqueObj?.saldo ??
+    estoqueObj?.saldoFisico ??
     data?.saldo ??
     data?.saldoFisico ??
     data?.estoque ??
@@ -1077,7 +1140,19 @@ function mapBlingProduct(row: any) {
   };
 }
 
-async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, products: any[]) {
+interface BlingProductMapped {
+  id: string;
+  codigo: string | null;
+  nome: string | null;
+  estoque: number | null;
+  preco: number | null;
+  situacao: string | null;
+  origem: string;
+  updated_at: string;
+  raw: Record<string, unknown>;
+}
+
+async function persistProductsToDb(supabaseUrl: string, serviceRoleKey: string, products: BlingProductMapped[]) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = nowIso();
   const rows = products
@@ -1115,13 +1190,14 @@ async function syncBlingProductsToSupabase(
   maxPages: number,
 ) {
   const base = 'https://api.bling.com.br/Api/v3/produtos';
-  const out: any[] = [];
+  const out: BlingProductMapped[] = [];
   for (let page = 1; page <= maxPages; page++) {
     const url = `${base}?pagina=${page}&limite=${limit}`;
-    const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
-    const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+    const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+    const jsonObj = json as Record<string, unknown>;
+    const data: unknown[] = Array.isArray(jsonObj?.data) ? (jsonObj.data as unknown[]) : Array.isArray(json) ? (json as unknown[]) : [];
     if (!data.length) break;
-    data.forEach((r: any) => {
+    data.forEach((r) => {
       const mapped = mapBlingProduct(r);
       if (mapped.id) out.push(mapped);
     });
@@ -1162,7 +1238,7 @@ serve(async (req: Request) => {
     const bodyText = await req.text().catch(() => '');
     const parsed = safeJsonParse(bodyText);
     if (parsed === null) return jsonResponse({ error: 'Invalid JSON' }, 400);
-    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as any;
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
     const persist = body?.persist === true;
     const backfillOrigins = body?.backfillOrigins === true;
     const syncProducts = body?.syncProducts === true;
@@ -1216,15 +1292,17 @@ serve(async (req: Request) => {
       const canaisMap = await ensureCanaisAndGetMap(supabaseUrl, serviceRoleKey);
 
       const base = 'https://api.bling.com.br/Api/v3/pedidos/vendas';
-      const details = await mapWithConcurrency(baseRows, concurrency, async (r: any) => {
-        const id = String(r?.bling_id ?? r?.id ?? '').trim();
+      const details = await mapWithConcurrency(baseRows, concurrency, async (r) => {
+        const row = r as Record<string, unknown>;
+        const id = String(row?.bling_id ?? row?.id ?? '').trim();
         if (!id) return null;
         const url = `${base}/${encodeURIComponent(id)}`;
-        const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+        const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
         const mapped = mapBlingOrder(json);
-        const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
+        const jsonObj = json as Record<string, unknown>;
+        const infer = inferCanalSlugFromBling(mapped?._raw ?? jsonObj?.data ?? json ?? {}, lojaIdMap);
         const contato = mapped?.contato ?? {};
-        const docDigits = onlyDigitsStr((contato as any)?.cpfCnpj ?? '');
+        const docDigits = onlyDigitsStr(contato?.cpfCnpj ?? '');
         const isCnpj = docDigits.length === 14;
         let canalSlug = String(infer.slug || '')
           .trim()
@@ -1235,7 +1313,7 @@ serve(async (req: Request) => {
         const std = toStandardCanalSlug(canalSlug);
         const tipoVenda = std.origem === 'b2b' || isCnpj ? 'b2b' : 'b2c';
         return {
-          id: String(r?.id ?? '').trim() || id,
+          id: String(row?.id ?? '').trim() || id,
           canal_id: canalId,
           origem_canal: std.origem,
           origem_canal_nome: std.nome,
@@ -1243,7 +1321,7 @@ serve(async (req: Request) => {
         };
       });
 
-      const payload = (details || []).filter((x: any) => x && String(x.id || '').trim());
+      const payload = (details || []).filter((x) => x && String((x as Record<string, unknown>).id || '').trim());
       for (let i = 0; i < payload.length; i += 200) {
         const batch = payload.slice(i, i + 200);
         const { error: upErr } = await supabase
@@ -1292,7 +1370,8 @@ serve(async (req: Request) => {
       try {
         cursorText = await getConfigValue(supabaseUrl, serviceRoleKey, 'bling_sync_cursor');
       } catch (_e) {}
-      const parsedCursor: any = safeJsonParse(String(cursorText || ''));
+      const parsedCursorRaw = safeJsonParse(String(cursorText || ''));
+      const parsedCursor = (parsedCursorRaw && typeof parsedCursorRaw === 'object' ? parsedCursorRaw : {}) as Record<string, unknown>;
       const curFrom = String(parsedCursor?.from ?? '').slice(0, 10);
       const curTo = String(parsedCursor?.to ?? '').slice(0, 10);
       const curOffset = Number(parsedCursor?.offset ?? NaN);
@@ -1345,7 +1424,7 @@ serve(async (req: Request) => {
         .range(reprocessOffset, reprocessOffset + limit - 1);
       if (error) throw error;
       const pedidoIdsForApi = (rows || [])
-        .map((r: any) => String(r?.bling_id ?? r?.id ?? '').trim())
+        .map((r) => String((r as Record<string, unknown>)?.bling_id ?? (r as Record<string, unknown>)?.id ?? '').trim())
         .filter(Boolean);
       if (!pedidoIdsForApi.length) {
         try {
@@ -1370,18 +1449,19 @@ serve(async (req: Request) => {
       const base = 'https://api.bling.com.br/Api/v3/pedidos/vendas';
       const details = await mapWithConcurrency(pedidoIdsForApi, concurrency, async (id) => {
         const url = `${base}/${encodeURIComponent(id)}`;
-        const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+        const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
         const mapped = mapBlingOrder(json);
-        const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
-        if (infer.slug) (mapped as any)._canal = infer.slug;
-        if (infer.lojaId && !(mapped as any)?.loja?.id)
-          (mapped as any).loja = { ...(mapped as any).loja, id: infer.lojaId };
-        if (infer.lojaNome && !(mapped as any)?.loja?.nome)
-          (mapped as any).loja = { ...(mapped as any).loja, nome: infer.lojaNome };
-        if (infer.canalNome && !(mapped as any)?.canal?.nome)
-          (mapped as any).canal = { ...(mapped as any).canal, nome: infer.canalNome };
-        if (infer.numeroPedidoEcommerce && !(mapped as any)?.numeroPedidoEcommerce)
-          (mapped as any).numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
+        const jsonObj = json as Record<string, unknown>;
+        const infer = inferCanalSlugFromBling(mapped?._raw ?? jsonObj?.data ?? json ?? {}, lojaIdMap);
+        if (infer.slug) mapped._canal = infer.slug;
+        if (infer.lojaId && !mapped?.loja?.id)
+          mapped.loja = { ...mapped.loja, id: infer.lojaId };
+        if (infer.lojaNome && !mapped?.loja?.nome)
+          mapped.loja = { ...mapped.loja, nome: infer.lojaNome };
+        if (infer.canalNome && !mapped?.canal?.nome)
+          mapped.canal = { ...mapped.canal, nome: infer.canalNome };
+        if (infer.numeroPedidoEcommerce && !mapped?.numeroPedidoEcommerce)
+          mapped.numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
         return mapped;
       });
 
@@ -1404,7 +1484,7 @@ serve(async (req: Request) => {
       } catch (_e) {}
 
       const items = details.reduce(
-        (acc, o: any) => acc + (Array.isArray(o?.itens) ? o.itens.length : 0),
+        (acc, o) => acc + (Array.isArray(o?.itens) ? o.itens.length : 0),
         0,
       );
       try {
@@ -1441,8 +1521,9 @@ serve(async (req: Request) => {
 
     while (ids.length < limit && pagesFetched < maxPages) {
       const url = `${base}?dataInicial=${encodeURIComponent(from)}&dataFinal=${encodeURIComponent(to)}&pagina=${page}&limite=${limit}`;
-      const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
-      const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+      const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+      const jsonObj = json as Record<string, unknown>;
+      const data: unknown[] = Array.isArray(jsonObj?.data) ? (jsonObj.data as unknown[]) : Array.isArray(json) ? (json as unknown[]) : [];
       lastPageLen = data.length;
       if (!data.length) break;
       let slice = data;
@@ -1455,8 +1536,8 @@ serve(async (req: Request) => {
         hadExtraInPage = true;
         slice = slice.slice(0, remaining);
       }
-      slice.forEach((r: any) => {
-        const id = String(r?.id ?? '').trim();
+      slice.forEach((r) => {
+        const id = String((r as Record<string, unknown>)?.id ?? '').trim();
         if (!id || seen.has(id)) return;
         seen.add(id);
         ids.push(id);
@@ -1480,18 +1561,19 @@ serve(async (req: Request) => {
 
     const details = await mapWithConcurrency(uniqueIds, concurrency, async (id) => {
       const url = `${base}/${encodeURIComponent(id)}`;
-      const json: any = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
+      const json = await blingFetchJson(url, tokenRef, supabaseUrl, serviceRoleKey);
       const mapped = mapBlingOrder(json);
-      const infer = inferCanalSlugFromBling(mapped?._raw ?? json?.data ?? json ?? {}, lojaIdMap);
-      if (infer.slug) (mapped as any)._canal = infer.slug;
-      if (infer.lojaId && !(mapped as any)?.loja?.id)
-        (mapped as any).loja = { ...(mapped as any).loja, id: infer.lojaId };
-      if (infer.lojaNome && !(mapped as any)?.loja?.nome)
-        (mapped as any).loja = { ...(mapped as any).loja, nome: infer.lojaNome };
-      if (infer.canalNome && !(mapped as any)?.canal?.nome)
-        (mapped as any).canal = { ...(mapped as any).canal, nome: infer.canalNome };
-      if (infer.numeroPedidoEcommerce && !(mapped as any)?.numeroPedidoEcommerce)
-        (mapped as any).numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
+      const jsonObj = json as Record<string, unknown>;
+      const infer = inferCanalSlugFromBling(mapped?._raw ?? jsonObj?.data ?? json ?? {}, lojaIdMap);
+      if (infer.slug) mapped._canal = infer.slug;
+      if (infer.lojaId && !mapped?.loja?.id)
+        mapped.loja = { ...mapped.loja, id: infer.lojaId };
+      if (infer.lojaNome && !mapped?.loja?.nome)
+        mapped.loja = { ...mapped.loja, nome: infer.lojaNome };
+      if (infer.canalNome && !mapped?.canal?.nome)
+        mapped.canal = { ...mapped.canal, nome: infer.canalNome };
+      if (infer.numeroPedidoEcommerce && !mapped?.numeroPedidoEcommerce)
+        mapped.numeroPedidoEcommerce = infer.numeroPedidoEcommerce;
       return mapped;
     });
 
@@ -1548,7 +1630,7 @@ serve(async (req: Request) => {
           console.log('[bling-sync] products synced', { count });
         } catch (e) {
           console.log('[bling-sync] product sync failed', {
-            message: (e as any)?.message || String(e),
+            message: e instanceof Error ? e.message : String(e),
           });
         }
       }
@@ -1576,13 +1658,14 @@ serve(async (req: Request) => {
       hasMore,
     });
   } catch (e) {
-    const err = e as any;
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const errStack = e instanceof Error ? e.stack : undefined;
     try {
-      console.log('[bling-sync] internal error', { message: err?.message || String(err) });
-      if (err?.stack) console.log(String(err.stack).slice(0, 5000));
+      console.log('[bling-sync] internal error', { message: errMsg });
+      if (errStack) console.log(String(errStack).slice(0, 5000));
     } catch (_e) {}
     await captureToSentry(e, { function: 'bling-sync' }).catch(() => {});
-    const msg = String(err?.message || String(err) || '');
+    const msg = String(errMsg || '');
     if (msg.startsWith('BLING_REAUTH_REQUIRED:')) {
       return jsonResponse(
         {
@@ -1595,8 +1678,8 @@ serve(async (req: Request) => {
         401,
       );
     }
-    if (isBlingCommunicationError(err)) {
-      return jsonResponse({ error: err?.message || String(err) }, 400);
+    if (isBlingCommunicationError(e)) {
+      return jsonResponse({ error: errMsg }, 400);
     }
     return jsonResponse({ error: err?.message || String(err) }, 500);
   }
