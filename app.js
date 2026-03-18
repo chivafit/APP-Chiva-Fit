@@ -14578,8 +14578,18 @@ async function loadOrdersFromSupabaseForCRM() {
     }
     if (pedErr) throw pedErr;
 
-    console.log('[loadOrdersFromSupabaseForCRM] pedRows:', pedRows?.length, 'error:', pedErr);
-    console.log('[loadOrdersFromSupabaseForCRM] cliRows:', cliRows?.length, 'error:', cliErr);
+    console.log(
+      '[loadOrdersFromSupabaseForCRM] pedRows:', pedRows?.length ?? 'null',
+      '| cliRows:', cliRows?.length ?? 'null',
+      '| error:', pedErr ?? 'none',
+    );
+    if (!Array.isArray(pedRows) || pedRows.length === 0) {
+      console.warn(
+        '[loadOrdersFromSupabaseForCRM] ⚠ v2_pedidos retornou 0 linhas.',
+        'blingOrders do cache localStorage ser\u00e1 PRESERVADO.',
+        'Se os pedidos n\u00e3o aparecerem, execute a sincroniza\u00e7\u00e3o do Bling.',
+      );
+    }
 
     const { data: yampiRows, error: yampiErr } = await supaClient
       .from(DB_SCHEMA.TABLES.YAMPI_ORDERS)
@@ -14849,7 +14859,22 @@ async function loadOrdersFromSupabaseForCRM() {
       const ex = extractYampiCustomer(raw);
       const city = y.city || ex.city || '';
       const state = y.state || ex.state || '';
-      const itens = extractYampiItems(raw);
+      let itens = extractYampiItems(raw);
+
+      // Se extractYampiItems não encontrou itens, tenta v2_pedidos_items via pedRow correspondente
+      if (!itens.length) {
+        const yExtId = String(y.external_id || '').trim();
+        const matchingPed = (pedRows || []).find(
+          (p) =>
+            String(p.numero_pedido || '').trim() === yExtId ||
+            String(p.bling_id || '').trim() === yExtId,
+        );
+        if (matchingPed && itemsByPedidoId[matchingPed.id]?.length) {
+          itens = itemsByPedidoId[matchingPed.id];
+          console.log(`[loadOrdersFromSupabaseForCRM] Yampi ${yExtId}: itens via v2_pedidos_items (${itens.length})`);
+        }
+      }
+
       const o = {
         id: y.external_id,
         numero: y.external_id,
@@ -14886,12 +14911,30 @@ async function loadOrdersFromSupabaseForCRM() {
       if (!exists) nextYampi.push(normalized);
     });
 
-    blingOrders.length = 0;
-    blingOrders.push(...nextBling);
-    safeSetItem('crm_bling_orders', JSON.stringify(blingOrders));
-    yampiOrders.length = 0;
-    yampiOrders.push(...nextYampi);
-    safeSetItem('crm_yampi_orders', JSON.stringify(yampiOrders));
+    // Só sobrescreve blingOrders se v2_pedidos retornou dados reais.
+    // Evita destruir cache do localStorage quando a tabela está vazia.
+    if (Array.isArray(pedRows) && pedRows.length > 0) {
+      blingOrders.length = 0;
+      blingOrders.push(...nextBling);
+      safeSetItem('crm_bling_orders', JSON.stringify(blingOrders));
+      console.log(`[loadOrdersFromSupabaseForCRM] \u2713 blingOrders: ${nextBling.length} de ${pedRows.length} linhas de v2_pedidos`);
+    } else {
+      console.warn(
+        `[loadOrdersFromSupabaseForCRM] \u26a0 v2_pedidos vazio \u2014 blingOrders preservado (${blingOrders.length} pedidos em cache).`,
+        'Sincronize o Bling para popular v2_pedidos.',
+      );
+    }
+    // Só sobrescreve yampiOrders se yampi retornou dados reais.
+    if (Array.isArray(yampiRows) && yampiRows.length > 0) {
+      yampiOrders.length = 0;
+      yampiOrders.push(...nextYampi);
+      safeSetItem('crm_yampi_orders', JSON.stringify(yampiOrders));
+      console.log(`[loadOrdersFromSupabaseForCRM] \u2713 yampiOrders: ${nextYampi.length} de ${yampiRows.length} linhas yampi`);
+    } else if (nextYampi.length > 0) {
+      yampiOrders.length = 0;
+      yampiOrders.push(...nextYampi);
+      safeSetItem('crm_yampi_orders', JSON.stringify(yampiOrders));
+    }
 
     // Sincroniza dados de clientes com a tabela v2_clientes (garante que dados da Yampi entrem na base)
     if (persistBack && (nextYampi.length || nextBling.length)) {
