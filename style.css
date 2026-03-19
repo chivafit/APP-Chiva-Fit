@@ -7009,7 +7009,7 @@ html.light {
   --bg: #f7f8fb;
   --surface: #ffffff;
   --card: #ffffff;
-  --card-hover: #f4f6f8;
+  --card-hover: rgba(0, 217, 126, 0.07);
   --border: #e6e8ee;
   --border-sub: #eef0f4;
   --border2: #d7dbe4;
@@ -8686,19 +8686,19 @@ html.light .btn {
 }
 html.light .btn:hover {
   background: var(--card-hover);
-  border-color: var(--chiva-primary-border);
-  color: var(--text);
+  border-color: var(--chiva-primary);
+  color: var(--chiva-primary);
 }
-/* botões de marca não devem herdar o fundo branco do light mode */
-html.light .btn-dash-primary,
+/* botões de marca: ghost em default, sólido no hover */
+html.light .btn-dash-primary {
+  background: #fff;
+  border-color: var(--chiva-primary-border);
+  color: var(--chiva-primary);
+}
 html.light .btn-dash-primary:hover {
   background: var(--chiva-primary);
   border-color: var(--chiva-primary);
-  color: #04130b;
-}
-html.light .btn-dash-primary:hover {
-  background: var(--chiva-primary-light);
-  border-color: var(--chiva-primary-light);
+  color: #fff;
 }
 
 /* btn-mod-save: usa cor da marca em vez de #5a9e30 hardcoded */
@@ -8854,15 +8854,15 @@ html.light .mod-field textarea {
   align-items: flex-start;
 }
 .btn-dash-primary {
-  background: var(--chiva-primary);
-  border-color: var(--chiva-primary);
-  color: #fff;
+  background: transparent;
+  border-color: var(--chiva-primary-border);
+  color: var(--chiva-primary);
   font-weight: 700;
 }
 .btn-dash-primary:hover {
-  background: var(--chiva-primary-light);
-  border-color: var(--chiva-primary-light);
-  color: var(--chiva-dark);
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  color: #fff;
   transform: translateY(-1px);
   box-shadow: var(--shadow-brand);
 }
