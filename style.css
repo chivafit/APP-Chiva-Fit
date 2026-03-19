@@ -8659,6 +8659,17 @@ html.light .btn:hover {
   border-color: var(--chiva-primary-border);
   color: var(--text);
 }
+/* botões de marca não devem herdar o fundo branco do light mode */
+html.light .btn-dash-primary,
+html.light .btn-dash-primary:hover {
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  color: #04130b;
+}
+html.light .btn-dash-primary:hover {
+  background: var(--chiva-primary-light);
+  border-color: var(--chiva-primary-light);
+}
 
 /* btn-mod-save: usa cor da marca em vez de #5a9e30 hardcoded */
 .btn-mod-save {
