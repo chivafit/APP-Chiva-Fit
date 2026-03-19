@@ -14627,8 +14627,8 @@ function renderAlertas() {
     `;
   }
 
-  // ── Render item ──────────────────────────────────────
-  const renderItem = (x) => {
+  // ── Render VIP Card (premium horizontal) ─────────────
+  const renderVipCard = (x) => {
     const c = x.c;
     const s = x.s;
     const ds = daysSince(c.last);
@@ -14636,58 +14636,62 @@ function renderAlertas() {
     const phone = rawPhone(c.phone || c.phones?.[0] || '');
     const initial = (c.nome || '?')[0].toUpperCase();
     const churnCls = (s.churnRisk || 0) >= 80 ? 'danger' : (s.churnRisk || 0) >= 60 ? 'warning' : 'neutral';
-    
+
     return `
-      <div class="alert-card" onclick="openClientePage('${safeKey}')">
-        <div class="alert-card-header">
-          <div class="alert-card-avatar">${initial}</div>
-          <div class="alert-card-info">
-            <div class="alert-card-name">${escapeHTML(c.nome || 'Cliente')}</div>
-            <div class="alert-card-meta">
-              ${ds < 9999 ? `<span class="alert-badge alert-badge--days">${ds}d sem comprar</span>` : ''}
-              ${s.churnRisk ? `<span class="alert-badge alert-badge--${churnCls}">Churn ${s.churnRisk}%</span>` : ''}
-            </div>
+      <div class="alert-vip-card" onclick="openClientePage('${safeKey}')">
+        <div class="alert-vip-avatar">${initial}</div>
+        <div class="alert-vip-body">
+          <div class="alert-vip-name">${escapeHTML(c.nome || 'Cliente')}</div>
+          <div class="alert-vip-meta">
+            ${ds < 9999 ? `<span class="alert-badge alert-badge--days">${ds}d sem comprar</span>` : ''}
+            ${s.churnRisk ? `<span class="alert-badge alert-badge--${churnCls}">Churn ${s.churnRisk}%</span>` : ''}
           </div>
         </div>
-        
-        <div class="alert-card-stats">
-          ${s.ltv ? `
-            <div class="alert-stat">
-              <div class="alert-stat-label">LTV</div>
-              <div class="alert-stat-value">${fmtBRL(s.ltv)}</div>
-            </div>
-          ` : ''}
-          ${s.avgInterval ? `
-            <div class="alert-stat">
-              <div class="alert-stat-label">Ciclo</div>
-              <div class="alert-stat-value">${s.avgInterval}d</div>
-            </div>
-          ` : ''}
-          ${c.total ? `
-            <div class="alert-stat">
-              <div class="alert-stat-label">Total</div>
-              <div class="alert-stat-value">${fmtBRL(c.total)}</div>
-            </div>
-          ` : ''}
+        <div class="alert-vip-stats">
+          ${s.ltv ? `<div class="alert-vip-stat-item"><span class="alert-vip-stat-label">LTV</span><span class="alert-vip-stat-value">${fmtBRL(s.ltv)}</span></div>` : ''}
+          ${s.n ? `<div class="alert-vip-stat-item"><span class="alert-vip-stat-label">Pedidos</span><span class="alert-vip-stat-value">${s.n}</span></div>` : ''}
         </div>
-        
-        <div class="alert-card-actions" onclick="event.stopPropagation()">
+        <div class="alert-vip-actions" onclick="event.stopPropagation()">
           ${phone ? `
             <button class="alert-action-btn alert-action-btn--primary" onclick="openWaModal('${safeKey}')" title="Enviar WhatsApp">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              WhatsApp
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              Acionar
             </button>
           ` : ''}
-          ${phone ? `
-            <button class="alert-action-btn alert-action-btn--secondary" onclick="oppSendCoupon('${safeKey}',10)" title="Enviar cupom de 10%">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
-              Cupom 10%
-            </button>
-          ` : ''}
-          <button class="alert-action-btn alert-action-btn--ghost" onclick="openClientePage('${safeKey}')" title="Ver perfil completo">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+          <button class="alert-action-btn alert-action-btn--ghost" onclick="openClientePage('${safeKey}')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
             Ver Perfil
           </button>
+        </div>
+      </div>
+    `;
+  };
+
+  // ── Render List Item (compact row) ───────────────────
+  const renderListItem = (x) => {
+    const c = x.c;
+    const s = x.s;
+    const ds = daysSince(c.last);
+    const safeKey = escapeJsSingleQuote(String(c.id || ''));
+    const phone = rawPhone(c.phone || c.phones?.[0] || '');
+    const initial = (c.nome || '?')[0].toUpperCase();
+    const churnCls = (s.churnRisk || 0) >= 80 ? 'danger' : (s.churnRisk || 0) >= 60 ? 'warning' : 'neutral';
+
+    return `
+      <div class="alert-list-item" onclick="openClientePage('${safeKey}')">
+        <div class="alert-list-avatar">${initial}</div>
+        <div class="alert-list-name">${escapeHTML(c.nome || 'Cliente')}</div>
+        <div class="alert-list-badges">
+          ${ds < 9999 ? `<span class="alert-badge alert-badge--days">${ds}d</span>` : ''}
+          ${s.avgInterval ? `<span class="alert-badge alert-badge--neutral">${s.avgInterval}d ciclo</span>` : ''}
+        </div>
+        <div class="alert-list-ltv">${s.ltv ? fmtBRL(s.ltv) : '—'}</div>
+        <div class="alert-list-churn">
+          ${s.churnRisk ? `<span class="alert-badge alert-badge--${churnCls}">${s.churnRisk}%</span>` : ''}
+        </div>
+        <div class="alert-list-actions" onclick="event.stopPropagation()">
+          ${phone ? `<button class="alert-list-btn alert-list-btn--action" onclick="openWaModal('${safeKey}')">Acionar</button>` : ''}
+          <button class="alert-list-btn alert-list-btn--ghost" onclick="openClientePage('${safeKey}')">Ver perfil</button>
         </div>
       </div>
     `;
@@ -14697,10 +14701,25 @@ function renderAlertas() {
   const sectionsEl = document.getElementById('alert-sections');
   if (!sectionsEl) return;
 
-  const renderSection = (icon, title, subtitle, accent, items, limit = 8) => {
+  const renderSection = (icon, title, subtitle, accent, items, type = 'list', limit = 12) => {
     if (!items.length) return '';
     const shown = items.slice(0, limit);
     const more = items.length - shown.length;
+
+    const listHeader = type === 'list' ? `
+      <div class="alert-list-header">
+        <div></div>
+        <div>Cliente</div>
+        <div>Inatividade</div>
+        <div>LTV</div>
+        <div>Churn</div>
+        <div>Ação</div>
+      </div>` : '';
+
+    const itemsHtml = type === 'vip'
+      ? `<div class="alert-vip-list">${shown.map(renderVipCard).join('')}</div>`
+      : `${listHeader}<div class="alert-list">${shown.map(renderListItem).join('')}</div>`;
+
     return `
       <div class="alert-section alert-section--${accent}">
         <div class="alert-section-header">
@@ -14713,19 +14732,17 @@ function renderAlertas() {
           </div>
           <span class="alert-section-count">${items.length}</span>
         </div>
-        <div class="alert-cards-grid">
-          ${shown.map(renderItem).join('')}
-        </div>
+        ${itemsHtml}
         ${more > 0 ? `<div class="alert-show-more">+ ${more} clientes não exibidos <button class="alert-show-more-btn" onclick="alert('Funcionalidade em desenvolvimento')">Ver todos</button></div>` : ''}
       </div>
     `;
   };
 
   const html =
-    renderSection('👑', 'VIPs em Risco', 'Clientes VIP inativos há 45+ dias — prioridade máxima', 'red', vipsRisco) +
-    renderSection('⚠️', 'Risco de Churn', 'Score de churn acima de 70% — agir agora', 'orange', churnAlto) +
-    renderSection('🔄', 'Fora do Ciclo de Recompra', 'Atrasados no ciclo médio — timing ideal de contato', 'blue', foraCiclo) +
-    renderSection('🧊', `Inativos ${ad}+ dias`, 'Clientes sem compra no período configurado', 'gray', inativos);
+    renderSection('👑', 'VIPs em Risco', 'Clientes VIP inativos há 45+ dias — prioridade máxima', 'red', vipsRisco, 'vip', 5) +
+    renderSection('⚠️', 'Risco de Churn', 'Score de churn acima de 70% — agir agora', 'orange', churnAlto, 'list', 12) +
+    renderSection('🔄', 'Fora do Ciclo de Recompra', 'Atrasados no ciclo médio — timing ideal de contato', 'blue', foraCiclo, 'list', 12) +
+    renderSection('🧊', `Inativos ${ad}+ dias`, 'Clientes sem compra no período configurado', 'gray', inativos, 'list', 15);
 
   sectionsEl.innerHTML = html || `<div class="empty" style="text-align:center;padding:48px;color:var(--text-3)">🎉 Nenhum alerta ativo no momento.</div>`;
 }
