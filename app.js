@@ -5125,7 +5125,7 @@ function normSt(s) {
   if (/aprovado|pago|conclu|fatur|enviado|entregue|paid|authorized/i.test(v)) return 'aprovado';
   if (/pendent|aguard|aberto|novo|pending/i.test(v)) return 'pendente';
   if (/cancel|refund|void/i.test(v)) return 'cancelado';
-  return null;
+  return 'outros';
 }
 const ST_LABEL = { aprovado: 'Aprovado', pendente: 'Pendente', cancelado: 'Cancelado' };
 const ST_CLASS = { aprovado: 's-aprovado', pendente: 's-pendente', cancelado: 's-cancelado' };
