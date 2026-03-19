@@ -7428,6 +7428,111 @@ function openDashActionsModal() {
   modal.classList.add('open');
 }
 
+// ── Calendário customizado do Dashboard ──────────────────────────
+const _DCAL_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const _DCAL_DAYS_HDR = ['D','S','T','Q','Q','S','S'];
+const _dashCal = {
+  year: new Date().getFullYear(),
+  month: new Date().getMonth(),
+  from: null,   // ISO YYYY-MM-DD
+  to: null,
+  stage: 'from', // 'from' | 'to'
+  hover: null,
+};
+
+function renderDashCal() {
+  const grid = document.getElementById('dash-cal-grid');
+  const titulo = document.getElementById('dash-cal-titulo');
+  const stageLbl = document.getElementById('dash-cal-stage-lbl');
+  if (!grid) return;
+
+  const { year, month, from, to, stage, hover } = _dashCal;
+  if (titulo) titulo.textContent = _DCAL_MONTHS[month] + ' ' + year;
+
+  const todayIso = new Date().toISOString().split('T')[0];
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // range para highlight: se estamos em stage 'to', usar hover como to provisório
+  const hoverTo = stage === 'to' && hover ? hover : null;
+  const rFrom = from;
+  const rTo = stage === 'to' && hoverTo ? (hoverTo < from ? from : hoverTo) : to;
+  const rFromAdj = stage === 'to' && hoverTo && hoverTo < from ? hoverTo : from;
+
+  let h = _DCAL_DAYS_HDR.map(d => `<div class="dcal-day-hdr">${d}</div>`).join('');
+
+  // dias do mês anterior
+  for (let i = 0; i < firstDay; i++) {
+    const d = new Date(year, month, -(firstDay - i - 1));
+    const diso = d.toISOString().split('T')[0];
+    h += `<div class="dcal-day other-month" onclick="dashCalClick('${diso}')" onmouseenter="dashCalHover('${diso}')">${d.getDate()}</div>`;
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const diso = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    let cls = 'dcal-day';
+    if (diso === todayIso) cls += ' dcal-today';
+    if (diso === rFromAdj) cls += ' dcal-sel-from';
+    if (diso === rTo && rTo !== rFromAdj) cls += ' dcal-sel-to';
+    if (diso === rTo && rTo === rFromAdj) cls += ' dcal-sel-from dcal-sel-to';
+    if (rFromAdj && rTo && diso > rFromAdj && diso < rTo) cls += ' dcal-in-range';
+    h += `<div class="${cls}" onclick="dashCalClick('${diso}')" onmouseenter="dashCalHover('${diso}')" onmouseleave="dashCalHover(null)">${day}</div>`;
+  }
+
+  grid.innerHTML = h;
+
+  // stage label
+  if (stageLbl) {
+    if (stage === 'from') stageLbl.textContent = 'Selecione a data inicial';
+    else if (stage === 'to' && from) stageLbl.textContent = fmtDate(from) + ' → clique para finalizar';
+  }
+}
+
+function dashCalClick(iso) {
+  if (_dashCal.stage === 'from') {
+    _dashCal.from = iso;
+    _dashCal.to = null;
+    _dashCal.stage = 'to';
+    _dashCal.hover = null;
+  } else {
+    const f = iso < _dashCal.from ? iso : _dashCal.from;
+    const t = iso < _dashCal.from ? _dashCal.from : iso;
+    _dashCal.from = f;
+    _dashCal.to = t;
+    _dashCal.stage = 'from';
+    _dashCal.hover = null;
+    // aplicar
+    _applyDashIsoRange(f, t, null);
+    return; // _applyDashIsoRange já fecha e renderiza
+  }
+  renderDashCal();
+}
+
+function dashCalHover(iso) {
+  if (_dashCal.stage === 'to') {
+    _dashCal.hover = iso;
+    renderDashCal();
+  }
+}
+
+function dashCalPrevMonth() {
+  _dashCal.month--;
+  if (_dashCal.month < 0) { _dashCal.month = 11; _dashCal.year--; }
+  renderDashCal();
+}
+
+function dashCalNextMonth() {
+  _dashCal.month++;
+  if (_dashCal.month > 11) { _dashCal.month = 0; _dashCal.year++; }
+  renderDashCal();
+}
+
+window.dashCalClick = dashCalClick;
+window.dashCalHover = dashCalHover;
+window.dashCalPrevMonth = dashCalPrevMonth;
+window.dashCalNextMonth = dashCalNextMonth;
+// ─────────────────────────────────────────────────────────────────
+
 function _applyDashIsoRange(fromIso, toIso, label) {
   const fromEl = document.getElementById('dash-from');
   const toEl = document.getElementById('dash-to');
@@ -7437,9 +7542,18 @@ function _applyDashIsoRange(fromIso, toIso, label) {
     localStorage.setItem('crm_dash_year', '');
     dashLastYearRange = '';
   }
-  // inputs type="date" esperam YYYY-MM-DD; inputs texto esperam dd/mm/yyyy
-  if (fromEl) fromEl.value = fromEl.type === 'date' ? fromIso : fmtDate(fromIso);
-  if (toEl) toEl.value = toEl.type === 'date' ? toIso : fmtDate(toIso);
+  if (fromEl) fromEl.value = fromIso;
+  if (toEl) toEl.value = toIso;
+  // sincroniza estado do calendário
+  _dashCal.from = fromIso;
+  _dashCal.to = toIso;
+  _dashCal.stage = 'from';
+  _dashCal.hover = null;
+  if (fromIso) {
+    const d = new Date(fromIso + 'T12:00:00');
+    _dashCal.year = d.getFullYear();
+    _dashCal.month = d.getMonth();
+  }
   localStorage.setItem('crm_dash_from', fromIso);
   localStorage.setItem('crm_dash_to', toIso);
   // atualiza label da pill
@@ -7455,6 +7569,7 @@ function _applyDashIsoRange(fromIso, toIso, label) {
   }
   // fecha os dropdowns
   document.getElementById('dash-period-wrap')?.classList.remove('open');
+  document.getElementById('dash-date-pill')?.classList.remove('open');
   renderDash();
 }
 
@@ -7498,7 +7613,9 @@ function dashDatePillToggle(e) {
   const pill = document.getElementById('dash-date-pill');
   const periodWrap = document.getElementById('dash-period-wrap');
   periodWrap?.classList.remove('open');
+  const opening = !pill?.classList.contains('open');
   pill?.classList.toggle('open');
+  if (opening) renderDashCal();
 }
 
 function dashPeriodToggle(e) {

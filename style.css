@@ -8963,74 +8963,146 @@ html.light .dash-date-pill { background: #fff; }
 }
 .dash-date-pill.open .dash-date-caret { transform: rotate(180deg); }
 
-/* dropdown da data */
+/* dropdown da data — calendário customizado */
 .dash-date-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   left: 0;
   z-index: 320;
-  min-width: 320px;
-  padding: 14px;
-  border-radius: 14px;
+  width: 288px;
+  padding: 12px;
+  border-radius: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
   display: none;
   flex-direction: column;
-  gap: 12px;
-}
-html.light .dash-date-dropdown { background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-.dash-date-pill.open .dash-date-dropdown { display: flex; }
-.dash-date-fields {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
-.dash-date-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-}
-.dash-date-lbl {
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.dash-date-input {
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
+html.light .dash-date-dropdown { background: #fff; box-shadow: 0 8px 28px rgba(0,0,0,0.14); }
+.dash-date-pill.open .dash-date-dropdown { display: flex; }
+
+/* stage label */
+.dcal-stage-lbl {
   font-size: 11px;
-  font-weight: 600;
-  font-family: var(--font);
-  outline: none;
-  width: 100%;
-  transition: border-color var(--t-fast);
+  font-weight: 700;
+  color: var(--chiva-primary);
+  text-align: center;
+  padding: 4px 0;
+  letter-spacing: -0.1px;
 }
-.dash-date-input:focus { border-color: rgba(15,167,101,0.45); box-shadow: 0 0 0 3px rgba(15,167,101,0.1); }
-.dash-date-input::placeholder { color: var(--text-3); }
-html.light .dash-date-input { background: #f8fafc; }
-.dash-date-between { color: var(--text-3); font-size: 14px; flex-shrink: 0; margin-top: 14px; }
-.dash-date-apply-btn {
-  width: 100%;
-  height: 34px;
-  border-radius: 9px;
-  border: none;
-  background: var(--chiva-primary);
-  color: #04130b;
+
+/* navegação mês */
+.dcal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0 6px;
+  border-bottom: 1px solid var(--border-sub);
+}
+.dcal-nav-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+  font-family: var(--font);
+  line-height: 1;
+}
+.dcal-nav-btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border);
+  color: var(--text);
+}
+.dcal-titulo {
   font-size: 12px;
   font-weight: 800;
-  font-family: var(--font);
-  cursor: pointer;
-  transition: background var(--t-fast);
+  color: var(--text);
+  letter-spacing: -0.2px;
 }
-.dash-date-apply-btn:hover { background: var(--chiva-primary-light); }
+
+/* grid 7 colunas */
+.dcal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.dcal-day-hdr {
+  text-align: center;
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 4px 0;
+}
+.dcal-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+  position: relative;
+  font-family: var(--mono);
+  user-select: none;
+}
+.dcal-day:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+.dcal-day.other-month {
+  color: var(--text-4);
+  opacity: 0.5;
+}
+.dcal-day.dcal-today {
+  color: var(--chiva-primary);
+  font-weight: 900;
+}
+.dcal-day.dcal-today::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--chiva-primary);
+}
+.dcal-day.dcal-sel-from,
+.dcal-day.dcal-sel-to {
+  background: var(--chiva-primary) !important;
+  color: #fff !important;
+  font-weight: 800;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15,167,101,0.4);
+}
+.dcal-day.dcal-in-range {
+  background: var(--chiva-primary-dim);
+  color: var(--chiva-primary-light);
+  border-radius: 0;
+}
+.dcal-day.dcal-sel-from.dcal-in-range { border-radius: 8px 0 0 8px; }
+.dcal-day.dcal-sel-to.dcal-in-range { border-radius: 0 8px 8px 0; }
+html.light .dcal-day.dcal-in-range {
+  background: rgba(15,167,101,0.08);
+  color: var(--chiva-primary-deep);
+}
+html.light .dcal-titulo { color: #0f172a; }
+html.light .dcal-day { color: #374151; }
+html.light .dcal-day:hover { background: #f1f5f2; }
 
 /* dropdown de período rápido ─────────────────── */
 .dash-period-wrap {

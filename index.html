@@ -818,26 +818,19 @@
                 <span id="dash-date-pill-label">Selecionar período</span>
                 <span class="dash-date-caret">▾</span>
                 <div class="dash-date-dropdown" id="dash-date-dropdown" onclick="event.stopPropagation()">
-                  <div class="dash-date-fields">
-                    <div class="dash-date-field">
-                      <label class="dash-date-lbl">De</label>
-                      <input
-                        id="dash-from"
-                        class="dash-date-input"
-                        type="date"
-                      />
-                    </div>
-                    <span class="dash-date-between">—</span>
-                    <div class="dash-date-field">
-                      <label class="dash-date-lbl">Até</label>
-                      <input
-                        id="dash-to"
-                        class="dash-date-input"
-                        type="date"
-                      />
-                    </div>
+                  <!-- Stage label -->
+                  <div class="dcal-stage-lbl" id="dash-cal-stage-lbl">Selecione a data inicial</div>
+                  <!-- Navegação mês -->
+                  <div class="dcal-nav">
+                    <button class="dcal-nav-btn" onclick="dashCalPrevMonth()">‹</button>
+                    <span class="dcal-titulo" id="dash-cal-titulo"></span>
+                    <button class="dcal-nav-btn" onclick="dashCalNextMonth()">›</button>
                   </div>
-                  <button class="dash-date-apply-btn" onclick="applyDashDateRange()">Aplicar</button>
+                  <!-- Grid calendário -->
+                  <div class="dcal-grid" id="dash-cal-grid"></div>
+                  <!-- Inputs ocultos (compatibilidade com JS existente) -->
+                  <input type="hidden" id="dash-from" />
+                  <input type="hidden" id="dash-to" />
                 </div>
               </div>
 
