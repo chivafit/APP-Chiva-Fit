@@ -824,9 +824,7 @@
                       <input
                         id="dash-from"
                         class="dash-date-input"
-                        data-date-mask="1"
-                        inputmode="numeric"
-                        placeholder="dd/mm/aaaa"
+                        type="date"
                       />
                     </div>
                     <span class="dash-date-between">—</span>
@@ -835,9 +833,7 @@
                       <input
                         id="dash-to"
                         class="dash-date-input"
-                        data-date-mask="1"
-                        inputmode="numeric"
-                        placeholder="dd/mm/aaaa"
+                        type="date"
                       />
                     </div>
                   </div>
@@ -1156,16 +1152,18 @@
                 <div id="radar-today-actions"></div>
 
                 <div class="radar-filterbar">
-                  <div class="radar-search">
-                    <span class="radar-search-ico">⌕</span>
-                    <input
-                      id="radar-q"
-                      class="radar-search-input"
-                      placeholder="Buscar cliente, cidade, responsável..."
-                      oninput="renderOportunidades()"
-                    />
+                  <div class="radar-filterbar-top">
+                    <div class="radar-search">
+                      <span class="radar-search-ico">⌕</span>
+                      <input
+                        id="radar-q"
+                        class="radar-search-input"
+                        placeholder="Buscar cliente, cidade, responsável..."
+                        oninput="renderOportunidades()"
+                      />
+                    </div>
                   </div>
-                  <div class="radar-chips" id="radar-chips"></div>
+                  <div class="radar-filterbar-chips" id="radar-chips"></div>
                 </div>
 
                 <div id="radar-groups"></div>

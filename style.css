@@ -7780,20 +7780,40 @@ html.light .compare-card {
 }
 .radar-filterbar {
   display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface);
+}
+html.light .radar-filterbar {
+  background: #fff;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+}
+.radar-filterbar-top {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  gap: 8px;
+}
+.radar-filterbar-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
 }
 .radar-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 10px 14px;
   min-width: 240px;
   flex: 1 1 320px;
 }
@@ -7825,11 +7845,7 @@ html.light .compare-card {
   font-weight: 600;
 }
 .radar-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  flex: 0 0 auto;
+  display: contents; /* herda layout do pai .radar-filterbar-chips */
 }
 .radar-chip {
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -8893,8 +8909,8 @@ html.light .dash-filterbar-v2 {
   background-repeat: no-repeat;
   transition: border-color var(--t-fast), color var(--t-fast);
 }
-.dash-fsel:hover { border-color: rgba(15,167,101,0.3); color: var(--text); }
-.dash-fsel:focus { border-color: rgba(15,167,101,0.45); box-shadow: 0 0 0 3px rgba(15,167,101,0.12); }
+.dash-fsel:hover { border-color: var(--border2); color: var(--text); }
+.dash-fsel:focus { border-color: var(--border2); box-shadow: none; }
 html.light .dash-fsel { background: #fff; }
 
 /* separador vertical */
@@ -8921,13 +8937,20 @@ html.light .dash-fsel { background: #fff; }
   font-weight: 700;
   font-family: var(--font);
   cursor: pointer;
-  user-select: none;
   white-space: nowrap;
   transition: border-color var(--t-fast), color var(--t-fast);
 }
-.dash-date-pill:hover { border-color: rgba(15,167,101,0.3); color: var(--text); }
-.dash-date-pill.open { border-color: rgba(15,167,101,0.45); color: var(--text); box-shadow: 0 0 0 3px rgba(15,167,101,0.12); }
+.dash-date-pill:hover { border-color: var(--border2); color: var(--text); }
+.dash-date-pill.open { border-color: var(--border2); color: var(--text); }
 html.light .dash-date-pill { background: #fff; }
+/* inputs dentro do dropdown devem ser sempre interativos */
+.dash-date-dropdown input,
+.dash-date-dropdown button {
+  user-select: text;
+  pointer-events: all;
+  cursor: auto;
+}
+.dash-date-dropdown button { cursor: pointer; }
 .dash-date-ico { font-size: 13px; }
 .dash-date-caret {
   font-size: 10px;
@@ -9028,11 +9051,8 @@ html.light .dash-date-input { background: #f8fafc; }
 }
 .dash-period-trigger:hover,
 .dash-period-wrap.open .dash-period-trigger {
-  border-color: rgba(15,167,101,0.35);
+  border-color: var(--border2);
   color: var(--text);
-}
-.dash-period-wrap.open .dash-period-trigger {
-  box-shadow: 0 0 0 3px rgba(15,167,101,0.12);
 }
 html.light .dash-period-trigger { background: #fff; }
 .dash-period-caret {
@@ -9101,7 +9121,7 @@ html.light .dash-period-menu { background: #fff; box-shadow: 0 8px 20px rgba(0,0
   white-space: nowrap;
   transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
 }
-.dash-filter-btn:hover { border-color: rgba(15,167,101,0.3); color: var(--text); }
+.dash-filter-btn:hover { border-color: var(--border2); color: var(--text); }
 .dash-filter-btn.active {
   background: rgba(15,167,101,0.12);
   border-color: rgba(15,167,101,0.38);

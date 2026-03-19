@@ -5620,12 +5620,16 @@ function renderDashNow() {
         console.log('[renderDashNow] Período do dashboard resetado (data armazenada > 2 anos).');
       }
     }
-    if (storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
-    if (storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
+    if (storedFrom && !fromEl.value)
+      fromEl.value = fromEl.type === 'date' ? storedFrom : fmtDate(storedFrom);
+    if (storedTo && !toEl.value)
+      toEl.value = toEl.type === 'date' ? storedTo : fmtDate(storedTo);
     // atualiza label da pill de data
     const pillLabel = document.getElementById('dash-date-pill-label');
-    if (pillLabel && fromEl.value && toEl.value) {
-      pillLabel.textContent = fromEl.value + ' — ' + toEl.value;
+    const _pFrom = storedFrom || (fromEl.type === 'date' ? fromEl.value : parseDateToIso(fromEl.value));
+    const _pTo = storedTo || (toEl.type === 'date' ? toEl.value : parseDateToIso(toEl.value));
+    if (pillLabel && _pFrom && _pTo) {
+      pillLabel.textContent = fmtDate(_pFrom) + ' — ' + fmtDate(_pTo);
     }
 
     const selectedYear = Number(yearSel?.value || '');
@@ -7360,8 +7364,9 @@ function _applyDashIsoRange(fromIso, toIso, label) {
     localStorage.setItem('crm_dash_year', '');
     dashLastYearRange = '';
   }
-  if (fromEl) fromEl.value = fmtDate(fromIso);
-  if (toEl) toEl.value = fmtDate(toIso);
+  // inputs type="date" esperam YYYY-MM-DD; inputs texto esperam dd/mm/yyyy
+  if (fromEl) fromEl.value = fromEl.type === 'date' ? fromIso : fmtDate(fromIso);
+  if (toEl) toEl.value = toEl.type === 'date' ? toIso : fmtDate(toIso);
   localStorage.setItem('crm_dash_from', fromIso);
   localStorage.setItem('crm_dash_to', toIso);
   // atualiza label da pill
@@ -7441,6 +7446,7 @@ document.addEventListener('click', function (e) {
   }
 });
 
+window.setDashRange = setDashRange;
 window.setDashRangeMonths = setDashRangeMonths;
 window.applyDashDateRange = applyDashDateRange;
 window.dashDatePillToggle = dashDatePillToggle;
