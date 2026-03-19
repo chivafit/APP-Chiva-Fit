@@ -6270,23 +6270,7 @@ function renderDashNow() {
   const pctRec = cliList.length ? Math.round((recorrentes / cliList.length) * 100) : 0;
 
   const sr = document.getElementById('source-row');
-  if (sr) {
-    const dot = (color) => `<svg width="6" height="6" viewBox="0 0 6 6" fill="${color}"><circle cx="3" cy="3" r="3"/></svg>`;
-    sr.innerHTML =
-      (blingOrders.length
-        ? `<span class="src-badge">${dot('#60a5fa')} Bling · ${blingOrders.length}</span>`
-        : '') +
-      (yampiOrders.length
-        ? `<span class="src-badge">${dot('#d946ef')} Yampi · ${yampiOrders.length}</span>`
-        : '') +
-      (shopifyOrders.length
-        ? `<span class="src-badge">${dot('#84cc16')} Shopify · ${shopifyOrders.length}</span>`
-        : '') +
-      (dashCh
-        ? `<span class="src-badge">Filtro: ${escapeHTML(CH[dashCh] || dashCh)}</span>`
-        : '') +
-      (!ordersSales.length ? `<span style="color:var(--text-3);font-size:12px">Sem dados no período</span>` : '');
-  }
+  if (sr) sr.innerHTML = '';
 
   // ticket precisa ser declarado antes do bloco CC (evita TDZ com const)
   const ticket = ordersSales.length ? total / ordersSales.length : 0;
@@ -14316,12 +14300,24 @@ function renderBrazilMap(stateMap, options) {
   const totals = Object.values(stateMap || {}).map((s) => Number(s?.total || 0) || 0);
   const maxTotal = Math.max(1, ...totals);
   const isLightMap = document.documentElement.classList.contains('light');
+  // 3-stop scale with cube-root normalization for better low-end contrast
   const getFill = (val) => {
     const v = Number(val || 0) || 0;
-    if (v <= 0) return isLightMap ? '#e8f5ee' : '#101e16';
-    const t = Math.sqrt(v / maxTotal);
-    // Escala verde da marca: muted green → brand green (#00D97E)
-    return lerpColor(isLightMap ? '#bbf7d0' : '#0d3320', '#00D97E', t);
+    if (v <= 0) return isLightMap ? '#eef7f1' : '#0a1810';
+    const t = Math.cbrt(v / maxTotal); // cube root spreads low values apart
+    if (t <= 0.5) {
+      return lerpColor(
+        isLightMap ? '#bbf7d0' : '#052e16',
+        isLightMap ? '#22c55e' : '#15803d',
+        t * 2,
+      );
+    } else {
+      return lerpColor(
+        isLightMap ? '#22c55e' : '#15803d',
+        isLightMap ? '#14532d' : '#4ade80',
+        (t - 0.5) * 2,
+      );
+    }
   };
 
   container.innerHTML = '';
@@ -14335,12 +14331,7 @@ function renderBrazilMap(stateMap, options) {
       tooltip.style.display = 'none';
       geoMapTooltipEl = tooltip;
 
-      const legend = document.createElement('div');
-      legend.className = 'geo-map-legend';
-      legend.innerHTML = `<span class="lbl">${escapeHTML(fmtBRL(0))}</span><span class="bar"></span><span class="lbl">${escapeHTML(fmtBRL(maxTotal))}</span>`;
-
       container.appendChild(tooltip);
-      container.appendChild(legend);
 
       const stateEls = svg.querySelectorAll('.state[id]');
       stateEls.forEach((el) => {
