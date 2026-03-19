@@ -10254,6 +10254,13 @@ let radarOppFilters = safeJsonParse('crm_radar_filters', {
   carrinho: false,
 });
 let radarOppLastModel = null;
+const RADAR_PAGE_SIZE = 9;
+let radarGroupPages = {};
+
+window.radarExpandGroup = function (groupId) {
+  radarGroupPages[groupId] = (radarGroupPages[groupId] || 1) + 1;
+  renderOportunidades();
+};
 
 function saveRadarOppFilters() {
   try {
@@ -10292,6 +10299,7 @@ function radarToggleOppFilter(key) {
     radarOppFilters[k] = !radarOppFilters[k];
   }
   saveRadarOppFilters();
+  radarGroupPages = {};
   renderOportunidades();
 }
 
@@ -10930,8 +10938,14 @@ async function renderOportunidadesFromSupabase() {
       return `<div class="radar-card" onclick="openOppClienteResumo('${safeKey}')">${nameLine}${kv}${prob}${action}${buttons}</div>`;
     };
 
-    const renderGroup = (title, subtitle, list) => {
+    const renderGroup = (groupId, title, subtitle, list) => {
       if (!list.length) return '';
+      const pages = radarGroupPages[groupId] || 1;
+      const visible = list.slice(0, pages * RADAR_PAGE_SIZE);
+      const remaining = list.length - visible.length;
+      const showMoreBtn = remaining > 0
+        ? `<button class="radar-show-more" onclick="radarExpandGroup('${escapeHTML(groupId)}')">Ver mais ${remaining > RADAR_PAGE_SIZE ? RADAR_PAGE_SIZE : remaining} <span class="radar-show-more-count">de ${remaining} restantes</span></button>`
+        : '';
       return `
         <div class="radar-group">
           <div class="radar-group-hdr">
@@ -10939,9 +10953,10 @@ async function renderOportunidadesFromSupabase() {
               <div class="radar-group-title">${escapeHTML(title)}</div>
               <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
             </div>
-            <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+            <span class="radar-group-count">${escapeHTML(String(list.length))}</span>
           </div>
-          <div class="radar-grid">${list.map(renderCard).join('')}</div>
+          <div class="radar-grid">${visible.map(renderCard).join('')}</div>
+          ${showMoreBtn}
         </div>
       `;
     };
@@ -10968,17 +10983,18 @@ async function renderOportunidadesFromSupabase() {
     visitouCold.sort(sortVisitouCold);
 
     const groupsHtml =
-      renderGroup('🛒 CARRINHO QUENTE', 'Alta chance de recuperar agora', visitouHot) +
-      renderGroup('👀 VISITOU (FRIO)', 'Nutrir e acompanhar', visitouCold) +
-      renderGroup('🔥 PRIORIDADE ALTA', 'Execute hoje', priorityHigh) +
+      renderGroup('visitouHot', '🛒 CARRINHO QUENTE', 'Alta chance de recuperar agora', visitouHot) +
+      renderGroup('visitouCold', '👀 VISITOU (FRIO)', 'Nutrir e acompanhar', visitouCold) +
+      renderGroup('priorityHigh', '🔥 PRIORIDADE ALTA', 'Execute hoje', priorityHigh) +
       renderGroup(
+        'highValue',
         '💰 ALTO VALOR',
         `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`,
         highValue,
       ) +
-      renderGroup('🔄 RECOMPRA', 'Clientes no timing de reposição', rebuy) +
-      renderGroup('⚠️ EM RISCO', 'Recuperação e retenção', risk) +
-      renderGroup('🧊 INATIVOS', '120+ dias sem comprar', inactive);
+      renderGroup('rebuy', '🔄 RECOMPRA', 'Clientes no timing de reposição', rebuy) +
+      renderGroup('risk', '⚠️ EM RISCO', 'Recuperação e retenção', risk) +
+      renderGroup('inactive', '🧊 INATIVOS', '120+ dias sem comprar', inactive);
 
     groupsEl.innerHTML =
       groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
@@ -11974,8 +11990,14 @@ function renderOportunidades() {
     `;
   };
 
-  const renderGroup = (title, subtitle, list) => {
+  const renderGroup = (groupId, title, subtitle, list) => {
     if (!list.length) return '';
+    const pages = radarGroupPages[groupId] || 1;
+    const visible = list.slice(0, pages * RADAR_PAGE_SIZE);
+    const remaining = list.length - visible.length;
+    const showMoreBtn = remaining > 0
+      ? `<button class="radar-show-more" onclick="radarExpandGroup('${escapeHTML(groupId)}')">Ver mais ${remaining > RADAR_PAGE_SIZE ? RADAR_PAGE_SIZE : remaining} <span class="radar-show-more-count">de ${remaining} restantes</span></button>`
+      : '';
     return `
       <div class="radar-group">
         <div class="radar-group-hdr">
@@ -11983,9 +12005,10 @@ function renderOportunidades() {
             <div class="radar-group-title">${escapeHTML(title)}</div>
             <div class="radar-group-sub">${escapeHTML(subtitle)}</div>
           </div>
-          <div class="radar-group-sub">${escapeHTML(String(list.length))}</div>
+          <span class="radar-group-count">${escapeHTML(String(list.length))}</span>
         </div>
-        <div class="radar-grid">${list.map(renderCard).join('')}</div>
+        <div class="radar-grid">${visible.map(renderCard).join('')}</div>
+        ${showMoreBtn}
       </div>
     `;
   };
@@ -12012,17 +12035,18 @@ function renderOportunidades() {
   visitouCold.sort(sortVisitouCold);
 
   const groupsHtml =
-    renderGroup('🛒 CARRINHO QUENTE', 'Alta chance de recuperar agora', visitouHot) +
-    renderGroup('👀 VISITOU (FRIO)', 'Nutrir e acompanhar', visitouCold) +
-    renderGroup('🔥 PRIORIDADE ALTA', 'Execute hoje', priorityHigh) +
+    renderGroup('visitouHot', '🛒 CARRINHO QUENTE', 'Alta chance de recuperar agora', visitouHot) +
+    renderGroup('visitouCold', '👀 VISITOU (FRIO)', 'Nutrir e acompanhar', visitouCold) +
+    renderGroup('priorityHigh', '🔥 PRIORIDADE ALTA', 'Execute hoje', priorityHigh) +
     renderGroup(
+      'highValue',
       '💰 ALTO VALOR',
       `LTV acima de ${escapeHTML(fmtBRL(highValueThreshold))}`,
       highValue,
     ) +
-    renderGroup('🔄 RECOMPRA', 'Clientes no timing de reposição', rebuy) +
-    renderGroup('⚠️ EM RISCO', 'Recuperação e retenção', risk) +
-    renderGroup('🧊 INATIVOS', '120+ dias sem comprar', inactive);
+    renderGroup('rebuy', '🔄 RECOMPRA', 'Clientes no timing de reposição', rebuy) +
+    renderGroup('risk', '⚠️ EM RISCO', 'Recuperação e retenção', risk) +
+    renderGroup('inactive', '🧊 INATIVOS', '120+ dias sem comprar', inactive);
 
   groupsEl.innerHTML =
     groupsHtml || `<div class="empty">Nenhuma oportunidade com os filtros atuais.</div>`;
@@ -13203,16 +13227,18 @@ async function seedCidadesIBGE() {
     const data = await resp.json();
 
     // 2. Preparar lotes para o Supabase
-    const rows = data.map((m) => ({
-      id: m.id,
-      nome: m.nome,
-      estado_id: m.microrregiao.mesorregiao.UF.id,
-      estado_sigla: m.microrregiao.mesorregiao.UF.sigla,
-      nome_slug: m.nome
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, ''),
-    }));
+    const rows = data
+      .filter((m) => m && m.microrregiao && m.microrregiao.mesorregiao && m.microrregiao.mesorregiao.UF)
+      .map((m) => ({
+        id: m.id,
+        nome: m.nome,
+        estado_id: m.microrregiao.mesorregiao.UF.id,
+        estado_sigla: m.microrregiao.mesorregiao.UF.sigla,
+        nome_slug: m.nome
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, ''),
+      }));
 
     // 3. Inserir em lotes de 500
     for (let i = 0; i < rows.length; i += 500) {
@@ -15221,7 +15247,7 @@ function buildPedidoRow(o, opts = {}) {
   const baseId = String(o.id || o.numero || '').trim();
   if (!baseId) return null;
   let id = baseId;
-  if (source === 'yampi') {
+  if (source === 'yampi' && !(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(baseId))) {
     id = existingLegacyYampiIds.has(baseId) ? baseId : 'yampi:' + baseId;
   }
   const createdAt = toDateOrNull(o.data || o.dataPedido || o.created_at);
@@ -15428,6 +15454,22 @@ async function upsertOrdersToSupabase(orders) {
       });
     }
 
+    // Detectar tipo da coluna id em v2_pedidos (uuid vs text)
+    // Probe: se id é UUID, filtrar com texto não-UUID gera erro 400; se text, retorna vazio.
+    let pedidosIdType = 'text';
+    try {
+      const { data: _probe, error: _probeErr } = await supaClient
+        .from(DB_SCHEMA.TABLES.PEDIDOS).select('id').eq('id', 'type-probe-zz').limit(1);
+      if (_probeErr?.message?.toLowerCase().includes('uuid')) {
+        pedidosIdType = 'uuid';
+      } else if (!_probeErr) {
+        // no error → text column; but also check first row if any
+        const { data: _s } = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).select('id').limit(1);
+        const _sid = String((_s?.[0])?.id ?? '').trim();
+        if (_sid && isUuid(_sid)) pedidosIdType = 'uuid';
+      }
+    } catch (_e) {}
+
     const yampiLegacyIds = Array.from(
       new Set(
         (Array.isArray(orders) ? orders : [])
@@ -15441,18 +15483,20 @@ async function upsertOrdersToSupabase(orders) {
     if (yampiLegacyIds.length) {
       for (let i = 0; i < yampiLegacyIds.length; i += 200) {
         const batch = yampiLegacyIds.slice(i, i + 200);
-        const { data, error } = await supaClient
-          .from('v2_pedidos')
-          .select('id')
-          .eq('source', 'yampi')
-          .in('id', batch)
-          .limit(2000);
-        if (!error && Array.isArray(data)) {
-          data.forEach((r) => {
-            const id = String(r?.id || '').trim();
-            if (id) existingLegacyYampiIds.add(id);
-          });
-        }
+        try {
+          const { data, error } = await supaClient
+            .from('v2_pedidos')
+            .select('id')
+            .eq('source', 'yampi')
+            .in('id', batch)
+            .limit(2000);
+          if (!error && Array.isArray(data)) {
+            data.forEach((r) => {
+              const id = String(r?.id || '').trim();
+              if (id) existingLegacyYampiIds.add(id);
+            });
+          }
+        } catch (_e) {}
       }
     }
 
@@ -15476,7 +15520,7 @@ async function upsertOrdersToSupabase(orders) {
             .trim() || 'bling';
         const baseId = String(o.id || o.numero || '').trim();
         let id = baseId || '';
-        if (source === 'yampi' && id && !id.includes(':')) {
+        if (source === 'yampi' && id && !id.includes(':') && !isUuid(id)) {
           id = existingLegacyYampiIds.has(id) ? id : 'yampi:' + id;
         }
         const createdAt = toIsoOrNull(o.dataCriacao || o.data) || new Date().toISOString();
@@ -15494,33 +15538,75 @@ async function upsertOrdersToSupabase(orders) {
         };
         return row;
       })
-      .filter((p) => p.id); // id é obrigatório (PK)
-    const { ok: validPedRows } = splitValidRows(pedRows, ['id'], '[Upsert v2_pedidos]');
+      .filter((p) => pedidosIdType === 'uuid' ? (isUuid(p.id) || p.bling_id || p.numero_pedido) : !!p.id);
+    const splitKey = pedidosIdType === 'uuid' ? [] : ['id'];
+    const { ok: validPedRows } = splitValidRows(pedRows, splitKey, '[Upsert v2_pedidos]');
     const finalPedRows = validPedRows.filter((r) => !r.__invalid_cliente_id);
-    for (let i = 0; i < finalPedRows.length; i += 100) {
-      const batch = finalPedRows.slice(i, i + 100);
-      const payload = batch.map(sanitizePayload).filter(Boolean);
-      const { error } = await DAL.pedidos.upsert(payload);
-      if (error) {
-        hadUpsertError = true;
-        try {
-          console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, error, sanitizeForSupabaseLog(payload.slice(0, 10)));
-        } catch (_e) {}
-        logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error`, error, batch.slice(0, 5));
-        for (const row of payload) {
+
+    if (pedidosIdType === 'uuid') {
+      // ─── UUID id strategy ──────────────────────────────────────────────────────
+      // 1) Rows already stored with UUID id → onConflict: 'id'
+      const uuidIdRows = finalPedRows.filter((r) => isUuid(r.id));
+      for (let i = 0; i < uuidIdRows.length; i += 100) {
+        const payload = uuidIdRows.slice(i, i + 100).map(sanitizePayload).filter(Boolean);
+        const { error } = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).upsert(payload, { onConflict: 'id' });
+        if (error) {
+          hadUpsertError = true;
+          logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error (uuid/id)`, error, payload.slice(0, 5));
+        }
+      }
+      // 2) New Bling rows → remove id, onConflict: 'bling_id'
+      const blingNewRows = finalPedRows.filter((r) => !isUuid(r.id) && r.source === 'bling' && r.bling_id);
+      for (let i = 0; i < blingNewRows.length; i += 100) {
+        const payload = blingNewRows.slice(i, i + 100)
+          .map((r) => { const { id: _id, ...rest } = r; return rest; })
+          .map(sanitizePayload).filter(Boolean);
+        const { error } = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).upsert(payload, { onConflict: 'bling_id' });
+        if (error) {
+          hadUpsertError = true;
+          logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error (uuid/bling_id)`, error, payload.slice(0, 5));
+        }
+      }
+      // 3) New Yampi/outros rows → remove id, onConflict: 'numero_pedido,source'
+      //    Requires migration 031 unique index on (numero_pedido, source)
+      const yampiNewRows = finalPedRows.filter((r) => !isUuid(r.id) && r.source !== 'bling' && r.numero_pedido);
+      for (let i = 0; i < yampiNewRows.length; i += 100) {
+        const payload = yampiNewRows.slice(i, i + 100)
+          .map((r) => { const { id: _id, ...rest } = r; return rest; })
+          .map(sanitizePayload).filter(Boolean);
+        const { error } = await supaClient.from(DB_SCHEMA.TABLES.PEDIDOS).upsert(payload, { onConflict: 'numero_pedido,source' });
+        if (error) {
+          hadUpsertError = true;
+          logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error (uuid/numero_pedido,source)`, error, payload.slice(0, 5));
+        }
+      }
+    } else {
+      // ─── text id strategy (default) ───────────────────────────────────────────
+      for (let i = 0; i < finalPedRows.length; i += 100) {
+        const batch = finalPedRows.slice(i, i + 100);
+        const payload = batch.map(sanitizePayload).filter(Boolean);
+        const { error } = await DAL.pedidos.upsert(payload);
+        if (error) {
+          hadUpsertError = true;
           try {
-            const { error: rowErr } = await DAL.pedidos.upsert([sanitizePayload(row)]);
-            if (rowErr) {
-              hadUpsertError = true;
-              try {
-                console.warn(
-                  `[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}] registro ignorado (erro no upsert)`,
-                  sanitizeForSupabaseLog(row),
-                );
-                console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, rowErr, sanitizeForSupabaseLog(row));
-              } catch (_e) {}
-            }
+            console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, error, sanitizeForSupabaseLog(payload.slice(0, 10)));
           } catch (_e) {}
+          logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PEDIDOS} error`, error, batch.slice(0, 5));
+          for (const row of payload) {
+            try {
+              const { error: rowErr } = await DAL.pedidos.upsert([sanitizePayload(row)]);
+              if (rowErr) {
+                hadUpsertError = true;
+                try {
+                  console.warn(
+                    `[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}] registro ignorado (erro no upsert)`,
+                    sanitizeForSupabaseLog(row),
+                  );
+                  console.error(`[Upsert ${DB_SCHEMA.TABLES.PEDIDOS}]`, rowErr, sanitizeForSupabaseLog(row));
+                } catch (_e) {}
+              }
+            } catch (_e) {}
+          }
         }
       }
     }

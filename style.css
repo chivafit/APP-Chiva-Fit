@@ -7851,92 +7851,191 @@ html.light .compare-card {
   border-color: rgba(15, 167, 101, 0.28);
   color: var(--chiva-primary-light);
 }
+/* ── Oportunidades: grupos ───────────────────────────── */
 .radar-group {
-  margin-bottom: 16px;
+  margin-bottom: 28px;
 }
 .radar-group-hdr {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 .radar-group-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
   color: var(--text);
 }
 .radar-group-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
-  font-weight: 800;
+  font-weight: 600;
+  margin-top: 2px;
 }
+.radar-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(15, 167, 101, 0.12);
+  border: 1px solid rgba(15, 167, 101, 0.22);
+  color: var(--chiva-primary-light);
+  font-size: 11px;
+  font-weight: 900;
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+.radar-show-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px dashed rgba(15, 167, 101, 0.3);
+  background: rgba(15, 167, 101, 0.04);
+  color: var(--chiva-primary-light);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+  justify-content: center;
+}
+.radar-show-more:hover {
+  background: rgba(15, 167, 101, 0.09);
+  border-color: rgba(15, 167, 101, 0.5);
+}
+.radar-show-more-count {
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+/* ── Oportunidades: grid ─────────────────────────────── */
 .radar-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
 }
+
+/* ── Oportunidades: card ─────────────────────────────── */
 .radar-card {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px;
-  background: var(--card-hover);
+  position: relative;
+  border: 1px solid rgba(15, 167, 101, 0.14);
+  border-radius: 18px;
+  padding: 14px 14px 12px;
+  background:
+    linear-gradient(160deg, rgba(164, 233, 107, 0.03) 0%, rgba(15, 167, 101, 0.015) 40%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 60%),
+    var(--card);
+  backdrop-filter: blur(12px);
   cursor: pointer;
+  overflow: hidden;
   transition:
     border-color var(--t-fast),
     box-shadow var(--t-fast),
     transform var(--t-fast);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+.radar-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 18px 0 0 18px;
+  background: linear-gradient(180deg, var(--chiva-primary), var(--chiva-primary-light));
+  opacity: 0.7;
 }
 .radar-card:hover {
-  border-color: var(--border2);
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+  border-color: rgba(15, 167, 101, 0.32);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.32), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  transform: translateY(-2px);
 }
+html.light .radar-card {
+  background:
+    linear-gradient(160deg, rgba(164, 233, 107, 0.06) 0%, rgba(15, 167, 101, 0.03) 40%, transparent 70%),
+    #ffffff;
+  border-color: rgba(15, 167, 101, 0.2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+html.light .radar-card:hover {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* card — header */
 .radar-card-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  padding-left: 8px;
 }
 .radar-card-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 .radar-card-meta {
   font-size: 10px;
   color: var(--text-3);
-  margin-top: 4px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* card — KV grid */
 .radar-card-vals {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 12px;
 }
 .radar-kv {
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 12px;
-  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: 10px;
+  padding: 7px 9px;
+}
+html.light .radar-kv {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.07);
 }
 .radar-kv-label {
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-3);
   font-weight: 900;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 .radar-kv-val {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   color: var(--text);
   font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* card — probability bar */
 .radar-prob {
-  margin-top: 10px;
+  margin-top: 12px;
+  padding-left: 8px;
 }
 .radar-prob-row {
   display: flex;
@@ -7947,37 +8046,56 @@ html.light .compare-card {
 }
 .radar-prob-label {
   font-size: 10px;
-  font-weight: 900;
-  color: var(--text-2);
+  font-weight: 700;
+  color: var(--text-3);
 }
 .radar-prob-num {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
-  color: var(--text);
+  color: var(--chiva-primary-light);
 }
 .radar-prob-track {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
+}
+html.light .radar-prob-track {
+  background: rgba(0, 0, 0, 0.08);
 }
 .radar-prob-fill {
   height: 100%;
-  background: linear-gradient(90deg, rgba(15, 167, 101, 0.25), rgba(164, 233, 107, 0.8));
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--chiva-primary) 0%, var(--chiva-primary-light) 100%);
+  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
   width: 0%;
 }
+
+/* card — next action */
 .radar-action {
   margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(15, 167, 101, 0.06);
+  border: 1px solid rgba(15, 167, 101, 0.1);
   font-size: 10px;
-  color: var(--text-2);
+  color: var(--text-3);
   line-height: 1.4;
 }
-.radar-action b {
-  color: var(--text);
-  font-weight: 900;
+html.light .radar-action {
+  background: rgba(15, 167, 101, 0.07);
+  border-color: rgba(15, 167, 101, 0.15);
 }
+.radar-action b {
+  display: block;
+  margin-top: 1px;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 11px;
+}
+
+/* card — action buttons */
 .radar-actions {
   display: flex;
   gap: 6px;
