@@ -10677,6 +10677,53 @@ html.light .chart-card-header .chart-title {
 }
 
 /* ═══════════════════════════════════════════
+   CIDADES — barra de letras A–Z
+═══════════════════════════════════════════ */
+.cidade-alpha-bar {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.cidade-alpha-btn {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+  white-space: nowrap;
+}
+.cidade-alpha-btn:hover {
+  color: var(--text);
+  background: var(--card-hover);
+  border-color: var(--border);
+}
+.cidade-alpha-btn.active {
+  background: var(--chiva-primary-dim);
+  border-color: var(--chiva-primary-border);
+  color: var(--chiva-primary);
+}
+html.light .cidade-alpha-bar {
+  background: #fff;
+}
+html.light .cidade-alpha-btn.active {
+  background: rgba(15, 167, 101, 0.08);
+  color: var(--chiva-primary-deep);
+}
+
+/* ═══════════════════════════════════════════
    ALERTAS PAGE
 ═══════════════════════════════════════════ */
 .tasks-page-header {

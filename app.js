@@ -13051,9 +13051,21 @@ function renderProdutos(_deferred) {
 // ═══════════════════════════════════════════════════
 //  CIDADES
 // ═══════════════════════════════════════════════════
+let _cidadeLetra = '';
+
+function setCidadeLetra(letra) {
+  _cidadeLetra = letra;
+  document.querySelectorAll('.cidade-alpha-btn').forEach((b) => {
+    b.classList.toggle('active', b.textContent.trim() === (letra || 'Todos'));
+  });
+  renderCidades();
+}
+window.setCidadeLetra = setCidadeLetra;
+
 async function renderCidades() {
   const q = (document.getElementById('search-city')?.value || '').toLowerCase();
   const ufFilter = document.getElementById('fil-uf')?.value || '';
+  const letraFilter = _cidadeLetra;
   const canalFilter = String(document.getElementById('fil-geo-canal')?.value || '')
     .toLowerCase()
     .trim();
@@ -13105,8 +13117,10 @@ async function renderCidades() {
   if (supaConnected) {
     let query = supaClient.from('cidades').select('*');
     if (ufFilter) query = query.eq('estado_sigla', ufFilter);
-    if (q) query = query.ilike('nome', `%${q}%`);
-    const { data } = await query.limit(q || ufFilter ? 1000 : 200).order('nome');
+    if (letraFilter) query = query.ilike('nome', `${letraFilter}%`);
+    else if (q) query = query.ilike('nome', `%${q}%`);
+    const hasFilter = q || ufFilter || letraFilter;
+    const { data } = await query.limit(hasFilter ? 1000 : 200).order('nome');
     cities = data || [];
   }
 
@@ -13117,15 +13131,21 @@ async function renderCidades() {
   });
 
   // Se estiver pesquisando e não houver no Supabase, mostrar apenas o que tem nas vendas
-  if (!mergedCities.length && (q || ufFilter)) {
+  if (!mergedCities.length && (q || ufFilter || letraFilter)) {
     Object.values(salesMap).forEach((s) => {
-      if ((!ufFilter || s.es === ufFilter) && (!q || s.ci.toLowerCase().includes(q))) {
+      const matchQ = !q || s.ci.toLowerCase().includes(q);
+      const matchUF = !ufFilter || s.es === ufFilter;
+      const matchLetra = !letraFilter || s.ci.toUpperCase().startsWith(letraFilter);
+      if (matchQ && matchUF && matchLetra) {
         mergedCities.push({ id: 0, nome: s.ci, estado_sigla: s.es, ...s, clisCount: s.clis.size });
       }
     });
   }
 
   let finalCities = mergedCities;
+  // Filtro por letra também aplicado em memória (caso Supabase retorne mais)
+  if (letraFilter) finalCities = finalCities.filter((c) => c.nome.toUpperCase().startsWith(letraFilter));
+  if (q && letraFilter) finalCities = finalCities.filter((c) => c.nome.toLowerCase().includes(q));
   if (typeFilter === 'with') finalCities = finalCities.filter((c) => c.total > 0);
   if (typeFilter === 'without') finalCities = finalCities.filter((c) => c.total === 0);
 
