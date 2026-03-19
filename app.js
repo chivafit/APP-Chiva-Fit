@@ -472,36 +472,47 @@ window.onerror = function (message, source, lineno, colno, error) {
 
 (function () {
   if (window.Chart) {
-    // Tipografia
-    Chart.defaults.font.family = "'Plus Jakarta Sans',system-ui,sans-serif";
-    Chart.defaults.font.size = 11;
-    Chart.defaults.font.weight = 700;
-    Chart.defaults.color = '#6b7a8d';
+    // ── Tipografia ─────────────────────────────────────────
+    Chart.defaults.font.family = "'Plus Jakarta Sans',Inter,system-ui,sans-serif";
+    Chart.defaults.font.size = 10;
+    Chart.defaults.font.weight = '600';
+    Chart.defaults.color = 'rgba(148,163,184,0.7)';
 
-    // Grid padrão muito sutil
-    Chart.defaults.borderColor = 'rgba(255,255,255,0.04)';
+    // ── Grid ultra-sutil ─────────────────────────────────
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.03)';
 
-    // Animações suaves — setar propriedades individualmente para não quebrar
-    // a instância interna Animations do Chart.js 4.x (this._fn)
-    Chart.defaults.animation.duration = 700;
-    Chart.defaults.animation.easing = 'easeInOutQuart';
-    Chart.defaults.transitions.active.animation.duration = 150;
+    // ── Animações suaves ─────────────────────────────────
+    Chart.defaults.animation.duration = 900;
+    Chart.defaults.animation.easing = 'easeOutQuart';
+    Chart.defaults.transitions.active.animation.duration = 200;
 
-    // Tooltip premium
-    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(10, 14, 20, 0.92)';
-    Chart.defaults.plugins.tooltip.borderColor = 'rgba(15, 167, 101, 0.3)';
+    // ── Barras – defaults globais ────────────────────────
+    Chart.defaults.datasets.bar.borderRadius = 8;
+    Chart.defaults.datasets.bar.borderSkipped = false;
+    Chart.defaults.datasets.bar.borderWidth = 0;
+
+    // ── Linhas – defaults globais ────────────────────────
+    Chart.defaults.datasets.line.tension = 0.45;
+    Chart.defaults.datasets.line.pointRadius = 0;
+    Chart.defaults.datasets.line.pointHoverRadius = 5;
+    Chart.defaults.datasets.line.pointHoverBorderWidth = 2;
+    Chart.defaults.datasets.line.borderWidth = 2.5;
+
+    // ── Tooltip glass premium ────────────────────────────
+    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(8,10,20,0.96)';
+    Chart.defaults.plugins.tooltip.borderColor = 'rgba(255,255,255,0.1)';
     Chart.defaults.plugins.tooltip.borderWidth = 1;
-    Chart.defaults.plugins.tooltip.titleColor = '#e8edf5';
-    Chart.defaults.plugins.tooltip.bodyColor = '#8c9ab0';
-    Chart.defaults.plugins.tooltip.padding = { x: 14, y: 10 };
-    Chart.defaults.plugins.tooltip.cornerRadius = 12;
-    Chart.defaults.plugins.tooltip.titleFont = { size: 12, weight: 800, family: "'Plus Jakarta Sans',system-ui,sans-serif" };
-    Chart.defaults.plugins.tooltip.bodyFont = { size: 11, weight: 600, family: "'Plus Jakarta Sans',system-ui,sans-serif" };
+    Chart.defaults.plugins.tooltip.titleColor = '#f1f5f9';
+    Chart.defaults.plugins.tooltip.bodyColor = 'rgba(148,163,184,0.85)';
+    Chart.defaults.plugins.tooltip.padding = { x: 16, y: 12 };
+    Chart.defaults.plugins.tooltip.cornerRadius = 14;
+    Chart.defaults.plugins.tooltip.titleFont = { size: 12, weight: '800', family: "'Plus Jakarta Sans',Inter,system-ui,sans-serif" };
+    Chart.defaults.plugins.tooltip.bodyFont = { size: 11, weight: '600', family: "'Plus Jakarta Sans',Inter,system-ui,sans-serif" };
     Chart.defaults.plugins.tooltip.displayColors = false;
-    Chart.defaults.plugins.tooltip.caretSize = 5;
-    Chart.defaults.plugins.tooltip.caretPadding = 8;
+    Chart.defaults.plugins.tooltip.caretSize = 6;
+    Chart.defaults.plugins.tooltip.caretPadding = 10;
 
-    // Interação global (Chart.js 4.x: interaction, não hover)
+    // ── Interação global ─────────────────────────────────
     Chart.defaults.interaction.mode = 'index';
     Chart.defaults.interaction.intersect = false;
   }
@@ -4616,6 +4627,7 @@ function toggleTask(id, done) {
 }
 
 function deleteTask(id) {
+  if (!confirm('Excluir esta tarefa? Essa ação não pode ser desfeita.')) return;
   const t = allTasks.find((t) => t.id === id);
   // Remover do Supabase se tiver UUID
   if (supaConnected && supaClient && t?._supaId) {
@@ -5318,43 +5330,48 @@ function renderSegmentCharts(seg) {
 }
 
 function exportSegmentData(id) {
-  const seg = id
-    ? computedSegments.find((s) => s.id === id)
-    : { name: 'Todos Clientes', customers: allCustomers };
-  if (!seg || !seg.customers.length) return toast('Nenhum dado para exportar');
+  try {
+    const seg = id
+      ? computedSegments.find((s) => s.id === id)
+      : { name: 'Todos Clientes', customers: allCustomers };
+    if (!seg || !seg.customers.length) return toast('Nenhum dado para exportar', 'warning');
 
-  const headers = [
-    'Nome',
-    'Email',
-    'Telefone',
-    'Cidade',
-    'UF',
-    'Total Gasto',
-    'Pedidos',
-    'Favorito',
-  ];
-  const csv = [
-    headers.join(';'),
-    ...seg.customers.map((c) =>
-      [
-        c.nome,
-        c.email,
-        c.telefone,
-        c.cidade,
-        c.uf,
-        c.total_gasto,
-        c.total_pedidos,
-        c.produto_favorito,
-      ].join(';'),
-    ),
-  ].join('\n');
+    const headers = [
+      'Nome',
+      'Email',
+      'Telefone',
+      'Cidade',
+      'UF',
+      'Total Gasto',
+      'Pedidos',
+      'Favorito',
+    ];
+    const csv = [
+      headers.join(';'),
+      ...seg.customers.map((c) =>
+        [
+          c.nome,
+          c.email,
+          c.telefone,
+          c.cidade,
+          c.uf,
+          c.total_gasto,
+          c.total_pedidos,
+          c.produto_favorito,
+        ].join(';'),
+      ),
+    ].join('\n');
 
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', `segmento_${seg.name.toLowerCase().replace(/\s/g, '_')}.csv`);
-  link.click();
-  toast('✅ CSV gerado com sucesso!');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `segmento_${seg.name.toLowerCase().replace(/\s/g, '_')}.csv`);
+    link.click();
+    toast('✅ CSV gerado com sucesso!', 'success');
+  } catch (e) {
+    console.error('[exportSegmentData]', e);
+    toast('Erro ao exportar CSV.', 'error');
+  }
 }
 
 function selectSegment(id) {
@@ -5892,9 +5909,10 @@ async function renderDashRevenueFromSupabase() {
     const ctx = canvasMes.getContext('2d');
     if (ctx) {
       if (charts.mes) charts.mes.destroy();
-      const grad = ctx.createLinearGradient(0, 0, 0, 180);
-      grad.addColorStop(0, 'rgba(164,233,107,.35)');
-      grad.addColorStop(1, 'rgba(15,167,101,0)');
+      const grad = ctx.createLinearGradient(0, 0, 0, 200);
+      grad.addColorStop(0, 'rgba(0,217,126,0.28)');
+      grad.addColorStop(0.6, 'rgba(0,217,126,0.06)');
+      grad.addColorStop(1, 'rgba(0,217,126,0)');
       charts.mes = new Chart(ctx, {
         type: 'line',
         data: {
@@ -5903,13 +5921,11 @@ async function renderDashRevenueFromSupabase() {
             {
               label: 'Faturamento',
               data: byMonth,
-              tension: 0.35,
               fill: true,
               backgroundColor: grad,
-              borderColor: '#A4E96B',
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
+              borderColor: '#00D97E',
+              pointHoverBackgroundColor: '#00D97E',
+              pointHoverBorderColor: '#fff',
             },
           ],
         },
@@ -5918,20 +5934,18 @@ async function renderDashRevenueFromSupabase() {
           maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: { label: (c) => fmtBRL(c.parsed.y || 0) } },
+            tooltip: { callbacks: { label: (c) => '  ' + fmtBRL(c.parsed.y || 0) } },
           },
           scales: {
             x: {
               grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+              border: { display: false },
+              ticks: { maxTicksLimit: 8 },
             },
             y: {
-              grid: { color: 'rgba(255,255,255,.06)' },
-              ticks: {
-                color: '#9eb8a8',
-                font: { size: 10, weight: 700 },
-                callback: (v) => fmtBRL(v),
-              },
+              grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+              border: { display: false },
+              ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
             },
           },
         },
@@ -5944,6 +5958,9 @@ async function renderDashRevenueFromSupabase() {
     const ctx = canvasGrow.getContext('2d');
     if (ctx) {
       if (charts.crescimento) charts.crescimento.destroy();
+      const gradGrow = ctx.createLinearGradient(0, 0, 0, 180);
+      gradGrow.addColorStop(0, 'rgba(79,142,255,0.22)');
+      gradGrow.addColorStop(1, 'rgba(79,142,255,0)');
       charts.crescimento = new Chart(ctx, {
         type: 'line',
         data: {
@@ -5952,12 +5969,11 @@ async function renderDashRevenueFromSupabase() {
             {
               label: 'Crescimento',
               data: growth,
-              tension: 0.35,
-              fill: false,
-              borderColor: '#60a5fa',
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
+              fill: true,
+              backgroundColor: gradGrow,
+              borderColor: '#4F8EFF',
+              pointHoverBackgroundColor: '#4F8EFF',
+              pointHoverBorderColor: '#fff',
             },
           ],
         },
@@ -5966,20 +5982,18 @@ async function renderDashRevenueFromSupabase() {
           maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: { label: (c) => Number(c.parsed.y || 0).toFixed(1) + '%' } },
+            tooltip: { callbacks: { label: (c) => '  ' + Number(c.parsed.y || 0).toFixed(1) + '%' } },
           },
           scales: {
             x: {
               grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+              border: { display: false },
+              ticks: { maxTicksLimit: 8 },
             },
             y: {
-              grid: { color: 'rgba(255,255,255,.06)' },
-              ticks: {
-                color: '#9eb8a8',
-                font: { size: 10, weight: 700 },
-                callback: (v) => String(v) + '%',
-              },
+              grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+              border: { display: false },
+              ticks: { callback: (v) => v + '%' },
             },
           },
         },
@@ -6387,20 +6401,31 @@ function renderDashNow() {
     if (!insights.length) {
       autoEl.innerHTML = '';
     } else {
+      // Armazena as ações em um registry seguro para evitar injeção via onclick inline
+      window._insightActions = insights.slice(0, 3).map((i) => i.action);
       autoEl.innerHTML = `<div class="auto-insights">${insights
         .slice(0, 3)
         .map(
-          (i) => `
+          (i, idx) => `
         <div class="insight">
           <div>
             <div class="insight-title">${escapeHTML(i.title)}</div>
             <div class="insight-desc">${escapeHTML(i.desc)}</div>
           </div>
-          <button class="insight-cta" onclick="${i.action}">${escapeHTML(i.cta)}</button>
+          <button class="insight-cta" data-insight-idx="${idx}">${escapeHTML(i.cta)}</button>
         </div>
       `,
         )
         .join('')}</div>`;
+      autoEl.querySelectorAll('.insight-cta').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.insightIdx, 10);
+          const action = (window._insightActions || [])[idx];
+          if (typeof action === 'string') {
+            try { new Function(action)(); } catch (e) { console.warn('[insight] ação falhou:', e); }
+          }
+        });
+      });
     }
   }
 
@@ -6710,7 +6735,8 @@ function renderDashKpiSparklines(ctx) {
       charts[key] = null;
     }
     const g = c.createLinearGradient(0, 0, 0, canvas.height || 40);
-    g.addColorStop(0, color.replace('1)', '.20)'));
+    g.addColorStop(0, color.replace('1)', '.30)'));
+    g.addColorStop(0.6, color.replace('1)', '.08)'));
     g.addColorStop(1, color.replace('1)', '0)'));
     charts[key] = new Chart(c, {
       type: 'line',
@@ -6722,8 +6748,6 @@ function renderDashKpiSparklines(ctx) {
             borderColor: color,
             backgroundColor: g,
             borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.35,
             fill: true,
           },
         ],
@@ -6731,6 +6755,7 @@ function renderDashKpiSparklines(ctx) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 600 },
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: { x: { display: false }, y: { display: false } },
       },
@@ -7379,22 +7404,17 @@ function renderDashSalesByDay(orders, prevOrders) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: isLight ? '#ffffff' : '#0e1018',
-          borderColor: isLight ? 'rgba(0,0,0,.12)' : '#1d2235',
-          borderWidth: 1,
-          titleColor: isLight ? '#111827' : '#edeef4',
-          bodyColor: isLight ? '#334155' : '#a0a8be',
-          padding: 10,
-          displayColors: false,
           callbacks: {
             label: (c) => {
               const v = Number(c.parsed.y || 0) || 0;
               if (c.dataset?.label === 'Destaques') {
                 const i = c.dataIndex;
-                if (i === maxIdx) return ' Pico: ' + fmtBRL(v);
-                if (i === minIdx) return ' Baixa: ' + fmtBRL(v);
+                if (i === maxIdx) return '  Pico: ' + fmtBRL(v);
+                if (i === minIdx) return '  Baixa: ' + fmtBRL(v);
               }
-              return ' ' + fmtBRL(v);
+              const ds = String(c.dataset?.label || '');
+              if (ds === 'Pedidos') return '  ' + Math.round(v) + ' pedidos';
+              return '  ' + fmtBRL(v);
             },
           },
         },
@@ -7402,19 +7422,13 @@ function renderDashSalesByDay(orders, prevOrders) {
       scales: {
         x: {
           grid: { display: false },
-          ticks: {
-            color: isLight ? '#64748b' : '#9eb8a8',
-            font: { size: 10, weight: 700 },
-            maxTicksLimit: 10,
-          },
+          border: { display: false },
+          ticks: { maxTicksLimit: 10 },
         },
         y: {
-          grid: { color: isLight ? 'rgba(15,23,42,.06)' : 'rgba(255,255,255,.06)' },
-          ticks: {
-            color: isLight ? '#64748b' : '#9eb8a8',
-            font: { size: 10, weight: 700 },
-            callback: (v) => fmtBRL(v),
-          },
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+          border: { display: false },
+          ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
         },
       },
     },
@@ -7495,40 +7509,37 @@ function renderDashChannelBreakdown(input) {
       datasets: [
         {
           data: rows.map((r) => r.total),
-          backgroundColor: rows.map((r) => CH_COLOR[r.canal] || '#0FA765'),
-          borderColor: 'transparent',
+          backgroundColor: rows.map((r) => CH_COLOR[r.canal] || '#00D97E'),
           borderWidth: 0,
-          hoverOffset: 6,
+          hoverOffset: 8,
+          spacing: 2,
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: true,
-      cutout: '68%',
+      cutout: '74%',
       plugins: {
         legend: {
           display: true,
           position: 'right',
           labels: {
-            color: 'rgba(160,168,190,0.85)',
-            font: { size: 10, weight: 600 },
-            boxWidth: 10,
-            padding: 10,
+            color: 'rgba(148,163,184,0.8)',
+            font: { size: 10, weight: '600' },
+            boxWidth: 8,
+            boxHeight: 8,
+            usePointStyle: true,
+            pointStyleWidth: 8,
+            padding: 12,
           },
         },
         tooltip: {
-          backgroundColor: '#0e1018',
-          borderColor: 'rgba(15,167,101,.35)',
-          borderWidth: 1,
-          titleColor: '#edeef4',
-          bodyColor: '#a0a8be',
-          padding: 12,
-          cornerRadius: 10,
           callbacks: {
             label: (c) => {
               const row = rows[c.dataIndex] || {};
-              return ` ${fmtBRL(row.total || 0)} · ${Number(row.pedidos || 0)} pedidos`;
+              const pct = Math.round(((row.total || 0) / rows.reduce((s, r) => s + r.total, 0)) * 100);
+              return `  ${fmtBRL(row.total || 0)} · ${Number(row.pedidos || 0)} ped · ${pct}%`;
             },
           },
         },
@@ -8335,6 +8346,10 @@ async function renderDashV2() {
       const values = series.map((r) => Number(r.faturamento || 0) || 0);
       const ordersSeries = series.map((r) => Number(r.pedidos || 0) || 0);
       const ticketSeries = series.map((r) => Number(r.ticket_medio || 0) || 0);
+      const gradV2Dia = ctx.createLinearGradient(0, 0, 0, 260);
+      gradV2Dia.addColorStop(0, 'rgba(0,217,126,0.22)');
+      gradV2Dia.addColorStop(0.7, 'rgba(0,217,126,0.04)');
+      gradV2Dia.addColorStop(1, 'rgba(0,217,126,0)');
       charts.v2dia = new Chart(ctx, {
         type: 'line',
         data: {
@@ -8343,35 +8358,30 @@ async function renderDashV2() {
             {
               label: 'Faturamento',
               data: values,
-              tension: 0.35,
               fill: true,
-              borderColor: '#0FA765',
-              backgroundColor: 'rgba(15,167,101,.18)',
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
+              borderColor: '#00D97E',
+              backgroundColor: gradV2Dia,
+              pointHoverBackgroundColor: '#00D97E',
+              pointHoverBorderColor: '#fff',
             },
             {
               label: 'Pedidos',
               data: ordersSeries,
-              tension: 0.35,
               fill: false,
-              borderColor: '#60a5fa',
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
+              borderColor: '#4F8EFF',
+              borderDash: [5, 3],
               yAxisID: 'y2',
+              pointHoverBackgroundColor: '#4F8EFF',
+              pointHoverBorderColor: '#fff',
             },
             {
               label: 'Ticket médio',
               data: ticketSeries,
-              tension: 0.35,
               fill: false,
-              borderColor: '#a78bfa',
-              borderDash: [6, 4],
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
+              borderColor: '#A78BFA',
+              borderDash: [3, 3],
+              pointHoverBackgroundColor: '#A78BFA',
+              pointHoverBorderColor: '#fff',
             },
           ],
         },
@@ -8384,8 +8394,8 @@ async function renderDashV2() {
               callbacks: {
                 label: (c) => {
                   const ds = String(c.dataset?.label || '');
-                  if (ds === 'Pedidos') return String(Number(c.parsed.y || 0) || 0) + ' pedidos';
-                  return fmtBRL(c.parsed.y || 0);
+                  if (ds === 'Pedidos') return '  ' + Math.round(Number(c.parsed.y || 0)) + ' pedidos';
+                  return '  ' + fmtBRL(c.parsed.y || 0);
                 },
               },
             },
@@ -8393,20 +8403,19 @@ async function renderDashV2() {
           scales: {
             x: {
               grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+              border: { display: false },
+              ticks: { maxTicksLimit: 10 },
             },
             y: {
-              grid: { color: 'rgba(255,255,255,.06)' },
-              ticks: {
-                color: '#9eb8a8',
-                font: { size: 10, weight: 700 },
-                callback: (v) => fmtBRL(v),
-              },
+              grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+              border: { display: false },
+              ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
             },
             y2: {
               position: 'right',
               grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+              border: { display: false },
+              ticks: { maxTicksLimit: 5 },
             },
           },
         },
@@ -8430,21 +8439,19 @@ async function renderDashV2() {
             {
               label: 'Faturamento',
               data: sorted.map(([, v]) => v),
-              backgroundColor: sorted.map(([c]) => CH_COLOR[c] || 'rgba(15,167,101,.6)'),
-              borderRadius: 10,
-              borderSkipped: false,
+              backgroundColor: sorted.map(([c]) => (CH_COLOR[c] || '#00D97E') + 'CC'),
+              hoverBackgroundColor: sorted.map(([c]) => CH_COLOR[c] || '#00D97E'),
             },
             {
               label: 'Pedidos',
               data: sorted.map(([c]) => Number(channelOrders[c] || 0) || 0),
               type: 'line',
-              borderColor: '#60a5fa',
-              backgroundColor: 'rgba(96,165,250,.18)',
-              borderWidth: 2,
-              pointRadius: 0,
-              pointHitRadius: 12,
-              tension: 0.35,
+              borderColor: '#4F8EFF',
+              backgroundColor: 'rgba(79,142,255,0.1)',
+              fill: true,
               yAxisID: 'y2',
+              pointHoverBackgroundColor: '#4F8EFF',
+              pointHoverBorderColor: '#fff',
             },
           ],
         },
@@ -8457,29 +8464,24 @@ async function renderDashV2() {
               callbacks: {
                 label: (c) => {
                   const ds = String(c.dataset?.label || '');
-                  if (ds === 'Pedidos') return String(Number(c.parsed.y || 0) || 0) + ' pedidos';
-                  return fmtBRL(c.parsed.y || 0);
+                  if (ds === 'Pedidos') return '  ' + Math.round(Number(c.parsed.y || 0)) + ' pedidos';
+                  return '  ' + fmtBRL(c.parsed.y || 0);
                 },
               },
             },
           },
           scales: {
-            x: {
-              grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
-            },
+            x: { grid: { display: false }, border: { display: false } },
             y: {
-              grid: { color: 'rgba(255,255,255,.06)' },
-              ticks: {
-                color: '#9eb8a8',
-                font: { size: 10, weight: 700 },
-                callback: (v) => fmtBRL(v),
-              },
+              grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+              border: { display: false },
+              ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
             },
             y2: {
               position: 'right',
               grid: { display: false },
-              ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+              border: { display: false },
+              ticks: { maxTicksLimit: 5 },
             },
           },
         },
@@ -8505,11 +8507,8 @@ function renderDashV2NovosClientes(series) {
         {
           label: 'Novos clientes',
           data: values,
-          backgroundColor: 'rgba(96,165,250,.25)',
-          borderColor: 'rgba(96,165,250,.5)',
-          borderWidth: 1,
-          borderRadius: 10,
-          borderSkipped: false,
+          backgroundColor: 'rgba(79,142,255,0.5)',
+          hoverBackgroundColor: 'rgba(79,142,255,0.85)',
         },
       ],
     },
@@ -8518,16 +8517,14 @@ function renderDashV2NovosClientes(series) {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (c) => String(Number(c.parsed.y || 0) || 0) + ' novos' } },
+        tooltip: { callbacks: { label: (c) => '  ' + Math.round(Number(c.parsed.y || 0)) + ' novos' } },
       },
       scales: {
-        x: {
-          grid: { display: false },
-          ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
-        },
+        x: { grid: { display: false }, border: { display: false } },
         y: {
-          grid: { color: 'rgba(255,255,255,.06)' },
-          ticks: { color: '#9eb8a8', font: { size: 10, weight: 700 } },
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+          border: { display: false },
+          ticks: { maxTicksLimit: 5 },
         },
       },
     },
@@ -8867,18 +8864,16 @@ function renderChartCanal(ordersOverride) {
         {
           data: sorted.map(([, v]) => v),
           backgroundColor: sorted.map(([c]) => brandColors[c] || brandColors.default),
-          borderWidth: 3,
-          borderColor: isLight ? '#ffffff' : '#0c1410',
-          spacing: 3,
-          hoverOffset: 10,
-          hoverBorderWidth: 3,
+          borderWidth: 0,
+          hoverOffset: 8,
+          spacing: 2,
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      cutout: '72%',
+      cutout: '76%',
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -8948,22 +8943,19 @@ function renderChartMes(ordersOverride) {
       datasets: [
         {
           data: sk.map((k) => bm[k]),
-          tension: 0.45,
           fill: true,
-          borderColor: '#0FA765',
+          borderColor: '#00D97E',
           backgroundColor: (c) => {
             const g = c.chart.ctx.createLinearGradient(0, 0, 0, c.chart.height);
-            g.addColorStop(0, 'rgba(15,167,101,0.32)');
-            g.addColorStop(0.5, 'rgba(15,167,101,0.10)');
-            g.addColorStop(1, 'rgba(15,167,101,0)');
+            g.addColorStop(0, 'rgba(0,217,126,0.26)');
+            g.addColorStop(0.5, 'rgba(0,217,126,0.07)');
+            g.addColorStop(1, 'rgba(0,217,126,0)');
             return g;
           },
-          borderWidth: 2.5,
-          pointRadius: 0,
           pointHoverRadius: 6,
-          pointHoverBackgroundColor: '#0FA765',
-          pointHoverBorderColor: '#0c1410',
-          pointHoverBorderWidth: 2.5,
+          pointHoverBackgroundColor: '#00D97E',
+          pointHoverBorderColor: '#fff',
+          pointHoverBorderWidth: 2,
         },
       ],
     },
@@ -8973,32 +8965,18 @@ function renderChartMes(ordersOverride) {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          callbacks: { label: (c) => '  ' + fmtBRL(c.raw) },
-        },
+        tooltip: { callbacks: { label: (c) => '  ' + fmtBRL(c.raw) } },
       },
       scales: {
         x: {
           grid: { display: false },
           border: { display: false },
-          ticks: {
-            color: 'rgba(160,168,190,0.6)',
-            font: { size: 10, weight: 700 },
-            maxRotation: 0,
-            maxTicksLimit: 8,
-          },
+          ticks: { maxRotation: 0, maxTicksLimit: 8 },
         },
         y: {
-          grid: {
-            color: 'rgba(255,255,255,0.035)',
-            borderDash: [4, 4],
-          },
-          border: { display: false, dash: [4, 4] },
-          ticks: {
-            color: 'rgba(160,168,190,0.6)',
-            font: { size: 10, weight: 700 },
-            callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
-          },
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+          border: { display: false },
+          ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
         },
       },
     },
@@ -9139,6 +9117,12 @@ function renderDashChartsCrescimento(ordersOverride) {
   const vals = keys.map((k) => byMonth[k]);
 
   if (window._chartCrescimento) window._chartCrescimento.destroy();
+  // Paleta gradiente por posição para bars premium
+  const crescColors = vals.map((v, i, arr) => {
+    const ratio = arr.length > 1 ? i / (arr.length - 1) : 1;
+    const r = Math.round(0 + ratio * 30), g = Math.round(217 - ratio * 30), b = Math.round(126 - ratio * 40);
+    return `rgba(${r},${g},${b},0.75)`;
+  });
   window._chartCrescimento = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -9155,36 +9139,28 @@ function renderDashChartsCrescimento(ordersOverride) {
       datasets: [
         {
           data: vals,
-          backgroundColor: '#0FA765',
-          hoverBackgroundColor: '#13c97e',
-          borderWidth: 0,
-          borderRadius: 4,
-          borderSkipped: false,
+          backgroundColor: crescColors,
+          hoverBackgroundColor: crescColors.map((c) => c.replace('0.75', '1')),
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '  ' + fmtBRL(c.raw) } },
+      },
       scales: {
         x: {
-          ticks: {
-            color: 'rgba(160, 168, 190, 0.8)',
-            font: { size: 9, family: 'Plus Jakarta Sans' },
-            maxRotation: 0,
-            autoSkip: true,
-            maxTicksLimit: 6,
-          },
           grid: { display: false },
+          border: { display: false },
+          ticks: { maxRotation: 0, maxTicksLimit: 6 },
         },
         y: {
-          ticks: {
-            color: 'rgba(160, 168, 190, 0.8)',
-            font: { size: 9, family: 'Plus Jakarta Sans' },
-            callback: (v) => 'R$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
-          },
-          grid: { display: false },
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+          border: { display: false },
+          ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
         },
       },
     },
@@ -9208,6 +9184,11 @@ function renderDashChartsCidades(ordersOverride) {
     .slice(0, 8);
 
   if (window._chartCidades) window._chartCidades.destroy();
+  // Cores degradê por rank (1º mais intenso → último mais sutil)
+  const cidadeColors = entries.map((_, i) => {
+    const alpha = 0.9 - (i / Math.max(entries.length - 1, 1)) * 0.5;
+    return `rgba(0,217,126,${alpha.toFixed(2)})`;
+  });
   window._chartCidades = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -9215,10 +9196,8 @@ function renderDashChartsCidades(ordersOverride) {
       datasets: [
         {
           data: entries.map(([, v]) => v),
-          backgroundColor: '#0FA765',
-          hoverBackgroundColor: '#13c97e',
-          borderWidth: 0,
-          borderRadius: 4,
+          backgroundColor: cidadeColors,
+          hoverBackgroundColor: cidadeColors.map((c) => c.replace(/[\d.]+\)$/, '1)')),
         },
       ],
     },
@@ -9226,24 +9205,19 @@ function renderDashChartsCidades(ordersOverride) {
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '  ' + Math.round(c.raw) + ' clientes' } },
+      },
       scales: {
         x: {
-          ticks: {
-            color: 'rgba(160, 168, 190, 0.8)',
-            font: { size: 9, family: 'Plus Jakarta Sans' },
-            maxRotation: 0,
-            autoSkip: true,
-            maxTicksLimit: 6,
-          },
           grid: { display: false },
+          border: { display: false },
+          ticks: { maxRotation: 0, maxTicksLimit: 5 },
         },
         y: {
-          ticks: {
-            color: 'rgba(160, 168, 190, 0.8)',
-            font: { size: 9, family: 'Plus Jakarta Sans' },
-          },
           grid: { display: false },
+          border: { display: false },
         },
       },
     },
@@ -9917,6 +9891,7 @@ function bulkMarkContacted() {
     toast('Nenhum cliente selecionado.', 'warning');
     return;
   }
+  if (!confirm(`Marcar ${n} cliente${n !== 1 ? 's' : ''} como contatado${n !== 1 ? 's' : ''}?`)) return;
   // Persiste interação do tipo "contato" para cada cliente selecionado
   if (!supaClient) {
     toast('Sem conexão com Supabase.', 'error');
@@ -13537,47 +13512,43 @@ function renderProdutos(_deferred) {
     const barState = setProdutosChartState('chart-produtos', top10.length > 0);
     const ctxP = barState.canvas;
     if (barState.shouldRender && ctxP && ctxP.getContext) {
+      const prodColors = top10.map((_, i) => {
+        const alpha = 0.9 - (i / Math.max(top10.length - 1, 1)) * 0.45;
+        return `rgba(0,217,126,${alpha.toFixed(2)})`;
+      });
       charts.produtos = new Chart(ctxP, {
-      type: 'bar',
-      data: {
-        labels: top10.map((p) => (p.nome.length > 18 ? p.nome.slice(0, 16) + '…' : p.nome)),
-        datasets: [
-          {
-            data: top10.map((p) => p.total),
-            backgroundColor: 'rgba(15,167,101,0.8)',
-            hoverBackgroundColor: 'rgba(15,167,101,1)',
-            borderRadius: 6,
-            borderSkipped: false,
-          },
-        ],
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: { label: (ctx) => ' ' + fmtBRL(ctx.raw) },
-          },
+        type: 'bar',
+        data: {
+          labels: top10.map((p) => (p.nome.length > 18 ? p.nome.slice(0, 16) + '…' : p.nome)),
+          datasets: [
+            {
+              data: top10.map((p) => p.total),
+              backgroundColor: prodColors,
+              hoverBackgroundColor: prodColors.map((c) => c.replace(/[\d.]+\)$/, '1)')),
+            },
+          ],
         },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: {
-              color: '#585f78',
-              font: { size: 9 },
-              callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: (ctx) => '  ' + fmtBRL(ctx.raw) } },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              border: { display: false },
+              ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
+            },
+            y: {
+              grid: { display: false },
+              border: { display: false },
             },
           },
-          y: {
-            grid: { display: false },
-            ticks: { color: '#585f78', font: { size: 10, weight: '600' } },
-          },
         },
-        animation: { duration: 1000, easing: 'easeOutQuart' },
-      },
-    });
+      });
   }
 
   // 3. Gráfico de Participação (Donut)
@@ -13605,39 +13576,41 @@ function renderProdutos(_deferred) {
           {
             data: partData,
             backgroundColor: [
-              '#0FA765',
-              '#22d3ee',
-              '#84cc16',
-              '#fbbf24',
-              '#f97316',
-              '#d946ef',
-              '#6366f1',
-              '#f43f5e',
-              '#14b8a6',
-              '#f59e0b',
-              '#94a3b8',
+              '#00D97E', '#4F8EFF', '#A78BFA', '#FFA726', '#22D3EE',
+              '#F43F5E', '#84CC16', '#FF7043', '#14B8A6', '#FFBB00', '#94A3B8',
             ],
-            borderWidth: 2,
-            borderColor: 'var(--card)',
-            hoverOffset: 10,
+            borderWidth: 0,
+            hoverOffset: 8,
+            spacing: 2,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: '72%',
         plugins: {
-          legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } },
+          legend: {
+            position: 'right',
+            labels: {
+              boxWidth: 8,
+              boxHeight: 8,
+              usePointStyle: true,
+              pointStyleWidth: 8,
+              font: { size: 10, weight: '600' },
+              color: 'rgba(148,163,184,0.8)',
+              padding: 10,
+            },
+          },
           tooltip: {
             callbacks: {
               label: (ctx) => {
                 const pct = ((ctx.raw / totalReceita) * 100).toFixed(1);
-                return ` ${ctx.label}: ${fmtBRL(ctx.raw)} (${pct}%)`;
+                return `  ${ctx.label}: ${fmtBRL(ctx.raw)} (${pct}%)`;
               },
             },
           },
         },
-        cutout: '65%',
       },
     });
   }
@@ -13656,20 +13629,16 @@ function renderProdutos(_deferred) {
       labels.push(d.toISOString().slice(0, 10));
     }
 
-    const datasets = top10.slice(0, 5).map((p, idx) => {
-      const colors = ['#0FA765', '#22d3ee', '#fbbf24', '#d946ef', '#f97316'];
-      return {
-        label: p.nome,
-        data: labels.map((l) => p.historico[l] || 0),
-        borderColor: colors[idx],
-        backgroundColor: colors[idx] + '10',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        borderWidth: 2,
-      };
-    });
+    const premColors = ['#00D97E', '#4F8EFF', '#FFA726', '#A78BFA', '#22D3EE'];
+    const datasets = top10.slice(0, 5).map((p, idx) => ({
+      label: p.nome,
+      data: labels.map((l) => p.historico[l] || 0),
+      borderColor: premColors[idx],
+      backgroundColor: premColors[idx] + '14',
+      fill: true,
+      pointHoverBackgroundColor: premColors[idx],
+      pointHoverBorderColor: '#fff',
+    }));
 
     charts.prodEvolucao = new Chart(ctxEv, {
       type: 'line',
@@ -13678,14 +13647,30 @@ function renderProdutos(_deferred) {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
-          tooltip: { mode: 'index', intersect: false },
+          legend: {
+            position: 'bottom',
+            labels: {
+              boxWidth: 8,
+              boxHeight: 8,
+              usePointStyle: true,
+              pointStyleWidth: 8,
+              font: { size: 10, weight: '600' },
+              color: 'rgba(148,163,184,0.8)',
+              padding: 12,
+            },
+          },
+          tooltip: { mode: 'index', intersect: false, callbacks: { label: (c) => '  ' + fmtBRL(c.raw) } },
         },
         scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 9 }, maxTicksLimit: 10 } },
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { maxTicksLimit: 10 },
+          },
           y: {
-            grid: { color: 'rgba(255,255,255,.04)' },
-            ticks: { font: { size: 9 }, callback: (v) => 'R$' + v },
+            grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+            border: { display: false },
+            ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
           },
         },
       },
@@ -14011,6 +13996,10 @@ function renderGeoChart(data) {
   const ctx = document.getElementById('chart-geo-estados');
   if (!ctx || !ctx.getContext || !top.length) return;
 
+  const geoColors = top.map((_, i) => {
+    const alpha = 0.9 - (i / Math.max(top.length - 1, 1)) * 0.5;
+    return `rgba(0,217,126,${alpha.toFixed(2)})`;
+  });
   charts.geoEstados = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -14019,18 +14008,25 @@ function renderGeoChart(data) {
         {
           label: 'Receita',
           data: top.map((s) => s.total),
-          backgroundColor: 'rgba(34, 211, 238, 0.8)',
-          borderRadius: 6,
+          backgroundColor: geoColors,
+          hoverBackgroundColor: geoColors.map((c) => c.replace(/[\d.]+\)$/, '1)')),
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => '  ' + fmtBRL(c.raw) } },
+      },
       scales: {
-        y: { beginAtZero: true, grid: { display: false }, ticks: { font: { size: 10 } } },
-        x: { grid: { display: false }, ticks: { font: { size: 10, weight: '700' } } },
+        x: { grid: { display: false }, border: { display: false } },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+          border: { display: false },
+          ticks: { callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
+        },
       },
     },
   });
@@ -14130,11 +14126,13 @@ function renderBrazilMap(stateMap, options) {
 
   const totals = Object.values(stateMap || {}).map((s) => Number(s?.total || 0) || 0);
   const maxTotal = Math.max(1, ...totals);
+  const isLightMap = document.documentElement.classList.contains('light');
   const getFill = (val) => {
     const v = Number(val || 0) || 0;
-    if (v <= 0) return '#eef2f7';
+    if (v <= 0) return isLightMap ? '#e8f5ee' : '#101e16';
     const t = Math.sqrt(v / maxTotal);
-    return lerpColor('#dbeafe', '#1e1b4b', t);
+    // Escala verde da marca: muted green → brand green (#00D97E)
+    return lerpColor(isLightMap ? '#bbf7d0' : '#0d3320', '#00D97E', t);
   };
 
   container.innerHTML = '';
@@ -17739,6 +17737,7 @@ function buildRespSelect(safeId, currentResp) {
 }
 
 function marcarCarrinhoPerdido(checkoutId) {
+  if (!confirm('Marcar este carrinho como perdido?')) return;
   const cid = String(checkoutId || '');
   const idx = (carrinhosAbandonados || []).findIndex((x) => String(x?.checkout_id || '') === cid);
   if (idx < 0) {
@@ -18325,6 +18324,7 @@ function salvarCampanha() {
   toast('✅ Campanha salva!');
 }
 function deletarCampanha() {
+  if (!confirm('Excluir esta campanha? Essa ação não pode ser desfeita.')) return;
   var id = parseInt(document.getElementById('camp-edit-id').value);
   allCampanhas = allCampanhas.filter(function (x) {
     return x.id !== id;
@@ -18870,6 +18870,7 @@ function salvarEvento() {
   toast('✅ Evento salvo!', 'success');
 }
 function deletarEvento() {
+  if (!confirm('Excluir este evento? Essa ação não pode ser desfeita.')) return;
   var id = parseInt(document.getElementById('ev-edit-id').value);
   allEventos = allEventos.filter(function (x) {
     return x.id !== id;
@@ -18932,18 +18933,15 @@ function renderChartEstoque() {
           backgroundColor: sorted.map(function (i) {
             var st = getEstStatus(i);
             return st === 'ok'
-              ? 'rgba(34,197,94,0.85)'
+              ? 'rgba(0,217,126,0.80)'
               : st === 'baixo'
-                ? 'rgba(251,191,36,0.85)'
-                : 'rgba(248,113,113,0.85)';
+                ? 'rgba(255,187,0,0.80)'
+                : 'rgba(244,63,94,0.80)';
           }),
           hoverBackgroundColor: sorted.map(function (i) {
             var st = getEstStatus(i);
-            return st === 'ok' ? '#22c55e' : st === 'baixo' ? '#fbbf24' : '#f87171';
+            return st === 'ok' ? '#00D97E' : st === 'baixo' ? '#FFBB00' : '#F43F5E';
           }),
-          borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
-          borderSkipped: false,
-          borderWidth: 0,
         },
       ],
     },
@@ -18965,17 +18963,12 @@ function renderChartEstoque() {
         x: {
           grid: { display: false },
           border: { display: false },
-          ticks: { color: 'rgba(160,168,190,0.55)', font: { size: 9, weight: 700 } },
         },
         y: {
           max: 100,
-          grid: { color: 'rgba(255,255,255,0.035)', borderDash: [4, 4] },
+          grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
           border: { display: false },
-          ticks: {
-            color: 'rgba(160,168,190,0.55)',
-            font: { size: 9, weight: 700 },
-            callback: function (v) { return v + '%'; },
-          },
+          ticks: { callback: function (v) { return v + '%'; } },
         },
       },
     },
@@ -19018,36 +19011,35 @@ function renderChartsCom() {
             backgroundColor: sorted.map(function (e) {
               return cColors[e[0]] || '#94a3b8';
             }),
-            borderWidth: 3,
-            borderColor: '#0e1018',
-            hoverOffset: 4,
+            borderWidth: 0,
+            hoverOffset: 8,
+            spacing: 2,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '60%',
+        cutout: '72%',
         plugins: {
           legend: {
             position: 'right',
             labels: {
-              color: '#585f78',
-              font: { size: 9 },
+              color: 'rgba(148,163,184,0.8)',
+              font: { size: 9, weight: '600' },
               boxWidth: 7,
               boxHeight: 7,
               usePointStyle: true,
-              padding: 6,
+              pointStyleWidth: 7,
+              padding: 8,
             },
           },
           tooltip: {
-            backgroundColor: '#0e1018',
-            borderColor: '#1d2235',
-            borderWidth: 1,
-            padding: 8,
             callbacks: {
               label: function (c) {
-                return ' ' + fmtBRL(c.raw);
+                const total = sorted.reduce(function(s, e) { return s + e[1]; }, 0) || 1;
+                const pct = Math.round((c.raw / total) * 100);
+                return '  ' + fmtBRL(c.raw) + ' · ' + pct + '%';
               },
             },
           },
@@ -19091,11 +19083,12 @@ function renderChartsCom() {
               return e[1];
             }),
             backgroundColor: sorted2.map(function (e) {
+              var c = sColors[e[0]] || '#94a3b8';
+              return c + 'CC';
+            }),
+            hoverBackgroundColor: sorted2.map(function (e) {
               return sColors[e[0]] || '#94a3b8';
             }),
-            borderRadius: 4,
-            borderSkipped: false,
-            borderWidth: 0,
           },
         ],
       },
@@ -19105,22 +19098,19 @@ function renderChartsCom() {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#0e1018',
-            borderColor: '#1d2235',
-            borderWidth: 1,
-            padding: 8,
             callbacks: {
               label: function (c) {
-                return c.raw + ' pedidos';
+                return '  ' + c.raw + ' pedidos';
               },
             },
           },
         },
         scales: {
-          x: { grid: { display: false }, ticks: { color: '#585f78', font: { size: 9 } } },
+          x: { grid: { display: false }, border: { display: false } },
           y: {
-            grid: { color: 'rgba(255,255,255,.04)' },
-            ticks: { color: '#585f78', font: { size: 9 } },
+            grid: { color: 'rgba(255,255,255,0.03)', borderDash: [3, 3] },
+            border: { display: false },
+            ticks: { maxTicksLimit: 5 },
           },
         },
       },
