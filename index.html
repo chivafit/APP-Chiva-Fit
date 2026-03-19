@@ -722,13 +722,13 @@
           </div>
         </div>
         <div id="sync-bar" style="display: none"><span id="sync-txt-bar">⟳</span></div>
-        <div id="main-content">
+        <main id="main-content">
           <!-- NOTIF & WA MODAL -->
           <div id="notif-panel" style="display: none">
             <div class="np-title">🔔 Notificações</div>
             <div id="notif-list"></div>
           </div>
-          <div id="wa-modal">
+          <div id="wa-modal" role="dialog" aria-modal="true" aria-label="WhatsApp">
             <div class="wa-box">
               <h3>💬 WhatsApp</h3>
               <p id="wa-modal-name"></p>
@@ -745,9 +745,9 @@
             </div>
           </div>
 
-          <div class="mod-overlay" id="modal-dash-actions">
+          <div class="mod-overlay" id="modal-dash-actions" role="dialog" aria-modal="true" aria-labelledby="modal-dash-actions-title">
             <div class="mod-box" style="max-width: 760px">
-              <div class="mod-title">⚡ Ações do Dia</div>
+              <div class="mod-title" id="modal-dash-actions-title">⚡ Ações do Dia</div>
               <div id="dash-actions-modal-body"></div>
               <div class="mod-actions">
                 <button class="btn-mod-cancel" onclick="fecharModal('modal-dash-actions')">
@@ -1917,7 +1917,7 @@
                         display: flex;
                         justify-content: center;
                         align-items: center;
-                        background: #f9fafb;
+                        background: var(--surface);
                         border-radius: 8px;
                       "
                     >
@@ -1994,14 +1994,7 @@
                   </div>
                 </div>
 
-                <div
-                  style="
-                    display: grid;
-                    grid-template-columns: 1fr 300px;
-                    gap: 16px;
-                    align-items: start;
-                  "
-                >
+                <div class="layout-split-grid" style="gap: 16px; align-items: start;">
                   <!-- Tabela Detalhada -->
                   <div
                     style="
@@ -2573,20 +2566,7 @@
                     >
                       + Insumo
                     </button>
-                    <button
-                      onclick="abrirNovaOrdem()"
-                      style="
-                        background: #5a9e30;
-                        border: none;
-                        border-radius: var(--r-md);
-                        padding: 8px 14px;
-                        color: #fff;
-                        font-size: 11px;
-                        font-weight: 700;
-                        cursor: pointer;
-                        font-family: var(--font);
-                      "
-                    >
+                    <button class="chiva-btn-primary" onclick="abrirNovaOrdem()">
                       + Nova OP
                     </button>
                   </div>
@@ -2725,19 +2705,9 @@
                     ></div>
 
                     <button
+                      class="chiva-btn-primary"
                       onclick="calcularSimulador()"
-                      style="
-                        background: #5a9e30;
-                        border: none;
-                        border-radius: var(--r-md);
-                        padding: 10px 20px;
-                        color: #fff;
-                        font-size: 12px;
-                        font-weight: 800;
-                        cursor: pointer;
-                        font-family: var(--font);
-                        width: 100%;
-                      "
+                      style="width: 100%"
                     >
                       ▶ Calcular Necessidade de Insumos
                     </button>
@@ -2803,14 +2773,7 @@
 
                 <div id="seg-detalhe-stats" class="stat-grid" style="margin-bottom: 24px"></div>
 
-                <div
-                  style="
-                    display: grid;
-                    grid-template-columns: 1fr 320px;
-                    gap: 20px;
-                    align-items: start;
-                  "
-                >
+                <div class="layout-split-grid" style="gap: 20px; align-items: start;">
                   <div
                     style="
                       background: var(--card);
@@ -2882,20 +2845,7 @@
                       Pedidos, canais e campanhas de marketing
                     </p>
                   </div>
-                  <button
-                    onclick="abrirModalCampanha(null)"
-                    style="
-                      background: #5a9e30;
-                      border: none;
-                      border-radius: var(--r-md);
-                      padding: 8px 14px;
-                      color: #fff;
-                      font-size: 11px;
-                      font-weight: 700;
-                      cursor: pointer;
-                      font-family: var(--font);
-                    "
-                  >
+                  <button class="chiva-btn-primary" onclick="abrirModalCampanha(null)">
                     + Campanha
                   </button>
                 </div>
@@ -3243,20 +3193,7 @@
                       Calendário, eventos e degustações
                     </p>
                   </div>
-                  <button
-                    onclick="abrirModalEvento(null)"
-                    style="
-                      background: #5a9e30;
-                      border: none;
-                      border-radius: var(--r-md);
-                      padding: 8px 14px;
-                      color: #fff;
-                      font-size: 11px;
-                      font-weight: 700;
-                      cursor: pointer;
-                      font-family: var(--font);
-                    "
-                  >
+                  <button class="chiva-btn-primary" onclick="abrirModalEvento(null)">
                     + Evento
                   </button>
                 </div>
@@ -3381,7 +3318,7 @@
               </div>
 
               <!-- MODAL INSUMO -->
-              <div class="mod-overlay" id="modal-insumo">
+              <div class="mod-overlay" id="modal-insumo" role="dialog" aria-modal="true" aria-labelledby="modal-insumo-title">
                 <div class="mod-box">
                   <div class="mod-title" id="modal-insumo-title">Novo Insumo</div>
                   <input type="hidden" id="insumo-edit-id" />
@@ -3441,7 +3378,7 @@
               </div>
 
               <!-- MODAL ENTRADA INSUMO -->
-              <div class="mod-overlay" id="modal-entrada-insumo">
+              <div class="mod-overlay" id="modal-entrada-insumo" role="dialog" aria-modal="true" aria-labelledby="modal-entrada-insumo-title">
                 <div class="mod-box">
                   <div class="mod-title" id="modal-entrada-insumo-title">Registrar Entrada</div>
                   <input type="hidden" id="entrada-insumo-id" />
@@ -3483,7 +3420,7 @@
               </div>
 
               <!-- MODAL ORDEM DE PRODUÇÃO -->
-              <div class="mod-overlay" id="modal-ordem">
+              <div class="mod-overlay" id="modal-ordem" role="dialog" aria-modal="true" aria-labelledby="modal-ordem-title">
                 <div class="mod-box">
                   <div class="mod-title" id="modal-ordem-title">Nova Ordem de Produção</div>
                   <input type="hidden" id="ordem-edit-id" />
@@ -3562,7 +3499,7 @@
               </div>
 
               <!-- MODAL CAMPANHA -->
-              <div class="mod-overlay" id="modal-campanha">
+              <div class="mod-overlay" id="modal-campanha" role="dialog" aria-modal="true" aria-labelledby="modal-campanha-title">
                 <div class="mod-box">
                   <div class="mod-title" id="modal-campanha-title">Nova Campanha</div>
                   <input type="hidden" id="camp-edit-id" />
@@ -3665,7 +3602,7 @@
               </div>
 
               <!-- MODAL EVENTO -->
-              <div class="mod-overlay" id="modal-evento">
+              <div class="mod-overlay" id="modal-evento" role="dialog" aria-modal="true" aria-labelledby="modal-evento-title">
                 <div class="mod-box">
                   <div class="mod-title" id="modal-evento-title">Novo Evento</div>
                   <input type="hidden" id="ev-edit-id" />
@@ -3753,7 +3690,7 @@
               </div>
             <!-- /main-content -->
           <!-- /main-area -->
-        </div>
+        </main>
         <!-- /app-shell -->
 
         <div id="toast"></div>

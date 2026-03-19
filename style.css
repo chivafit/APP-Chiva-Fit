@@ -71,6 +71,7 @@
      4 níveis: principal → secundário → apagado → fantasma
   ═══════════════════════════════════════════ */
   --text: #eef2ef; /* títulos, valores importantes — branco com toque verde */
+  --text-1: #c8ddd1; /* nível intermediário entre --text e --text-2 */
   --text-2: #9eb8a8; /* labels, subtítulos */
   --text2: #9eb8a8; /* alias de text-2 para compat */
   --text-3: #527362; /* placeholders, captions */
@@ -6671,9 +6672,12 @@ html.light {
   --border-sub: #eef0f4;
   --border2: #d7dbe4;
   --text: #0f172a;
+  --text-1: #1e293b;
   --text-2: #334155;
   --text-3: #64748b;
   --text-4: #94a3b8;
+  /* Em light mode, --chiva-primary-light precisa ser mais escuro para ter contraste suficiente (WCAG AA) */
+  --chiva-primary-light: #3d7a0f;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 14px 40px rgba(15, 23, 42, 0.1);
@@ -8412,11 +8416,11 @@ html.light .dash-filterbar {
 }
 
 .dash-kpi {
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 14px 14px 12px;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-md);
   position: relative;
   overflow: hidden;
   transition:
@@ -8445,7 +8449,8 @@ html.light .dash-filterbar {
   opacity: 0.35;
 }
 .dash-kpi--ghost {
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--card);
+  opacity: 0.75;
 }
 .dash-kpi-top {
   display: flex;
@@ -8456,25 +8461,25 @@ html.light .dash-filterbar {
 .dash-kpi-label {
   font-size: 11px;
   font-weight: 800;
-  color: #64748b;
+  color: var(--text-3);
   letter-spacing: -0.15px;
 }
 .dash-kpi-value {
   margin-top: 6px;
   font-size: 22px;
   font-weight: 900;
-  color: #0f172a;
+  color: var(--text);
   letter-spacing: -0.7px;
 }
 .dash-kpi-delta {
   margin-top: 8px;
   font-size: 11px;
   font-weight: 800;
-  color: #64748b;
+  color: var(--text-3);
 }
 .dash-kpi-delta-sub {
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-2);
 }
 .dash-kpi-delta-pos {
   color: #16a34a;
@@ -8497,8 +8502,8 @@ html.light .dash-filterbar {
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 .dash-kpi-icon--green {
   background: rgba(34, 197, 94, 0.12);
@@ -8518,7 +8523,7 @@ html.light .dash-filterbar {
 }
 .dash-kpi-icon--ghost {
   background: rgba(148, 163, 184, 0.12);
-  color: #334155;
+  color: var(--text-2);
 }
 .dash-kpi-spark {
   width: 96px;
@@ -8544,7 +8549,7 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
   grid-template-columns: 1fr auto;
   gap: 6px 10px;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  border-bottom: 1px solid var(--border-sub);
 }
 .dash-donut-row:last-child {
   border-bottom: none;
@@ -8565,7 +8570,7 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
 .dash-donut-name {
   font-size: 12px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8579,19 +8584,19 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
   font-size: 12px;
   font-weight: 900;
   font-family: var(--mono);
-  color: #0f172a;
+  color: var(--text);
 }
 .dash-donut-pct {
   font-size: 11px;
   font-weight: 800;
-  color: #64748b;
+  color: var(--text-3);
   width: 44px;
   text-align: right;
 }
 .dash-donut-bar {
   grid-column: 1 / -1;
   height: 6px;
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--border);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -8619,13 +8624,13 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
 .dash-side-value {
   font-size: 22px;
   font-weight: 900;
-  color: #0f172a;
+  color: var(--text);
   letter-spacing: -0.6px;
 }
 .dash-side-delta {
   font-size: 12px;
   font-weight: 900;
-  color: #64748b;
+  color: var(--text-3);
 }
 .dash-side-delta.pos {
   color: #16a34a;
@@ -8854,11 +8859,11 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
 }
 .dash-map {
   border-radius: 14px;
-  border: 1px dashed rgba(15, 23, 42, 0.1);
+  border: 1px dashed var(--border);
   background: radial-gradient(
     220px 140px at 50% 50%,
     rgba(15, 167, 101, 0.1),
-    rgba(255, 255, 255, 0)
+    transparent
   );
   padding: 10px;
   min-height: 190px;
@@ -8875,7 +8880,7 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
 .dash-map-loading {
   font-size: 12px;
   font-weight: 900;
-  color: #94a3b8;
+  color: var(--text-3);
 }
 .dash-geo-list {
   display: flex;
@@ -9865,4 +9870,31 @@ html.light .chart-card-header .chart-title {
 .car-resp-select:focus {
   outline: none;
   border-color: var(--chiva-primary);
+}
+
+/* ═══════════════════════════════════════════
+   LAYOUT UTILITÁRIOS RESPONSIVOS
+═══════════════════════════════════════════ */
+
+/* Grid 2 colunas com sidebar fixa que colapsa em mobile */
+.layout-split-grid {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 320px);
+}
+@media (max-width: 640px) {
+  .layout-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Filterbar responsiva */
+@media (max-width: 640px) {
+  .saas-filterbar {
+    flex-wrap: wrap;
+  }
+  .saas-search {
+    min-width: 0;
+    width: 100%;
+    flex: 1 1 100%;
+  }
 }
