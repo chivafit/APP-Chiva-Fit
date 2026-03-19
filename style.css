@@ -13043,3 +13043,34 @@ html.light .cc-alerts-exec {
   font-size: 12px;
   font-family: var(--font);
 }
+
+/* ═══════════════════════════════════════════════════════
+   CHANNEL ICON BADGES — donut table
+   ═══════════════════════════════════════════════════════ */
+.ch-icon-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--ic, #94a3b8) 14%, transparent);
+  color: var(--ic, #94a3b8);
+}
+
+/* Donut table — move pct next to name (remove from right column) */
+.dash-donut-left {
+  gap: 7px !important;
+}
+.dash-donut-pct {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--text-3) !important;
+  width: auto !important;
+  text-align: left !important;
+  margin-left: auto;
+}
+.dash-donut-right {
+  align-items: center !important;
+}
