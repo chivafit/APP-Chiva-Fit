@@ -87,6 +87,80 @@ injectSpeedInsights({
 
 // ── Sentry: inicializa e registra handlers globais ──
 initSentry();
+
+// ============================================================================
+// CORE INITIALIZATION
+// ============================================================================
+
+/**
+ * FUNÇÃO UNIFICADA DE MÉTRICAS DE CLIENTE
+ * Garante que lista e perfil usem exatamente a mesma fonte de verdade
+ */
+function getCustomerMetrics(customerId, context = {}) {
+  const id = String(customerId || '').trim();
+  if (!id) return { total_gasto: 0, total_pedidos: 0, ultimo_pedido: null, ticket_medio: 0 };
+  
+  // 1. Tente obter dados agregados do cache (fonte mais confiável)
+  const intelData = clientesIntelCache.find(c => 
+    String(c.cliente_id || c.id || '') === id || 
+    String(c.id || '') === id
+  );
+  
+  if (intelData) {
+    const total = Number(intelData.total_gasto || intelData.ltv || 0) || 0;
+    const pedidos = Number(intelData.total_pedidos || 0) || 0;
+    const ticket = pedidos > 0 ? total / pedidos : 0;
+    const ultimo = intelData.ultimo_pedido || intelData.last || null;
+    
+    console.log(`[getCustomerMetrics] Cache hit for ${id}:`, {
+      source: 'clientesIntelCache',
+      total_gasto: total,
+      total_pedidos: pedidos,
+      ultimo_pedido: ultimo
+    });
+    
+    return {
+      total_gasto: total,
+      total_pedidos: pedidos,
+      ultimo_pedido: ultimo,
+      ticket_medio: ticket,
+      _source: 'cache'
+    };
+  }
+  
+  // 2. Fallback: calcular a partir de allOrders (legado)
+  const customer = allCustomers.find(c => String(c.id || '') === id);
+  if (!customer) {
+    console.warn(`[getCustomerMetrics] Cliente não encontrado: ${id}`);
+    return { total_gasto: 0, total_pedidos: 0, ultimo_pedido: null, ticket_medio: 0, _source: 'not_found' };
+  }
+  
+  const orders = allOrders
+    .filter((o) => orderCustomerKey(o) === customer.id)
+    .slice()
+    .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
+  
+  const total = orders.reduce((s, o) => s + val(o), 0);
+  const pedidos = orders.length;
+  const ticket = pedidos > 0 ? total / pedidos : 0;
+  const ultimo = orders[0]?.data || null;
+  
+  console.log(`[getCustomerMetrics] Fallback for ${id}:`, {
+    source: 'allOrders',
+    total_gasto: total,
+    total_pedidos: pedidos,
+    ultimo_pedido: ultimo
+  });
+  
+  return {
+    total_gasto: total,
+    total_pedidos: pedidos,
+    ultimo_pedido: ultimo,
+    ticket_medio: ticket,
+    _source: 'fallback'
+  };
+}
+
 window.addEventListener('unhandledrejection', function (event) {
   captureError(event.reason, { type: 'unhandledrejection' });
 });
@@ -9876,8 +9950,10 @@ function renderCliIntelCard(c, eid, idx) {
   const dias = c?.dias_desde_ultima_compra == null ? null : Number(c.dias_desde_ultima_compra || 0);
   const score = Number(c?.score_recompra || 0) || 0;
   const churn = Number(c?.risco_churn || 0) || 0;
-  const pedidos = Number(c?.total_pedidos || 0) || 0;
-  const ltv = Number(c?.ltv ?? c?.total_gasto ?? 0) || 0;
+  // Usar função unificada para garantir consistência
+  const metrics = getCustomerMetrics(c.cliente_id || c.id);
+  const pedidos = metrics.total_pedidos;
+  const ltv = metrics.total_gasto;
   const next = String(c?.next_best_action || '').trim();
   const phone = String(c?.celular || c?.telefone || '').replace(/\D/g, '');
   const email = String(c?.email || '').trim();
@@ -9964,8 +10040,15 @@ function renderCliIntelCard(c, eid, idx) {
 
 function openClientePage(clienteId) {
   const raw = String(clienteId || '').trim();
+  console.log(`[openClientePage] Abrindo cliente: ${raw}`);
+  
+  // Tente hidratar do Supabase
   hydrateClienteInfoFromSupabase(raw);
+  
+  // Mapear para UUID se necessário
   const mapped = clienteKeyToUuid?.[raw] || raw;
+  console.log(`[openClientePage] Mapeado: ${raw} -> ${mapped}`);
+  
   currentClienteId = mapped;
   showPage('cliente');
 }
@@ -10068,23 +10151,19 @@ function renderClientePage() {
     return;
   }
 
-  // Tentar buscar dados mais completos do meta cache ou do banco
+  // Usar função unificada para garantir consistência com a lista
   const meta = cliMetaCache?.[c.id] || {};
-  const orders = allOrders
-    .filter((o) => orderCustomerKey(o) === c.id)
-    .slice()
-    .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-
-  const total = orders.reduce((s, o) => s + val(o), 0);
-  const n = orders.length;
-  const ticket = n ? total / n : 0;
-  const last = orders[0]?.data || c.last || null;
-  const first = orders[orders.length - 1]?.data || c.first || null;
+  const metrics = getCustomerMetrics(c.id, { page: 'profile' });
+  const total = metrics.total_gasto;
+  const n = metrics.total_pedidos;
+  const ticket = metrics.ticket_medio;
+  const last = metrics.ultimo_pedido || c.last || null;
+  const first = c.first || null; // Usar dados do cliente, não de orders
   const ds = daysSince(last);
   const avgInterval = calcCliScores(c).avgInterval;
 
-  // Enriquecer dados do cliente com o primeiro pedido se estiverem faltando
-  const firstOrder = orders[orders.length - 1] || {};
+  // Enriquecer dados do cliente com dados básicos (sem depender de orders)
+  const firstOrder = {}; // Placeholder vazio
   const enriched = (() => {
     const nome = cleanText(c.nome || firstOrder.contato?.nome || '');
     const telefone = cleanPhoneDigits(
