@@ -124,7 +124,7 @@ jobs:
             local data="$2"
             local resp
             local curl_exit
-            echo "Calling: ${url}"
+            echo "Calling: ${url}" >&2
             set +e
             resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
               -H "Content-Type: application/json" \
@@ -133,20 +133,20 @@ jobs:
             curl_exit="$?"
             set -e
             if [ "${curl_exit}" -ne 0 ]; then
-              echo "curl failed (exit ${curl_exit})"
-              echo "${resp}" | head -c 2000
-              echo
+              echo "curl failed (exit ${curl_exit})" >&2
+              echo "${resp}" | head -c 2000 >&2
+              echo >&2
               exit 1
             fi
             local status
             status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
             local body
             body="$(printf '%s' "${resp}" | sed '$d')"
-            echo "HTTP ${status}"
-            echo "${body}" | head -c 2000
-            echo
+            echo "HTTP ${status}" >&2
+            echo "${body}" | head -c 2000 >&2
+            echo >&2
             if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
-              echo "Request failed (HTTP ${status})"
+              echo "Request failed (HTTP ${status}) — body acima" >&2
               exit 1
             fi
             printf '%s' "${body}"
