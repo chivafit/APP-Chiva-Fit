@@ -6270,21 +6270,23 @@ function renderDashNow() {
   const pctRec = cliList.length ? Math.round((recorrentes / cliList.length) * 100) : 0;
 
   const sr = document.getElementById('source-row');
-  if (sr)
+  if (sr) {
+    const dot = (color) => `<svg width="6" height="6" viewBox="0 0 6 6" fill="${color}"><circle cx="3" cy="3" r="3"/></svg>`;
     sr.innerHTML =
       (blingOrders.length
-        ? `<span style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:3px 9px">🔵 Bling: ${blingOrders.length}</span>`
+        ? `<span class="src-badge">${dot('#60a5fa')} Bling · ${blingOrders.length}</span>`
         : '') +
       (yampiOrders.length
-        ? `<span style="background:rgba(217,70,239,.1);border:1px solid rgba(217,70,239,.2);border-radius:7px;padding:3px 9px">🟣 Yampi: ${yampiOrders.length}</span>`
+        ? `<span class="src-badge">${dot('#d946ef')} Yampi · ${yampiOrders.length}</span>`
         : '') +
       (shopifyOrders.length
-        ? `<span style="background:rgba(150,191,72,.1);border:1px solid rgba(150,191,72,.2);border-radius:7px;padding:3px 9px">🟢 Shopify: ${shopifyOrders.length}</span>`
+        ? `<span class="src-badge">${dot('#84cc16')} Shopify · ${shopifyOrders.length}</span>`
         : '') +
       (dashCh
-        ? `<span style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:7px;padding:3px 9px">Filtro: ${escapeHTML(CH[dashCh] || dashCh)}</span>`
+        ? `<span class="src-badge">Filtro: ${escapeHTML(CH[dashCh] || dashCh)}</span>`
         : '') +
-      (!ordersSales.length ? `<span style="color:var(--text-3)">Sem dados no período</span>` : '');
+      (!ordersSales.length ? `<span style="color:var(--text-3);font-size:12px">Sem dados no período</span>` : '');
+  }
 
   // ticket precisa ser declarado antes do bloco CC (evita TDZ com const)
   const ticket = ordersSales.length ? total / ordersSales.length : 0;
@@ -6570,70 +6572,9 @@ function renderDashNow() {
 }
 
 function renderCCHero({ potencial, prontosCiclo, vips45, vipRiscoLtv, stoppedProd, total, totalPrev, ordersSalesLen, inativos30, ticket, ticketDeltaW }) {
+  // Consolidated into cc-alerts panel — keep empty
   const el = document.getElementById('cc-hero');
-  if (!el) return;
-  if (!ordersSalesLen) { el.innerHTML = ''; return; }
-
-  const pctTotal = totalPrev > 0 ? ((total - totalPrev) / totalPrev) * 100 : 0;
-  const quedaTicket = ticketDeltaW < -8 ? Math.abs(ticketDeltaW).toFixed(0) : 0;
-
-  // ── Headline dinâmica por prioridade ──────────────
-  let headline, headlineHtml;
-  if (vips45 > 0) {
-    headlineHtml = `<span class="cc-chip-inline danger">${vips45} VIP${vips45 > 1 ? 's' : ''}</span> em risco hoje`;
-  } else if (prontosCiclo > 0) {
-    headlineHtml = `<span class="cc-chip-inline success">${prontosCiclo} cliente${prontosCiclo > 1 ? 's' : ''}</span> pronto${prontosCiclo > 1 ? 's' : ''} para recompra`;
-  } else if (quedaTicket > 0) {
-    headlineHtml = `Ticket médio em queda <span class="cc-chip-inline warning">${quedaTicket}%</span>`;
-  } else if (pctTotal >= 5) {
-    headlineHtml = `Receita crescendo <span class="cc-chip-inline success">+${pctTotal.toFixed(0)}%</span>`;
-  } else {
-    headlineHtml = `Operação estável hoje`;
-  }
-
-  // ── Chips inteligentes (máx 3) ────────────────────
-  const rawChips = [];
-  if (vips45 > 0) rawChips.push({ label: `${vips45} VIP em risco`, type: 'danger', action: `showPage('inteligencia')` });
-  if (prontosCiclo > 0) rawChips.push({ label: `${prontosCiclo} recompra possível`, type: 'success', action: `showPage('clientes')` });
-  if (inativos30 > 0) rawChips.push({ label: `${inativos30} inativos`, type: 'warning', action: `showPage('alertas')` });
-  if (stoppedProd && rawChips.length < 3) rawChips.push({ label: `${escapeHTML(stoppedProd)} em queda`, type: 'warning', action: `showPage('produtos')` });
-  const chips = rawChips.slice(0, 3);
-
-  window._heroChipActions = chips.map((c) => c.action);
-
-  el.innerHTML = `
-    <div class="cc-hero">
-      <div class="cc-hero-left">
-        <div class="cc-hero-eyebrow">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          Control Center
-        </div>
-        <h1 class="cc-hero-title">${headlineHtml}</h1>
-        <p class="cc-hero-sub">Ações recomendadas com base no comportamento atual dos clientes</p>
-        ${chips.length ? `<div class="cc-hero-chips">${chips.map((c, i) => `<button class="cc-chip cc-chip--${c.type}" data-chip-idx="${i}">${escapeHTML(c.label)}</button>`).join('')}</div>` : ''}
-      </div>
-      <div class="cc-hero-right">
-        <button class="cc-hero-cta" onclick="openDashActionsModal()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          Executar ações agora
-        </button>
-        <button class="cc-hero-secondary" onclick="showPage('alertas')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-          Ver todos alertas
-        </button>
-      </div>
-    </div>
-  `;
-
-  el.querySelectorAll('.cc-chip[data-chip-idx]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.chipIdx, 10);
-      const action = (window._heroChipActions || [])[idx];
-      if (typeof action === 'string') {
-        try { new Function(action)(); } catch (e) { console.warn('[cc-hero chip]', e); }
-      }
-    });
-  });
+  if (el) el.innerHTML = '';
 }
 
 function renderCCAlerts({ ticketDeltaW, inativos30, vips45, vipRiscoLtv, stoppedProd, total, totalPrev, prontosCiclo, potencial, recorrentes, pctRec, vipCount }) {
@@ -6733,29 +6674,27 @@ function renderCCAlerts({ ticketDeltaW, inativos30, vips45, vipRiscoLtv, stopped
 
   window._ccAlertActions = alerts.map((a) => a.action);
 
-  const levelLabel = { critical: 'Crítico', warning: 'Atenção', positive: 'Positivo' };
-
   el.innerHTML = `
     <div class="cc-alerts-wrap">
       <div class="cc-alerts-header">
         <div class="cc-alerts-title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-          Alertas Ativos
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          Alertas
+          <span class="cc-alerts-count">${alerts.length}</span>
         </div>
-        <span class="cc-alerts-count">${alerts.length} alert${alerts.length > 1 ? 'as' : 'a'}</span>
+        <button class="cc-alerts-exec" onclick="openDashActionsModal()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Ações do dia
+        </button>
       </div>
       <div class="cc-alerts-list">
         ${alerts.map((a, idx) => `
           <div class="cc-alert cc-alert--${a.level}">
-            <div class="cc-alert-icon">${a.icon}</div>
             <div class="cc-alert-body">
               <div class="cc-alert-title">${escapeHTML(a.title)}</div>
               <div class="cc-alert-sub">${escapeHTML(a.sub)}</div>
             </div>
-            <div class="cc-alert-right">
-              <span class="cc-alert-level cc-alert-level--${a.level}">${levelLabel[a.level]}</span>
-              <button class="cc-alert-cta" data-cc-idx="${idx}">${escapeHTML(a.cta)}</button>
-            </div>
+            <button class="cc-alert-cta" data-cc-idx="${idx}">${escapeHTML(a.cta)}</button>
           </div>
         `).join('')}
       </div>
@@ -9062,26 +9001,9 @@ function renderCompare(ordersOverride) {
   </div>`;
 }
 function renderAlertBanner(ordersOverride) {
-  const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
-  const ad = parseInt(localStorage.getItem('crm_alertdays') || '60');
-  const inat = Object.values(buildCli(orders)).filter(
-    (c) => daysSince(c.last) > ad && !isCNPJ(c.doc),
-  );
+  // Info covered by cc-alerts panel — keep hidden
   const el = document.getElementById('alert-banner');
-  if (!inat.length) {
-    el.style.display = 'none';
-    return;
-  }
-  el.style.display = 'block';
-  el.innerHTML = `<div class="ab-title">⚠️ ${inat.length} cliente${inat.length !== 1 ? 's' : ''} sem comprar há mais de ${ad} dias</div>
-    ${inat
-      .slice(0, 3)
-      .map(
-        (c) =>
-          `<div class="ab-item"><strong>${escapeHTML(c.nome)}</strong> — ${daysSince(c.last)} dias</div>`,
-      )
-      .join('')}
-    ${inat.length > 3 ? `<span style="font-size:10px;color:var(--blue);cursor:pointer" onclick="showPage('alertas')">Ver todos →</span>` : ''}`;
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
 function renderChartCanal(ordersOverride) {
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
