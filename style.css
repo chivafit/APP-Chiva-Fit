@@ -7788,17 +7788,22 @@ html.light .radar-filterbar {
   flex: 1 1 320px;
 }
 .radar-search-ico {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-3);
-  font-size: 12px;
+  border-radius: 8px;
+  background: var(--chiva-primary-dim);
+  border: 1px solid var(--chiva-primary-border);
+  color: var(--chiva-primary);
+  font-size: 14px;
   flex: 0 0 auto;
+}
+html.light .radar-search-ico {
+  background: rgba(15, 167, 101, 0.08);
+  border-color: rgba(15, 167, 101, 0.25);
+  color: var(--chiva-primary-deep);
 }
 .radar-search-input {
   flex: 1 1 auto;
