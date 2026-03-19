@@ -138,12 +138,15 @@ export async function syncBling(ctx, options) {
         );
     }
 
-    ctx.blingOrders.length = 0;
-    ctx.blingOrders.push(...out);
-    localStorage.setItem('crm_bling_orders', JSON.stringify(ctx.blingOrders));
-    ctx.mergeOrders();
-    ctx.populateUFs();
-    Promise.resolve(ctx.upsertOrdersToSupabase(ctx.blingOrders)).catch((e) => {
+    if (out.length > 0) {
+      const existingIds = new Set(ctx.blingOrders.map((o) => String(o.id || o.numero || '')));
+      const newOrders = out.filter((o) => !existingIds.has(String(o.id || o.numero || '')));
+      ctx.blingOrders.push(...newOrders);
+      localStorage.setItem('crm_bling_orders', JSON.stringify(ctx.blingOrders));
+      ctx.mergeOrders();
+      ctx.populateUFs();
+    }
+    Promise.resolve(out.length > 0 ? ctx.upsertOrdersToSupabase(out) : Promise.resolve()).catch((e) => {
       console.error('[Bling sync] ❌ upsertOrdersToSupabase falhou:', e?.message || e, { code: e?.code, details: e?.details, hint: e?.hint, status: e?.status });
     });
     ctx.renderAll();
