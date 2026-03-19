@@ -7908,31 +7908,70 @@ html.light .radar-filterbar {
   font-family: var(--mono);
   flex-shrink: 0;
 }
-.radar-show-more {
+/* ── Paginação por grupo ─────────────────────────────── */
+.radar-pagination {
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px dashed rgba(15, 167, 101, 0.3);
-  background: rgba(15, 167, 101, 0.04);
-  color: var(--chiva-primary-light);
+  justify-content: center;
+  gap: 4px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.radar-pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  font-family: var(--font);
+}
+.radar-pg-btn:hover:not(:disabled) {
+  background: var(--card-hover);
+  border-color: var(--border2);
+  color: var(--text);
+}
+.radar-pg-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.radar-pg-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
-  justify-content: center;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+  font-family: var(--font);
 }
-.radar-show-more:hover {
-  background: rgba(15, 167, 101, 0.09);
-  border-color: rgba(15, 167, 101, 0.5);
+.radar-pg-num:hover:not(.active) {
+  background: var(--card-hover);
+  color: var(--text);
 }
-.radar-show-more-count {
-  color: var(--text-3);
-  font-weight: 500;
-  font-size: 11px;
+.radar-pg-num.active {
+  background: rgba(15, 167, 101, 0.14);
+  border-color: rgba(15, 167, 101, 0.3);
+  color: var(--chiva-primary-light);
+}
+html.light .radar-pg-num.active {
+  background: rgba(15, 167, 101, 0.1);
+  color: #2d7a1f;
 }
 
 /* ── Oportunidades: grid ─────────────────────────────── */

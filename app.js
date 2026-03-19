@@ -10335,10 +10335,10 @@ let radarOppFilters = safeJsonParse('crm_radar_filters', {
 });
 let radarOppLastModel = null;
 const RADAR_PAGE_SIZE = 9;
-let radarGroupPages = {};
+let radarGroupPages = {}; // { groupId: currentPage } — 0-indexed
 
-window.radarExpandGroup = function (groupId) {
-  radarGroupPages[groupId] = (radarGroupPages[groupId] || 1) + 1;
+window.radarGoToPage = function (groupId, page) {
+  radarGroupPages[groupId] = Number(page) || 0;
   renderOportunidades();
 };
 
@@ -11020,12 +11020,18 @@ async function renderOportunidadesFromSupabase() {
 
     const renderGroup = (groupId, title, subtitle, list) => {
       if (!list.length) return '';
-      const pages = radarGroupPages[groupId] || 1;
-      const visible = list.slice(0, pages * RADAR_PAGE_SIZE);
-      const remaining = list.length - visible.length;
-      const showMoreBtn = remaining > 0
-        ? `<button class="radar-show-more" onclick="radarExpandGroup('${escapeHTML(groupId)}')">Ver mais ${remaining > RADAR_PAGE_SIZE ? RADAR_PAGE_SIZE : remaining} <span class="radar-show-more-count">de ${remaining} restantes</span></button>`
-        : '';
+      const totalPages = Math.ceil(list.length / RADAR_PAGE_SIZE);
+      const currentPage = Math.min(radarGroupPages[groupId] || 0, totalPages - 1);
+      const visible = list.slice(currentPage * RADAR_PAGE_SIZE, (currentPage + 1) * RADAR_PAGE_SIZE);
+      const gid = escapeHTML(groupId);
+      const pagination = totalPages > 1 ? `
+        <div class="radar-pagination">
+          <button class="radar-pg-btn" ${currentPage === 0 ? 'disabled' : ''} onclick="radarGoToPage('${gid}',${currentPage - 1})">‹</button>
+          ${Array.from({ length: totalPages }, (_, i) => `
+            <button class="radar-pg-num ${i === currentPage ? 'active' : ''}" onclick="radarGoToPage('${gid}',${i})">${i + 1}</button>
+          `).join('')}
+          <button class="radar-pg-btn" ${currentPage === totalPages - 1 ? 'disabled' : ''} onclick="radarGoToPage('${gid}',${currentPage + 1})">›</button>
+        </div>` : '';
       return `
         <div class="radar-group">
           <div class="radar-group-hdr">
@@ -11036,7 +11042,7 @@ async function renderOportunidadesFromSupabase() {
             <span class="radar-group-count">${escapeHTML(String(list.length))}</span>
           </div>
           <div class="radar-grid">${visible.map(renderCard).join('')}</div>
-          ${showMoreBtn}
+          ${pagination}
         </div>
       `;
     };
@@ -12072,12 +12078,18 @@ function renderOportunidades() {
 
   const renderGroup = (groupId, title, subtitle, list) => {
     if (!list.length) return '';
-    const pages = radarGroupPages[groupId] || 1;
-    const visible = list.slice(0, pages * RADAR_PAGE_SIZE);
-    const remaining = list.length - visible.length;
-    const showMoreBtn = remaining > 0
-      ? `<button class="radar-show-more" onclick="radarExpandGroup('${escapeHTML(groupId)}')">Ver mais ${remaining > RADAR_PAGE_SIZE ? RADAR_PAGE_SIZE : remaining} <span class="radar-show-more-count">de ${remaining} restantes</span></button>`
-      : '';
+    const totalPages = Math.ceil(list.length / RADAR_PAGE_SIZE);
+    const currentPage = Math.min(radarGroupPages[groupId] || 0, totalPages - 1);
+    const visible = list.slice(currentPage * RADAR_PAGE_SIZE, (currentPage + 1) * RADAR_PAGE_SIZE);
+    const gid = escapeHTML(groupId);
+    const pagination = totalPages > 1 ? `
+      <div class="radar-pagination">
+        <button class="radar-pg-btn" ${currentPage === 0 ? 'disabled' : ''} onclick="radarGoToPage('${gid}',${currentPage - 1})">‹</button>
+        ${Array.from({ length: totalPages }, (_, i) => `
+          <button class="radar-pg-num ${i === currentPage ? 'active' : ''}" onclick="radarGoToPage('${gid}',${i})">${i + 1}</button>
+        `).join('')}
+        <button class="radar-pg-btn" ${currentPage === totalPages - 1 ? 'disabled' : ''} onclick="radarGoToPage('${gid}',${currentPage + 1})">›</button>
+      </div>` : '';
     return `
       <div class="radar-group">
         <div class="radar-group-hdr">
@@ -12088,7 +12100,7 @@ function renderOportunidades() {
           <span class="radar-group-count">${escapeHTML(String(list.length))}</span>
         </div>
         <div class="radar-grid">${visible.map(renderCard).join('')}</div>
-        ${showMoreBtn}
+        ${pagination}
       </div>
     `;
   };
