@@ -84,7 +84,7 @@ ORDER BY qtd DESC;
 -- -----------------------------------------------------------------------
 -- 8. CANAIS CADASTRADOS
 -- -----------------------------------------------------------------------
-SELECT id, nome, slug, ativo FROM v2_canais ORDER BY nome;
+SELECT id, nome, slug FROM v2_canais ORDER BY nome;
 
 -- -----------------------------------------------------------------------
 -- 9. CAMPOS ESSENCIAIS NULOS OU INVÁLIDOS
@@ -153,13 +153,21 @@ ORDER BY pedidos_sem_itens DESC;
 -- 15. CUSTOMER INTELLIGENCE — estado
 -- -----------------------------------------------------------------------
 SELECT
-  COUNT(*)                                                  AS total_registros,
-  COUNT(*) FILTER (WHERE ltv IS NULL OR ltv = 0)            AS sem_ltv,
-  COUNT(*) FILTER (WHERE ultima_compra IS NULL)             AS sem_ultima_compra,
-  COUNT(*) FILTER (WHERE frequencia_compra IS NULL)         AS sem_frequencia,
-  MIN(ultima_compra)                                         AS compra_mais_antiga,
-  MAX(ultima_compra)                                         AS compra_mais_recente
+  COUNT(*)                                                        AS total_intel,
+  COUNT(*) FILTER (WHERE score_final IS NULL OR score_final = 0)  AS sem_score,
+  COUNT(*) FILTER (WHERE segmento IS NULL OR segmento = '')       AS sem_segmento,
+  COUNT(*) FILTER (WHERE next_best_action IS NULL)                AS sem_next_action
 FROM customer_intelligence;
+
+-- LTV e última compra ficam em v2_clientes
+SELECT
+  COUNT(*)                                                              AS total_clientes,
+  COUNT(*) FILTER (WHERE total_gasto IS NULL OR total_gasto = 0)        AS sem_ltv,
+  COUNT(*) FILTER (WHERE ultimo_pedido IS NULL)                         AS sem_ultimo_pedido,
+  MIN(ultimo_pedido)                                                    AS compra_mais_antiga,
+  MAX(ultimo_pedido)                                                    AS compra_mais_recente,
+  ROUND(AVG(total_gasto) FILTER (WHERE total_gasto > 0), 2)            AS ticket_medio_geral
+FROM v2_clientes;
 
 -- -----------------------------------------------------------------------
 -- 16. CARRINHOS ABANDONADOS — estado
@@ -206,9 +214,11 @@ SELECT
   c.email,
   c.total_pedidos,
   c.total_gasto,
-  c.status,
-  c.ultimo_pedido
+  c.ultimo_pedido,
+  ci.score_final,
+  ci.segmento
 FROM v2_clientes c
+LEFT JOIN customer_intelligence ci ON ci.cliente_id = c.id
 ORDER BY c.total_gasto DESC NULLS LAST
 LIMIT 10;
 
