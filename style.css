@@ -9916,6 +9916,21 @@ html.light.skin-dashboard #page-dashboard .chart-card:hover {
   color: #0f7a4d;
   flex-shrink: 0;
 }
+.dash-alert-ver {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--chiva-primary);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: var(--font);
+  transition: color var(--t-fast), opacity var(--t-fast);
+}
+.dash-alert-ver:hover {
+  opacity: 0.7;
+}
 
 /* ── Section headings ── */
 .dash-section-heading {

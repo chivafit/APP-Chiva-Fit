@@ -6718,7 +6718,7 @@ function renderDashAlertsMini(_ordersSales) {
       cls: 'red',
       title: 'VIP em risco',
       sub: `${vipRisk} VIP sem comprar há 45+ dias`,
-      right: 'ver',
+      page: 'alertas',
     });
   }
   if (inactive) {
@@ -6727,7 +6727,7 @@ function renderDashAlertsMini(_ordersSales) {
       cls: '',
       title: 'Inativos',
       sub: `${inactive} clientes sem comprar há ${ad}+ dias`,
-      right: 'ver',
+      page: 'alertas',
     });
   }
   if (produtoQueda) {
@@ -6736,7 +6736,7 @@ function renderDashAlertsMini(_ordersSales) {
       cls: 'red',
       title: 'Queda de produto',
       sub: `${dashSafeName(produtoQueda)} (${Math.abs(produtoQuedaPct).toFixed(0)}%)`,
-      right: 'ver',
+      page: 'produtos',
     });
   }
 
@@ -6765,11 +6765,18 @@ function renderDashAlertsMini(_ordersSales) {
           <div class="dash-alert-sub">${escapeHTML(r.sub)}</div>
         </div>
       </div>
-      <div class="dash-alert-right">${escapeHTML(r.right || '')}</div>
+      <button class="dash-alert-ver" data-page="${escapeHTML(r.page)}">ver</button>
     </div>
   `,
     )
     .join('');
+
+  el.querySelectorAll('.dash-alert-ver').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const page = btn.getAttribute('data-page');
+      if (page) window.location.hash = page;
+    });
+  });
 }
 
 function renderDashVipMini(_ordersSales) {
