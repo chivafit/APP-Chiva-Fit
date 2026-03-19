@@ -8999,6 +8999,13 @@ function renderAlertBanner(ordersOverride) {
   const el = document.getElementById('alert-banner');
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
+function _hexRgba(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
 function renderChartCanal(ordersOverride) {
   const orders = Array.isArray(ordersOverride) ? ordersOverride : allOrders;
   const t = {};
@@ -9009,20 +9016,10 @@ function renderChartCanal(ordersOverride) {
   Object.keys(t).forEach((k) => {
     if (!t[k]) delete t[k];
   });
-  if (charts.canal) charts.canal.destroy();
+  if (charts.canal) { try { charts.canal.destroy(); } catch (_e) {} charts.canal = null; }
   const canvas = document.getElementById('chart-canal');
   if (!canvas) return;
   const sorted = Object.entries(t).sort((a, b) => b[1] - a[1]);
-  const state = setDashCanvasState(
-    'chart-canal',
-    sorted.length > 0,
-    'Sem dados no período',
-    !!String(document.getElementById('dash-canal-filter')?.value || ''),
-  );
-  if (!state.shouldRender || !state.canvas) return;
-  const ctx = state.canvas.getContext('2d');
-  if (!ctx) return;
-  const total = sorted.reduce((s, [_c, v]) => s + (Number(v) || 0), 0) || 1;
   const brandColors = {
     ml: '#f3b129',
     shopee: '#f06320',
@@ -9033,83 +9030,102 @@ function renderChartCanal(ordersOverride) {
     outros: '#9b8cff',
     default: '#0FA765',
   };
-  const isLight = document.documentElement.classList.contains('light');
+
+  // Always populate table first (independent of chart rendering)
+  const tbl = document.getElementById('canal-table');
+  if (tbl) {
+    if (!sorted.length) {
+      tbl.innerHTML = '';
+    } else {
+      const total = sorted.reduce((s, [, v]) => s + (Number(v) || 0), 0) || 1;
+      tbl.innerHTML = sorted
+        .map(([c, v]) => {
+          const pct = Math.round((v / total) * 100);
+          const color = brandColors[c] || brandColors.default;
+          const icon = CH_ICON[c] || CH_ICON.outros;
+          const bg = _hexRgba(color, 0.15);
+          return `<div class="dash-donut-row">
+        <div class="dash-donut-left">
+          <span class="ch-icon-badge" style="background:${bg};color:${color}">${icon}</span>
+          <span class="dash-donut-name">${escapeHTML(CH[c] || c)}</span>
+          <span class="dash-donut-pct">${pct}%</span>
+        </div>
+        <div class="dash-donut-right">
+          <span class="dash-donut-value">${fmtBRL(v)}</span>
+        </div>
+        <div class="dash-donut-bar">
+          <div class="dash-donut-bar-fill" style="--c:${color};width:${pct}%"></div>
+        </div>
+      </div>`;
+        })
+        .join('');
+    }
+  }
+
+  const state = setDashCanvasState(
+    'chart-canal',
+    sorted.length > 0,
+    'Sem dados no período',
+    !!String(document.getElementById('dash-canal-filter')?.value || ''),
+  );
+  if (!state.shouldRender || !state.canvas) return;
+  const ctx2d = state.canvas.getContext('2d');
+  if (!ctx2d) return;
+  const total = sorted.reduce((s, [, v]) => s + (Number(v) || 0), 0) || 1;
 
   // Plugin: total revenue in center of donut
   const totalLabel = fmtBRL(total);
   const centerPlugin = {
     id: '_canalCenter',
     afterDraw(chart) {
-      const { ctx, chartArea } = chart;
+      const { ctx: c2, chartArea } = chart;
       if (!chartArea) return;
       const cx = (chartArea.left + chartArea.right) / 2;
       const cy = (chartArea.top + chartArea.bottom) / 2;
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = `600 12px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = document.documentElement.classList.contains('light') ? '#374151' : '#e2e8f0';
-      ctx.fillText(totalLabel, cx, cy);
-      ctx.restore();
+      c2.save();
+      c2.textAlign = 'center';
+      c2.textBaseline = 'middle';
+      c2.font = '600 11px Inter, system-ui, sans-serif';
+      c2.fillStyle = document.documentElement.classList.contains('light') ? '#374151' : '#e2e8f0';
+      c2.fillText(totalLabel, cx, cy);
+      c2.restore();
     },
   };
 
-  charts.canal = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: sorted.map(([c]) => CH[c] || c),
-      datasets: [
-        {
-          data: sorted.map(([, v]) => v),
-          backgroundColor: sorted.map(([c]) => brandColors[c] || brandColors.default),
-          borderWidth: 0,
-          hoverOffset: 8,
-          spacing: 2,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '72%',
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: function (ctx) {
-              const pct = Math.round((ctx.raw / total) * 100);
-              return '  ' + fmtBRL(ctx.raw) + ' · ' + pct + '%';
+  try {
+    charts.canal = new Chart(ctx2d, {
+      type: 'doughnut',
+      data: {
+        labels: sorted.map(([c]) => CH[c] || c),
+        datasets: [
+          {
+            data: sorted.map(([, v]) => v),
+            backgroundColor: sorted.map(([c]) => brandColors[c] || brandColors.default),
+            borderWidth: 0,
+            hoverOffset: 8,
+            spacing: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '72%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const pct = Math.round((context.raw / total) * 100);
+                return '  ' + fmtBRL(context.raw) + ' · ' + pct + '%';
+              },
             },
           },
         },
       },
-    },
-    plugins: [centerPlugin],
-  });
-
-  // Canal table with brand icons
-  const tbl = document.getElementById('canal-table');
-  if (tbl)
-    tbl.innerHTML = sorted
-      .map(([c, v]) => {
-        const pct = Math.round((v / total) * 100);
-        const color = brandColors[c] || brandColors.default;
-        const icon = CH_ICON[c] || CH_ICON.outros;
-        return `<div class="dash-donut-row">
-      <div class="dash-donut-left">
-        <span class="ch-icon-badge ch-icon-badge--${c}" style="--ic:${color}">${icon}</span>
-        <span class="dash-donut-name">${escapeHTML(CH[c] || c)}</span>
-        <span class="dash-donut-pct">${escapeHTML(String(pct))}%</span>
-      </div>
-      <div class="dash-donut-right">
-        <span class="dash-donut-value">${escapeHTML(fmtBRL(v))}</span>
-      </div>
-      <div class="dash-donut-bar">
-        <div class="dash-donut-bar-fill" style="--c:${color};width:${pct}%"></div>
-      </div>
-    </div>`;
-      })
-      .join('');
+      plugins: [centerPlugin],
+    });
+  } catch (_e) {}
 }
 
 function renderChartMes(ordersOverride) {
