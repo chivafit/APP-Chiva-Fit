@@ -13575,17 +13575,18 @@ function renderProdutos(_deferred) {
       partLabels.push('Outros');
     }
 
+    const donutColors = [
+      '#00D97E', '#4F8EFF', '#A78BFA', '#FFA726', '#22D3EE',
+      '#F43F5E', '#84CC16', '#FF7043', '#14B8A6', '#FFBB00', '#94A3B8',
+    ];
     charts.prodParticipacao = new Chart(ctxPart, {
       type: 'doughnut',
       data: {
-        labels: partLabels.map((l) => (l.length > 15 ? l.slice(0, 13) + '…' : l)),
+        labels: partLabels,
         datasets: [
           {
             data: partData,
-            backgroundColor: [
-              '#00D97E', '#4F8EFF', '#A78BFA', '#FFA726', '#22D3EE',
-              '#F43F5E', '#84CC16', '#FF7043', '#14B8A6', '#FFBB00', '#94A3B8',
-            ],
+            backgroundColor: donutColors,
             borderWidth: 0,
             hoverOffset: 8,
             spacing: 2,
@@ -13597,18 +13598,7 @@ function renderProdutos(_deferred) {
         maintainAspectRatio: false,
         cutout: '72%',
         plugins: {
-          legend: {
-            position: 'right',
-            labels: {
-              boxWidth: 8,
-              boxHeight: 8,
-              usePointStyle: true,
-              pointStyleWidth: 8,
-              font: { size: 10, weight: '600' },
-              color: 'rgba(148,163,184,0.8)',
-              padding: 10,
-            },
-          },
+          legend: { display: false },
           tooltip: {
             callbacks: {
               label: (ctx) => {
@@ -13620,6 +13610,21 @@ function renderProdutos(_deferred) {
         },
       },
     });
+
+    // Legenda HTML customizada
+    const legendEl = document.getElementById('prod-donut-legend');
+    if (legendEl) {
+      legendEl.innerHTML = partLabels
+        .map((label, i) => {
+          const pct = ((partData[i] / totalReceita) * 100).toFixed(1);
+          return `<div class="prod-donut-legend-item">
+            <span class="prod-donut-legend-dot" style="background:${donutColors[i % donutColors.length]}"></span>
+            <span class="prod-donut-legend-name">${escapeHTML(label)}</span>
+            <span class="prod-donut-legend-pct">${pct}%</span>
+          </div>`;
+        })
+        .join('');
+    }
   }
 
   // 4. Gráfico de Evolução (Linha)
