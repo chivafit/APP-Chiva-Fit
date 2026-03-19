@@ -121,7 +121,7 @@ SELECT
   COUNT(*) FILTER (WHERE total = 0)                                  AS pedidos_valor_zero,
   COUNT(*) FILTER (WHERE total < 0)                                  AS pedidos_valor_negativo,
   COUNT(*) FILTER (WHERE data_pedido IS NULL)                        AS pedidos_sem_data,
-  COUNT(*) FILTER (WHERE status IS NULL OR trim(status) = '')        AS pedidos_sem_status,
+  COUNT(*) FILTER (WHERE status IS NULL OR trim(status::text) = '')   AS pedidos_sem_status,
   COUNT(*) FILTER (WHERE numero_pedido IS NULL OR trim(numero_pedido) = '') AS pedidos_sem_numero,
   COUNT(*) FILTER (WHERE source IS NULL OR trim(source) = '')        AS pedidos_sem_source
 FROM v2_pedidos;
@@ -130,7 +130,7 @@ FROM v2_pedidos;
 -- 10. DISTRIBUIÇÃO DE STATUS — verificar se os valores são válidos
 -- -----------------------------------------------------------------------
 SELECT
-  COALESCE(status, '⚠ NULL') AS status,
+  COALESCE(status::text, '⚠ NULL') AS status,
   source,
   COUNT(*) AS qtd
 FROM v2_pedidos
@@ -337,7 +337,7 @@ FROM (
   UNION ALL
   SELECT 'pedidos_valor_null_ou_zero',    COUNT(*)::text                 FROM v2_pedidos WHERE total IS NULL OR total = 0
   UNION ALL
-  SELECT 'pedidos_sem_status',            COUNT(*)::text                 FROM v2_pedidos WHERE status IS NULL OR trim(status) = ''
+  SELECT 'pedidos_sem_status',            COUNT(*)::text                 FROM v2_pedidos WHERE status IS NULL OR trim(status::text) = ''
   UNION ALL
   SELECT 'pedidos_duplicados',            COUNT(*)::text                 FROM (
     SELECT numero_pedido, source FROM v2_pedidos
