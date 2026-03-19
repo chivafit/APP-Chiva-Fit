@@ -6284,7 +6284,13 @@ function renderDashNow() {
         : '') +
       (!ordersSales.length ? `<span style="color:var(--text-3)">Sem dados no período</span>` : '');
 
+  // ticket precisa ser declarado antes do bloco CC (evita TDZ com const)
+  const ticket = ordersSales.length ? total / ordersSales.length : 0;
+  const ticketPrev = ordersPrevSales.length ? totalPrev / ordersPrevSales.length : 0;
+  const pedidosPrev = ordersPrevSales.length;
+
   // ── Control Center ──────────────────────────────────
+  console.log('[dash] before hero');
   const weekMs = 7 * 86400000;
   const nowTs = Date.now();
   const w1 = ordersSales.filter((o) => { const d = new Date(o.data); return !isNaN(d) && nowTs - d.getTime() <= 7 * 86400000; });
@@ -6324,6 +6330,7 @@ function renderDashNow() {
     ticket,
     ticketDeltaW,
   });
+  console.log('[dash] before alerts');
   renderCCAlerts({
     ticketDeltaW,
     inativos30,
@@ -6363,9 +6370,6 @@ function renderDashNow() {
     novosSet.add(k);
   });
   const novos = novosSet.size;
-  const ticket = ordersSales.length ? total / ordersSales.length : 0;
-  const ticketPrev = ordersPrevSales.length ? totalPrev / ordersPrevSales.length : 0;
-  const pedidosPrev = ordersPrevSales.length;
   const novosPrevSet = new Set();
   if (prevRange) {
     const pf = new Date(prevRange.prevFromIso + 'T00:00:00').getTime();
@@ -6390,6 +6394,7 @@ function renderDashNow() {
     return `<div class="dash-kpi-delta ${cls}">${up ? '▲' : '▼'} ${Math.abs(d).toFixed(0)}% <span class="dash-kpi-delta-sub">vs mês anterior</span></div>`;
   };
 
+  console.log('[dash] before kpis');
   const dashKpisEl = document.getElementById('dash-kpis');
   if (dashKpisEl) {
     const kpiInterpret = (key, cur, prev) => {
@@ -6495,6 +6500,7 @@ function renderDashNow() {
     rangeEl.textContent = diffDays ? `Últimos ${diffDays} dias` : 'Últimos 30 dias';
   }
 
+  console.log('[dash] before charts');
   try {
     renderDashReceitaFooter(ordersSales);
   } catch (_e) {}
