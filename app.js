@@ -5494,6 +5494,16 @@ const CH_COLOR = {
   cnpj: '#f59e0b',
   outros: '#9b8cff',
 };
+// SVG icon per channel (14×14, currentColor)
+const CH_ICON = {
+  shopify: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 3.5c-.1-.6-.5-1-1.1-1-.4 0-.8.2-1.1.5l-.8 9.5H17l-.5-8.5-.5-.5zM6.5 10l-1.5 11h14L17.5 10H6.5zm5.5 7.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>`,
+  shopee: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C9.2 2 7 4.2 7 7H4.5L3 22h18L19.5 7H17C17 4.2 14.8 2 12 2zm0 2c1.7 0 3 1.3 3 3H9c0-1.7 1.3-3 3-3zm0 10a2 2 0 110 4 2 2 0 010-4z"/></svg>`,
+  amazon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 11.5c0 .8-.2 1.5-.5 2H10a4 4 0 004.5-2zM8 8h8c0-2.2-1.8-4-4-4S8 5.8 8 8zm11.5 10.5C17 20.5 14.5 21.5 12 21.5c-4 0-7-1.5-9-4l.5-.5c2 2 4.8 3 8.5 3 2 0 4-.4 5.5-1.5l1 1z"/><path d="M12 4a4 4 0 014 4H8a4 4 0 014-4z"/></svg>`,
+  yampi: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 4l7 9v7h4v-7l7-9H3zm5 2h8l-2.5 3.5h-3L8 6z"/></svg>`,
+  cnpj: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>`,
+  ml: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 3l8 6 8-6v14a1 1 0 01-1 1H5a1 1 0 01-1-1V3zm1 2v11h14V5l-7 5.25L5 5z"/></svg>`,
+  outros: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>`,
+};
 function normCanalKey(v) {
   return String(v || '')
     .toLowerCase()
@@ -9014,16 +9024,36 @@ function renderChartCanal(ordersOverride) {
   if (!ctx) return;
   const total = sorted.reduce((s, [_c, v]) => s + (Number(v) || 0), 0) || 1;
   const brandColors = {
-    ml: '#fbbf24',
-    shopee: '#f97316',
-    amazon: '#22d3ee',
-    shopify: '#84cc16',
-    yampi: '#d946ef',
+    ml: '#f3b129',
+    shopee: '#f06320',
+    amazon: '#00a8e0',
+    shopify: '#96bf48',
+    yampi: '#e040fb',
     cnpj: '#f59e0b',
-    outros: '#94a3b8',
+    outros: '#9b8cff',
     default: '#0FA765',
   };
   const isLight = document.documentElement.classList.contains('light');
+
+  // Plugin: total revenue in center of donut
+  const totalLabel = fmtBRL(total);
+  const centerPlugin = {
+    id: '_canalCenter',
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `600 12px Inter, system-ui, sans-serif`;
+      ctx.fillStyle = document.documentElement.classList.contains('light') ? '#374151' : '#e2e8f0';
+      ctx.fillText(totalLabel, cx, cy);
+      ctx.restore();
+    },
+  };
+
   charts.canal = new Chart(ctx, {
     type: 'doughnut',
     data: {
@@ -9041,7 +9071,7 @@ function renderChartCanal(ordersOverride) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      cutout: '76%',
+      cutout: '72%',
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -9054,22 +9084,25 @@ function renderChartCanal(ordersOverride) {
         },
       },
     },
+    plugins: [centerPlugin],
   });
-  // Enhanced canal table
+
+  // Canal table with brand icons
   const tbl = document.getElementById('canal-table');
   if (tbl)
     tbl.innerHTML = sorted
       .map(([c, v]) => {
         const pct = Math.round((v / total) * 100);
         const color = brandColors[c] || brandColors.default;
+        const icon = CH_ICON[c] || CH_ICON.outros;
         return `<div class="dash-donut-row">
       <div class="dash-donut-left">
-        <span class="dash-donut-dot" style="--c:${color}"></span>
+        <span class="ch-icon-badge ch-icon-badge--${c}" style="--ic:${color}">${icon}</span>
         <span class="dash-donut-name">${escapeHTML(CH[c] || c)}</span>
+        <span class="dash-donut-pct">${escapeHTML(String(pct))}%</span>
       </div>
       <div class="dash-donut-right">
         <span class="dash-donut-value">${escapeHTML(fmtBRL(v))}</span>
-        <span class="dash-donut-pct">${escapeHTML(String(pct))}%</span>
       </div>
       <div class="dash-donut-bar">
         <div class="dash-donut-bar-fill" style="--c:${color};width:${pct}%"></div>
