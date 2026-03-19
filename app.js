@@ -7517,6 +7517,12 @@ document.addEventListener('click', function (e) {
   if (!e.target.closest('#dash-period-wrap')) {
     document.getElementById('dash-period-wrap')?.classList.remove('open');
   }
+  if (!e.target.closest('#ped-date-pill')) {
+    document.getElementById('ped-date-pill')?.classList.remove('open');
+  }
+  if (!e.target.closest('#ped-period-wrap')) {
+    document.getElementById('ped-period-wrap')?.classList.remove('open');
+  }
 });
 
 window.setDashRange = setDashRange;
@@ -7524,6 +7530,65 @@ window.setDashRangeMonths = setDashRangeMonths;
 window.applyDashDateRange = applyDashDateRange;
 window.dashDatePillToggle = dashDatePillToggle;
 window.dashPeriodToggle = dashPeriodToggle;
+
+// ── Pedidos: date pill (mesma lógica do dashboard) ───────────────
+function _applyPedRange(fromIso, toIso, label) {
+  const fromEl = document.getElementById('ped-date-from');
+  const toEl = document.getElementById('ped-date-to');
+  if (fromEl) fromEl.value = fromIso;
+  if (toEl) toEl.value = toIso;
+  const pill = document.getElementById('ped-date-pill-label');
+  if (pill) pill.textContent = fmtDate(fromIso) + ' — ' + fmtDate(toIso);
+  document.querySelectorAll('#ped-period-wrap .dash-period-item').forEach(function (b) {
+    b.classList.toggle('active', !!label && b.textContent.trim() === label);
+  });
+  const periodLbl = document.getElementById('ped-period-label');
+  if (periodLbl) periodLbl.textContent = label || 'Período';
+  document.getElementById('ped-date-pill')?.classList.remove('open');
+  document.getElementById('ped-period-wrap')?.classList.remove('open');
+  renderPedidosPage();
+}
+
+function setPedRange(days) {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - (days - 1));
+  _applyPedRange(from.toISOString().split('T')[0], to.toISOString().split('T')[0], days + ' dias');
+}
+
+function setPedRangeMonths(months) {
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(from.getMonth() - months);
+  const label = months >= 12 ? '1 ano' : months + ' meses';
+  _applyPedRange(from.toISOString().split('T')[0], to.toISOString().split('T')[0], label);
+}
+
+function applyPedDateRange() {
+  const fromEl = document.getElementById('ped-date-from');
+  const toEl = document.getElementById('ped-date-to');
+  const fromIso = fromEl?.value || '';
+  const toIso = toEl?.value || '';
+  if (!fromIso || !toIso) return;
+  _applyPedRange(fromIso, toIso, null);
+}
+
+function pedDatePillToggle(e) {
+  document.getElementById('ped-period-wrap')?.classList.remove('open');
+  document.getElementById('ped-date-pill')?.classList.toggle('open');
+}
+
+function pedPeriodToggle(e) {
+  e.stopPropagation();
+  document.getElementById('ped-date-pill')?.classList.remove('open');
+  document.getElementById('ped-period-wrap')?.classList.toggle('open');
+}
+
+window.setPedRange = setPedRange;
+window.setPedRangeMonths = setPedRangeMonths;
+window.applyPedDateRange = applyPedDateRange;
+window.pedDatePillToggle = pedDatePillToggle;
+window.pedPeriodToggle = pedPeriodToggle;
 
 function getDashRangeIso() {
   const fromEl = document.getElementById('dash-from');
