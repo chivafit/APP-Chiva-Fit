@@ -3293,13 +3293,8 @@ html.light .chart-card:hover {
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-.saas-chips::-webkit-scrollbar {
-  display: none;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 .saas-chip {
   height: 40px;
