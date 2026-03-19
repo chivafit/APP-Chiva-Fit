@@ -10550,7 +10550,14 @@ function renderClientePage() {
 
   // MATCHING ESTRITO: buscar pedidos apenas por UUID canônico
   const customerOrders = getCustomerOrdersStrict(customerIdCanonical);
-  console.log(`[renderClientePage] customerOrders=${customerOrders.length}`);
+  console.log(`[renderClientePage] customerId=${customerIdCanonical}, customerOrders=${customerOrders.length}`);
+  
+  // Debug: verificar se há pedidos sem cliente_id que deveriam pertencer a este cliente
+  if (customerOrders.length === 0) {
+    const ordersWithoutClientId = allOrders.filter(o => !o.cliente_id);
+    console.warn(`[renderClientePage] Cliente sem pedidos. Total de pedidos sem cliente_id: ${ordersWithoutClientId.length}`);
+    console.log(`[renderClientePage] Cliente info:`, { id: c.id, nome: c.nome, doc: c.doc, email: c.email, telefone: c.telefone });
+  }
 
   // ANÁLISES INTELIGENTES
   const classification = classifyCustomer(metrics, avgInterval, ds);
@@ -10802,9 +10809,13 @@ function renderClientePage() {
                 }
               }
               
+              // Obter lista completa de produtos
+              const itens = getPedidoItens(o);
+              const hasItems = itens && itens.length > 0;
+              
               return `<div class="profile-order" onclick="openCRMOrderDrawer('${escapeJsSingleQuote(String(o.id || o.numero || ''))}')">
         <div class="profile-order-top">
-          <div>
+          <div style="flex:1">
             <div class="profile-order-num">#${escapeHTML(String(o.numero || o.id || '—'))}</div>
             <div class="profile-order-sub">${escapeHTML(fmtDate(o.data))} · ${escapeHTML(CH[ch] || ch)} · <span class="sp ${ST_CLASS[st] || 's-outros'}">${escapeHTML(ST_LABEL[st] || st)}</span></div>
             ${diffWithPrevious !== null ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">⏱️ ${diffWithPrevious} dias após pedido anterior</div>` : ''}
@@ -10812,7 +10823,30 @@ function renderClientePage() {
           </div>
           <div class="profile-order-num" style="color:var(--green)">${escapeHTML(fmtBRL(val(o)))}</div>
         </div>
-        <div class="profile-order-items">${escapeHTML(items)}</div>
+        
+        ${hasItems ? `
+          <div class="profile-order-products">
+            <div style="font-size:10px;font-weight:700;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Produtos (${itens.length})</div>
+            ${itens.map((it, itemIdx) => {
+              const itemName = String(it?.descricao || it?.codigo || 'Produto').trim();
+              const itemQty = Number(it?.quantidade ?? it?.quantity ?? 1) || 1;
+              const itemPrice = Number(it?.valor ?? it?.price ?? 0) || 0;
+              const itemTotal = itemQty * itemPrice;
+              
+              return `<div class="profile-order-product-item">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:11px;font-weight:600;color:var(--text)">${escapeHTML(itemName)}</div>
+                    <div style="font-size:10px;color:var(--text-3);margin-top:2px">
+                      ${itemQty}x ${escapeHTML(fmtBRL(itemPrice))}
+                    </div>
+                  </div>
+                  <div style="font-size:11px;font-weight:700;font-family:var(--mono);color:var(--text)">${escapeHTML(fmtBRL(itemTotal))}</div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        ` : `<div class="profile-order-items" style="color:var(--text-3);font-style:italic">Sem detalhes de produtos</div>`}
       </div>`;
             })
             .join('')}</div>`
@@ -14269,44 +14303,50 @@ function renderAlertas() {
   const kpisEl = document.getElementById('alert-kpis');
   if (kpisEl) {
     kpisEl.innerHTML = `
-      <div class="akpi akpi--red">
-        <div class="akpi-icon">👑</div>
-        <div class="akpi-info">
-          <div class="akpi-num">${vipsRisco.length}</div>
-          <div class="akpi-lbl">VIPs em Risco</div>
-          <div class="akpi-hint">45+ dias inativos</div>
+      <div class="alert-kpi-grid">
+        <div class="alert-kpi alert-kpi--danger">
+          <div class="alert-kpi-icon">👑</div>
+          <div class="alert-kpi-content">
+            <div class="alert-kpi-value">${vipsRisco.length}</div>
+            <div class="alert-kpi-label">VIPs em Risco</div>
+            <div class="alert-kpi-desc">45+ dias inativos</div>
+          </div>
         </div>
-      </div>
-      <div class="akpi akpi--orange">
-        <div class="akpi-icon">⚠️</div>
-        <div class="akpi-info">
-          <div class="akpi-num">${churnAlto.length}</div>
-          <div class="akpi-lbl">Risco de Churn</div>
-          <div class="akpi-hint">Score ≥ 70%</div>
+        
+        <div class="alert-kpi alert-kpi--warning">
+          <div class="alert-kpi-icon">⚠️</div>
+          <div class="alert-kpi-content">
+            <div class="alert-kpi-value">${churnAlto.length}</div>
+            <div class="alert-kpi-label">Risco de Churn</div>
+            <div class="alert-kpi-desc">Score ≥ 70%</div>
+          </div>
         </div>
-      </div>
-      <div class="akpi akpi--blue">
-        <div class="akpi-icon">🔄</div>
-        <div class="akpi-info">
-          <div class="akpi-num">${foraCiclo.length}</div>
-          <div class="akpi-lbl">Fora do Ciclo</div>
-          <div class="akpi-hint">Atrasados na recompra</div>
+        
+        <div class="alert-kpi alert-kpi--info">
+          <div class="alert-kpi-icon">🔄</div>
+          <div class="alert-kpi-content">
+            <div class="alert-kpi-value">${foraCiclo.length}</div>
+            <div class="alert-kpi-label">Fora do Ciclo</div>
+            <div class="alert-kpi-desc">Atrasados na recompra</div>
+          </div>
         </div>
-      </div>
-      <div class="akpi akpi--gray">
-        <div class="akpi-icon">🧊</div>
-        <div class="akpi-info">
-          <div class="akpi-num">${inativos.length}</div>
-          <div class="akpi-lbl">Inativos ${ad}+ dias</div>
-          <div class="akpi-hint">Sem compra recente</div>
+        
+        <div class="alert-kpi alert-kpi--neutral">
+          <div class="alert-kpi-icon">🧊</div>
+          <div class="alert-kpi-content">
+            <div class="alert-kpi-value">${inativos.length}</div>
+            <div class="alert-kpi-label">Inativos ${ad}+ dias</div>
+            <div class="alert-kpi-desc">Sem compra recente</div>
+          </div>
         </div>
-      </div>
-      <div class="akpi akpi--total">
-        <div class="akpi-icon">🔔</div>
-        <div class="akpi-info">
-          <div class="akpi-num">${total}</div>
-          <div class="akpi-lbl">Total de Alertas</div>
-          <div class="akpi-hint">Clientes que precisam de ação</div>
+        
+        <div class="alert-kpi alert-kpi--primary">
+          <div class="alert-kpi-icon">🔔</div>
+          <div class="alert-kpi-content">
+            <div class="alert-kpi-value">${total}</div>
+            <div class="alert-kpi-label">Total de Alertas</div>
+            <div class="alert-kpi-desc">Clientes que precisam de ação</div>
+          </div>
         </div>
       </div>
     `;
@@ -14320,25 +14360,56 @@ function renderAlertas() {
     const safeKey = escapeJsSingleQuote(String(c.id || ''));
     const phone = rawPhone(c.phone || c.phones?.[0] || '');
     const initial = (c.nome || '?')[0].toUpperCase();
-    const churnCls = (s.churnRisk || 0) >= 80 ? 'danger' : (s.churnRisk || 0) >= 60 ? 'warn' : 'neutral';
+    const churnCls = (s.churnRisk || 0) >= 80 ? 'danger' : (s.churnRisk || 0) >= 60 ? 'warning' : 'neutral';
+    
     return `
-      <div class="alert-item2">
-        <div class="alert-item2-avatar">${initial}</div>
-        <div class="alert-item2-body">
-          <div class="alert-item2-name">${escapeHTML(c.nome || 'Cliente')}</div>
-          <div class="alert-item2-tags">
-            ${ds < 9999 ? `<span class="atag atag--days">${ds}d sem comprar</span>` : ''}
-            ${s.ltv ? `<span class="atag atag--ltv">LTV ${fmtBRL(s.ltv)}</span>` : ''}
-            ${s.churnRisk ? `<span class="atag atag--churn atag--${churnCls}">Churn ${s.churnRisk}%</span>` : ''}
-            ${s.avgInterval ? `<span class="atag">Ciclo ${s.avgInterval}d</span>` : ''}
+      <div class="alert-card" onclick="openClientePage('${safeKey}')">
+        <div class="alert-card-header">
+          <div class="alert-card-avatar">${initial}</div>
+          <div class="alert-card-info">
+            <div class="alert-card-name">${escapeHTML(c.nome || 'Cliente')}</div>
+            <div class="alert-card-meta">
+              ${ds < 9999 ? `<span class="alert-badge alert-badge--days">${ds}d sem comprar</span>` : ''}
+              ${s.churnRisk ? `<span class="alert-badge alert-badge--${churnCls}">Churn ${s.churnRisk}%</span>` : ''}
+            </div>
           </div>
         </div>
-        <div class="alert-item2-actions">
-          ${phone ? `<button class="aact-btn aact-btn--wa" onclick="openWaModal('${safeKey}')" title="WhatsApp">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.99 0C5.369 0 0 5.369 0 11.99c0 2.11.551 4.088 1.515 5.803L.04 23.96l6.31-1.453c1.659.906 3.554 1.424 5.64 1.424 6.621 0 11.99-5.369 11.99-11.99S18.611 0 11.99 0zm0 21.93c-1.882 0-3.641-.503-5.155-1.38l-.369-.219-3.743.862.9-3.641-.241-.384C2.532 15.541 2.07 13.835 2.07 11.99c0-5.47 4.45-9.92 9.92-9.92s9.92 4.45 9.92 9.92-4.45 9.92-9.92 9.92z"/></svg>
-            WA</button>` : ''}
-          ${phone ? `<button class="aact-btn aact-btn--coupon" onclick="oppSendCoupon('${safeKey}',10)" title="Cupom 10%">🎟 10%</button>` : ''}
-          <button class="aact-btn" onclick="openClientePage('${safeKey}')" title="Ver perfil">Ver →</button>
+        
+        <div class="alert-card-stats">
+          ${s.ltv ? `
+            <div class="alert-stat">
+              <div class="alert-stat-label">LTV</div>
+              <div class="alert-stat-value">${fmtBRL(s.ltv)}</div>
+            </div>
+          ` : ''}
+          ${s.avgInterval ? `
+            <div class="alert-stat">
+              <div class="alert-stat-label">Ciclo</div>
+              <div class="alert-stat-value">${s.avgInterval}d</div>
+            </div>
+          ` : ''}
+          ${c.total ? `
+            <div class="alert-stat">
+              <div class="alert-stat-label">Total</div>
+              <div class="alert-stat-value">${fmtBRL(c.total)}</div>
+            </div>
+          ` : ''}
+        </div>
+        
+        <div class="alert-card-actions" onclick="event.stopPropagation()">
+          ${phone ? `
+            <button class="alert-action-btn alert-action-btn--primary" onclick="openWaModal('${safeKey}')" title="Enviar WhatsApp">
+              💬 WhatsApp
+            </button>
+          ` : ''}
+          ${phone ? `
+            <button class="alert-action-btn alert-action-btn--secondary" onclick="oppSendCoupon('${safeKey}',10)" title="Enviar cupom de 10%">
+              🎟️ Cupom 10%
+            </button>
+          ` : ''}
+          <button class="alert-action-btn alert-action-btn--ghost" onclick="openClientePage('${safeKey}')" title="Ver perfil completo">
+            Ver Perfil →
+          </button>
         </div>
       </div>
     `;
@@ -14353,21 +14424,21 @@ function renderAlertas() {
     const shown = items.slice(0, limit);
     const more = items.length - shown.length;
     return `
-      <div class="alert-section2 alert-section2--${accent}">
-        <div class="alert-section2-hdr">
-          <div class="alert-section2-hdr-left">
-            <span class="alert-section2-icon">${icon}</span>
+      <div class="alert-section alert-section--${accent}">
+        <div class="alert-section-header">
+          <div class="alert-section-title-group">
+            <span class="alert-section-icon">${icon}</span>
             <div>
-              <div class="alert-section2-title">${escapeHTML(title)}</div>
-              <div class="alert-section2-sub">${escapeHTML(subtitle)}</div>
+              <h3 class="alert-section-title">${escapeHTML(title)}</h3>
+              <p class="alert-section-subtitle">${escapeHTML(subtitle)}</p>
             </div>
           </div>
-          <span class="alert-section2-badge">${items.length}</span>
+          <span class="alert-section-count">${items.length}</span>
         </div>
-        <div class="alert-items2-list">
+        <div class="alert-cards-grid">
           ${shown.map(renderItem).join('')}
-          ${more > 0 ? `<div class="alert-show-more">+ ${more} clientes não exibidos</div>` : ''}
         </div>
+        ${more > 0 ? `<div class="alert-show-more">+ ${more} clientes não exibidos <button class="alert-show-more-btn" onclick="alert('Funcionalidade em desenvolvimento')">Ver todos</button></div>` : ''}
       </div>
     `;
   };

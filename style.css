@@ -7376,6 +7376,21 @@ html.light .compare-card {
   margin-top: 10px;
 }
 
+.profile-order-products {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-sub);
+}
+
+.profile-order-product-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-sub);
+}
+
+.profile-order-product-item:last-child {
+  border-bottom: none;
+}
+
 /* ═══════════════════════════════════════════
    PERFIL DO CLIENTE - COMPONENTES INTELIGENTES
    ═══════════════════════════════════════════ */
@@ -7428,6 +7443,391 @@ html.light .compare-card {
 
 .profile-insight-info {
   background: linear-gradient(135deg, var(--card) 0%, rgba(54, 162, 235, 0.05) 100%);
+}
+
+/* ═══════════════════════════════════════════
+   PÁGINA DE ALERTAS - DESIGN MODERNO
+   ═══════════════════════════════════════════ */
+
+/* KPIs Grid */
+.alert-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.alert-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: all var(--t-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.alert-kpi::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--border);
+  transition: all var(--t-fast);
+}
+
+.alert-kpi:hover {
+  border-color: var(--border2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.alert-kpi--danger::before { background: var(--red); }
+.alert-kpi--warning::before { background: var(--orange); }
+.alert-kpi--info::before { background: var(--blue); }
+.alert-kpi--neutral::before { background: var(--text-3); }
+.alert-kpi--primary::before { background: var(--chiva-primary); }
+
+.alert-kpi-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.alert-kpi-content {
+  flex: 1;
+}
+
+.alert-kpi-value {
+  font-size: 28px;
+  font-weight: 900;
+  font-family: var(--mono);
+  letter-spacing: -0.5px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.alert-kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.alert-kpi-desc {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+/* Seções de Alertas */
+.alert-section {
+  margin-bottom: 40px;
+}
+
+.alert-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.alert-section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-section-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.alert-section-title {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+  margin: 0 0 4px 0;
+  color: var(--text);
+}
+
+.alert-section-subtitle {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.alert-section-count {
+  background: var(--card-hover);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 900;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.alert-section--red .alert-section-count { 
+  background: rgba(255, 99, 132, 0.1);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.alert-section--orange .alert-section-count { 
+  background: rgba(255, 159, 64, 0.1);
+  border-color: var(--orange);
+  color: var(--orange);
+}
+
+.alert-section--blue .alert-section-count { 
+  background: rgba(54, 162, 235, 0.1);
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.alert-section--gray .alert-section-count { 
+  background: var(--card-hover);
+  border-color: var(--border);
+  color: var(--text-3);
+}
+
+/* Grid de Cards */
+.alert-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .alert-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Card de Alerta */
+.alert-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  transition: all var(--t-fast);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-card:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.alert-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--chiva-primary-dim);
+  border: 2px solid var(--chiva-primary-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--chiva-primary);
+  flex-shrink: 0;
+}
+
+.alert-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alert-card-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.alert-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.alert-badge--days {
+  background: rgba(54, 162, 235, 0.1);
+  color: var(--blue);
+  border: 1px solid rgba(54, 162, 235, 0.2);
+}
+
+.alert-badge--danger {
+  background: rgba(255, 99, 132, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(255, 99, 132, 0.2);
+}
+
+.alert-badge--warning {
+  background: rgba(255, 159, 64, 0.1);
+  color: var(--orange);
+  border: 1px solid rgba(255, 159, 64, 0.2);
+}
+
+.alert-badge--neutral {
+  background: var(--card-hover);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+
+/* Stats do Card */
+.alert-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 12px;
+  background: var(--card-hover);
+  border-radius: 10px;
+}
+
+.alert-stat {
+  text-align: center;
+}
+
+.alert-stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.alert-stat-value {
+  font-size: 13px;
+  font-weight: 900;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+/* Ações do Card */
+.alert-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.alert-action-btn {
+  flex: 1;
+  min-width: fit-content;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  white-space: nowrap;
+}
+
+.alert-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.alert-action-btn--primary {
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  color: white;
+}
+
+.alert-action-btn--primary:hover {
+  background: var(--chiva-primary-deep);
+  box-shadow: 0 2px 8px var(--chiva-primary-glow);
+}
+
+.alert-action-btn--secondary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: white;
+}
+
+.alert-action-btn--secondary:hover {
+  background: #3a8fd9;
+  box-shadow: 0 2px 8px rgba(54, 162, 235, 0.3);
+}
+
+.alert-action-btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-2);
+}
+
+.alert-action-btn--ghost:hover {
+  background: var(--card-hover);
+  border-color: var(--border2);
+}
+
+/* Show More */
+.alert-show-more {
+  text-align: center;
+  padding: 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--card-hover);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.alert-show-more-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--chiva-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.alert-show-more-btn:hover {
+  background: var(--chiva-primary-deep);
+  transform: translateY(-1px);
 }
 
 .kanban {
