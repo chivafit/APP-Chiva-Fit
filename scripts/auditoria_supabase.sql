@@ -197,19 +197,6 @@ WHERE NOT EXISTS (
 );
 
 -- -----------------------------------------------------------------------
--- 16. ITENS NO JSONB vs v2_pedidos_items — diagnóstico do gap de itens
--- Mostra pedidos que TÊM itens no campo jsonb mas NÃO têm em v2_pedidos_items.
--- Se > 0: itens estão no JSONB mas não foram migrados para a tabela normalizada.
--- -----------------------------------------------------------------------
-SELECT COUNT(*) AS pedidos_com_itens_so_no_jsonb
-FROM v2_pedidos
-WHERE jsonb_array_length(COALESCE(itens, '[]'::jsonb)) > 0
-  AND NOT EXISTS (
-    SELECT 1 FROM v2_pedidos_items i
-    WHERE i.pedido_id::text = v2_pedidos.id::text
-  );
-
--- -----------------------------------------------------------------------
 -- 17. YAMPI — reconciliação yampi_orders vs v2_pedidos
 -- Mostra quantos pedidos do yampi_orders ainda não estão em v2_pedidos.
 -- -----------------------------------------------------------------------
@@ -351,10 +338,6 @@ FROM (
   UNION ALL
   SELECT 'itens_orfaos',                  COUNT(*)::text                 FROM v2_pedidos_items i
                                           WHERE NOT EXISTS (SELECT 1 FROM v2_pedidos p WHERE p.id::text = i.pedido_id::text)
-  UNION ALL
-  SELECT 'itens_so_no_jsonb',             COUNT(*)::text                 FROM v2_pedidos
-                                          WHERE jsonb_array_length(COALESCE(itens, '[]'::jsonb)) > 0
-                                          AND NOT EXISTS (SELECT 1 FROM v2_pedidos_items i WHERE i.pedido_id::text = v2_pedidos.id::text)
   UNION ALL
   SELECT 'clientes_total',                COUNT(*)::text                 FROM v2_clientes
   UNION ALL
