@@ -5125,7 +5125,7 @@ function normSt(s) {
   if (/aprovado|pago|conclu|fatur|enviado|entregue|paid|authorized/i.test(v)) return 'aprovado';
   if (/pendent|aguard|aberto|novo|pending/i.test(v)) return 'pendente';
   if (/cancel|refund|void/i.test(v)) return 'cancelado';
-  return 'outros';
+  return null;
 }
 const ST_LABEL = { aprovado: 'Aprovado', pendente: 'Pendente', cancelado: 'Cancelado' };
 const ST_CLASS = { aprovado: 's-aprovado', pendente: 's-pendente', cancelado: 's-cancelado' };
@@ -15792,7 +15792,10 @@ function normalizePedidoItens(o, pedidoId) {
 async function upsertOrdersToSupabase(orders) {
   const options = arguments?.[1] && typeof arguments[1] === 'object' ? arguments[1] : {};
   const silent = options.silent === true;
-  if (!supaConnected || !supaClient || !orders.length) return;
+  if (!supaConnected || !supaClient || !orders.length) {
+    if (!orders?.length) console.warn('[upsertOrdersToSupabase] ⚠ orders array vazio — nada a persistir. Verifique se o sync retornou pedidos.');
+    return;
+  }
   if (upsertOrdersInFlight) {
     console.warn('[upsertOrdersToSupabase] ⚠ Upsert em andamento — chamada ignorada. Tente novamente em alguns segundos.');
     return;
@@ -15960,6 +15963,7 @@ async function upsertOrdersToSupabase(orders) {
 
     // Detectar tipo da coluna id em v2_pedidos (uuid vs text)
     // Probe: se id é UUID, filtrar com texto não-UUID gera erro 400; se text, retorna vazio.
+    console.log(`[upsertOrdersToSupabase] Iniciando: ${orders.length} pedidos. Sources: ${[...new Set(orders.map(o => o._source || 'bling'))].join(', ')}`);
     let pedidosIdType = 'text';
     try {
       const { data: _probe, error: _probeErr } = await supaClient
@@ -16044,8 +16048,17 @@ async function upsertOrdersToSupabase(orders) {
       })
       .filter((p) => pedidosIdType === 'uuid' ? (isUuid(p.id) || p.bling_id || p.numero_pedido) : !!p.id);
     const splitKey = pedidosIdType === 'uuid' ? [] : ['id'];
-    const { ok: validPedRows } = splitValidRows(pedRows, splitKey, '[Upsert v2_pedidos]');
+    const { ok: validPedRows, invalid: invalidPedRows } = splitValidRows(pedRows, splitKey, '[Upsert v2_pedidos]');
     const finalPedRows = validPedRows.filter((r) => !r.__invalid_cliente_id);
+    console.log(
+      `[upsertOrdersToSupabase] Rows: entrada=${orders.length} | após filtro=${pedRows.length} | válidos=${validPedRows.length} | inválidos=${invalidPedRows.length} | final=${finalPedRows.length} | idType=${pedidosIdType}`,
+    );
+    if (finalPedRows.length) {
+      const sample = finalPedRows[0];
+      console.log('[upsertOrdersToSupabase] Amostra row[0]:', { id: sample.id, source: sample.source, status: sample.status, numero_pedido: sample.numero_pedido, bling_id: sample.bling_id });
+    } else {
+      console.warn('[upsertOrdersToSupabase] ⚠ finalPedRows vazio — nenhuma linha será persistida. Verifique filtros acima.');
+    }
 
     if (pedidosIdType === 'uuid') {
       // ─── UUID id strategy ──────────────────────────────────────────────────────
