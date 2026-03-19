@@ -13658,63 +13658,82 @@ function renderAlertas() {
     .filter((x) => daysSince(x.c.last) > ad)
     .sort((a, b) => daysSince(b.c.last) - daysSince(a.c.last));
 
+  const total = vipsRisco.length + churnAlto.length + foraCiclo.length + inativos.length;
+
   // ── KPIs ────────────────────────────────────────────
   const kpisEl = document.getElementById('alert-kpis');
   if (kpisEl) {
     kpisEl.innerHTML = `
-      <div class="alert-kpi alert-kpi--red">
-        <div class="alert-kpi-ico">👑</div>
-        <div class="alert-kpi-body">
-          <div class="alert-kpi-val">${vipsRisco.length}</div>
-          <div class="alert-kpi-lbl">VIPs em risco</div>
+      <div class="akpi akpi--red">
+        <div class="akpi-icon">👑</div>
+        <div class="akpi-info">
+          <div class="akpi-num">${vipsRisco.length}</div>
+          <div class="akpi-lbl">VIPs em Risco</div>
+          <div class="akpi-hint">45+ dias inativos</div>
         </div>
       </div>
-      <div class="alert-kpi alert-kpi--orange">
-        <div class="alert-kpi-ico">⚠️</div>
-        <div class="alert-kpi-body">
-          <div class="alert-kpi-val">${churnAlto.length}</div>
-          <div class="alert-kpi-lbl">Risco de churn</div>
+      <div class="akpi akpi--orange">
+        <div class="akpi-icon">⚠️</div>
+        <div class="akpi-info">
+          <div class="akpi-num">${churnAlto.length}</div>
+          <div class="akpi-lbl">Risco de Churn</div>
+          <div class="akpi-hint">Score ≥ 70%</div>
         </div>
       </div>
-      <div class="alert-kpi alert-kpi--blue">
-        <div class="alert-kpi-ico">🔄</div>
-        <div class="alert-kpi-body">
-          <div class="alert-kpi-val">${foraCiclo.length}</div>
-          <div class="alert-kpi-lbl">Fora do ciclo</div>
+      <div class="akpi akpi--blue">
+        <div class="akpi-icon">🔄</div>
+        <div class="akpi-info">
+          <div class="akpi-num">${foraCiclo.length}</div>
+          <div class="akpi-lbl">Fora do Ciclo</div>
+          <div class="akpi-hint">Atrasados na recompra</div>
         </div>
       </div>
-      <div class="alert-kpi alert-kpi--gray">
-        <div class="alert-kpi-ico">🧊</div>
-        <div class="alert-kpi-body">
-          <div class="alert-kpi-val">${inativos.length}</div>
-          <div class="alert-kpi-lbl">Inativos ${ad}+ dias</div>
+      <div class="akpi akpi--gray">
+        <div class="akpi-icon">🧊</div>
+        <div class="akpi-info">
+          <div class="akpi-num">${inativos.length}</div>
+          <div class="akpi-lbl">Inativos ${ad}+ dias</div>
+          <div class="akpi-hint">Sem compra recente</div>
+        </div>
+      </div>
+      <div class="akpi akpi--total">
+        <div class="akpi-icon">🔔</div>
+        <div class="akpi-info">
+          <div class="akpi-num">${total}</div>
+          <div class="akpi-lbl">Total de Alertas</div>
+          <div class="akpi-hint">Clientes que precisam de ação</div>
         </div>
       </div>
     `;
   }
 
-  // ── Render de item ───────────────────────────────────
-  const renderItem = (x, ctxLabel) => {
+  // ── Render item ──────────────────────────────────────
+  const renderItem = (x) => {
     const c = x.c;
     const s = x.s;
     const ds = daysSince(c.last);
     const safeKey = escapeJsSingleQuote(String(c.id || ''));
     const phone = rawPhone(c.phone || c.phones?.[0] || '');
+    const initial = (c.nome || '?')[0].toUpperCase();
+    const churnCls = (s.churnRisk || 0) >= 80 ? 'danger' : (s.churnRisk || 0) >= 60 ? 'warn' : 'neutral';
     return `
-      <div class="alert-item">
-        <div class="alert-item-left">
-          <div class="alert-item-name">${escapeHTML(c.nome || 'Cliente')}</div>
-          <div class="alert-item-meta">
-            ${ds < 9999 ? `<span>${ds}d sem comprar</span>` : ''}
-            ${s.avgInterval ? `<span>Ciclo médio: ${s.avgInterval}d</span>` : ''}
-            ${s.ltv ? `<span>LTV: ${fmtBRL(s.ltv)}</span>` : ''}
-            ${s.churnRisk ? `<span>Churn: ${s.churnRisk}%</span>` : ''}
+      <div class="alert-item2">
+        <div class="alert-item2-avatar">${initial}</div>
+        <div class="alert-item2-body">
+          <div class="alert-item2-name">${escapeHTML(c.nome || 'Cliente')}</div>
+          <div class="alert-item2-tags">
+            ${ds < 9999 ? `<span class="atag atag--days">${ds}d sem comprar</span>` : ''}
+            ${s.ltv ? `<span class="atag atag--ltv">LTV ${fmtBRL(s.ltv)}</span>` : ''}
+            ${s.churnRisk ? `<span class="atag atag--churn atag--${churnCls}">Churn ${s.churnRisk}%</span>` : ''}
+            ${s.avgInterval ? `<span class="atag">Ciclo ${s.avgInterval}d</span>` : ''}
           </div>
         </div>
-        <div class="alert-item-actions">
-          ${phone ? `<button class="alert-act-btn alert-act-wa" onclick="openWaModal('${safeKey}')">WhatsApp</button>` : ''}
-          ${phone ? `<button class="alert-act-btn alert-act-coupon" onclick="oppSendCoupon('${safeKey}',10)">Cupom 10%</button>` : ''}
-          <button class="alert-act-btn" onclick="openClientePage('${safeKey}')">Ver perfil</button>
+        <div class="alert-item2-actions">
+          ${phone ? `<button class="aact-btn aact-btn--wa" onclick="openWaModal('${safeKey}')" title="WhatsApp">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.99 0C5.369 0 0 5.369 0 11.99c0 2.11.551 4.088 1.515 5.803L.04 23.96l6.31-1.453c1.659.906 3.554 1.424 5.64 1.424 6.621 0 11.99-5.369 11.99-11.99S18.611 0 11.99 0zm0 21.93c-1.882 0-3.641-.503-5.155-1.38l-.369-.219-3.743.862.9-3.641-.241-.384C2.532 15.541 2.07 13.835 2.07 11.99c0-5.47 4.45-9.92 9.92-9.92s9.92 4.45 9.92 9.92-4.45 9.92-9.92 9.92z"/></svg>
+            WA</button>` : ''}
+          ${phone ? `<button class="aact-btn aact-btn--coupon" onclick="oppSendCoupon('${safeKey}',10)" title="Cupom 10%">🎟 10%</button>` : ''}
+          <button class="aact-btn" onclick="openClientePage('${safeKey}')" title="Ver perfil">Ver →</button>
         </div>
       </div>
     `;
@@ -13724,23 +13743,25 @@ function renderAlertas() {
   const sectionsEl = document.getElementById('alert-sections');
   if (!sectionsEl) return;
 
-  const renderSection = (icon, title, subtitle, cls, items, limit = 10) => {
+  const renderSection = (icon, title, subtitle, accent, items, limit = 8) => {
     if (!items.length) return '';
     const shown = items.slice(0, limit);
     const more = items.length - shown.length;
     return `
-      <div class="alert-section">
-        <div class="alert-section-hdr alert-section-hdr--${cls}">
-          <span class="alert-section-ico">${icon}</span>
-          <div>
-            <div class="alert-section-title">${escapeHTML(title)}</div>
-            <div class="alert-section-sub">${escapeHTML(subtitle)}</div>
+      <div class="alert-section2 alert-section2--${accent}">
+        <div class="alert-section2-hdr">
+          <div class="alert-section2-hdr-left">
+            <span class="alert-section2-icon">${icon}</span>
+            <div>
+              <div class="alert-section2-title">${escapeHTML(title)}</div>
+              <div class="alert-section2-sub">${escapeHTML(subtitle)}</div>
+            </div>
           </div>
-          <span class="alert-section-count">${items.length}</span>
+          <span class="alert-section2-badge">${items.length}</span>
         </div>
-        <div class="alert-items-list">
-          ${shown.map((x) => renderItem(x)).join('')}
-          ${more > 0 ? `<div class="alert-more">+${more} clientes — ajuste o filtro de dias para ver todos</div>` : ''}
+        <div class="alert-items2-list">
+          ${shown.map(renderItem).join('')}
+          ${more > 0 ? `<div class="alert-show-more">+ ${more} clientes não exibidos</div>` : ''}
         </div>
       </div>
     `;
@@ -13749,10 +13770,10 @@ function renderAlertas() {
   const html =
     renderSection('👑', 'VIPs em Risco', 'Clientes VIP inativos há 45+ dias — prioridade máxima', 'red', vipsRisco) +
     renderSection('⚠️', 'Risco de Churn', 'Score de churn acima de 70% — agir agora', 'orange', churnAlto) +
-    renderSection('🔄', 'Fora do Ciclo de Recompra', 'Deveriam ter recomprado — contato no timing certo', 'blue', foraCiclo) +
+    renderSection('🔄', 'Fora do Ciclo de Recompra', 'Atrasados no ciclo médio — timing ideal de contato', 'blue', foraCiclo) +
     renderSection('🧊', `Inativos ${ad}+ dias`, 'Clientes sem compra no período configurado', 'gray', inativos);
 
-  sectionsEl.innerHTML = html || `<div class="empty">🎉 Nenhum alerta ativo no momento.</div>`;
+  sectionsEl.innerHTML = html || `<div class="empty" style="text-align:center;padding:48px;color:var(--text-3)">🎉 Nenhum alerta ativo no momento.</div>`;
 }
 
 // ═══════════════════════════════════════════════════
