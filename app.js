@@ -97,13 +97,17 @@ initSentry();
  * Garante que lista e perfil usem exatamente a mesma fonte de verdade
  */
 function getCustomerMetrics(customerId, context = {}) {
-  const id = String(customerId || '').trim();
-  if (!id) return { total_gasto: 0, total_pedidos: 0, ultimo_pedido: null, ticket_medio: 0 };
+  const customerIdCanonical = String(customerId || '').trim();
+  if (!customerIdCanonical) {
+    console.warn('[getCustomerMetrics] customerId vazio');
+    return { total_gasto: 0, total_pedidos: 0, ultimo_pedido: null, ticket_medio: 0, _source: 'invalid_input' };
+  }
   
-  // 1. Tente obter dados agregados do cache (fonte mais confiável)
+  console.log(`[getCustomerMetrics] customerId=${customerIdCanonical}, context=${context?.page || 'unknown'}`);
+  
+  // 1. Busca por UUID canônico no cache (fonte de verdade)
   const intelData = clientesIntelCache.find(c => 
-    String(c.cliente_id || c.id || '') === id || 
-    String(c.id || '') === id
+    String(c.cliente_id || '') === customerIdCanonical
   );
   
   if (intelData) {
@@ -112,12 +116,7 @@ function getCustomerMetrics(customerId, context = {}) {
     const ticket = pedidos > 0 ? total / pedidos : 0;
     const ultimo = intelData.ultimo_pedido || intelData.last || null;
     
-    console.log(`[getCustomerMetrics] Cache hit for ${id}:`, {
-      source: 'clientesIntelCache',
-      total_gasto: total,
-      total_pedidos: pedidos,
-      ultimo_pedido: ultimo
-    });
+    console.log(`[getCustomerMetrics] Cache hit: source=clientesIntelCache, total_gasto=${total}, total_pedidos=${pedidos}, ultimo_pedido=${ultimo}`);
     
     return {
       total_gasto: total,
@@ -128,10 +127,12 @@ function getCustomerMetrics(customerId, context = {}) {
     };
   }
   
-  // 2. Fallback: calcular a partir de allOrders (legado)
-  const customer = allCustomers.find(c => String(c.id || '') === id);
+  // 2. Fallback apenas se estritamente necessário (legado)
+  console.warn(`[getCustomerMetrics] Cache miss para customerId=${customerIdCanonical}, tentando fallback legado`);
+  
+  const customer = allCustomers.find(c => String(c.id || '') === customerIdCanonical);
   if (!customer) {
-    console.warn(`[getCustomerMetrics] Cliente não encontrado: ${id}`);
+    console.error(`[getCustomerMetrics] Cliente não encontrado em nenhuma fonte: customerId=${customerIdCanonical}`);
     return { total_gasto: 0, total_pedidos: 0, ultimo_pedido: null, ticket_medio: 0, _source: 'not_found' };
   }
   
@@ -145,12 +146,7 @@ function getCustomerMetrics(customerId, context = {}) {
   const ticket = pedidos > 0 ? total / pedidos : 0;
   const ultimo = orders[0]?.data || null;
   
-  console.log(`[getCustomerMetrics] Fallback for ${id}:`, {
-    source: 'allOrders',
-    total_gasto: total,
-    total_pedidos: pedidos,
-    ultimo_pedido: ultimo
-  });
+  console.log(`[getCustomerMetrics] Fallback: source=allOrders, total_gasto=${total}, total_pedidos=${pedidos}, ultimo_pedido=${ultimo}`);
   
   return {
     total_gasto: total,
@@ -6304,6 +6300,8 @@ function renderDashNow() {
   } catch (_e) {}
   try { renderTopCli(ordersSales); } catch (_e) {}
   try { renderTopProd(ordersSales); } catch (_e) {}
+  try { renderChartMes(ordersSales); } catch (_e) {}
+  try { renderDashChannelBreakdown({ ordersAllRange, ordersSales, dashCh }); } catch (_e) {}
   renderDashExtraLists({ ordersAllRange, ordersSales, dashCh, dashTipo }).catch((e) => {
     console.warn('[dashboard] falha ao renderizar listas extras:', e?.message || String(e));
   });
@@ -9933,10 +9931,16 @@ function renderClientes() {
 }
 
 function renderCliIntelCard(c, eid, idx) {
-  const id = escapeJsSingleQuote(String(c?.cliente_id || c?.id || ''));
-  if (!id) {
-    console.warn('[renderCliIntelCard] cliente_id inválido em idx:', idx, c);
+  // IDENTIDADE CANÔNICA: usar sempre cliente_id (UUID do Supabase)
+  const customerId = String(c?.cliente_id || '');
+  if (!customerId) {
+    console.warn('[renderCliIntelCard] cliente_id canônico ausente em idx:', idx, c);
+    return '';
   }
+  
+  console.log(`[renderCliIntelCard] nome=${c?.nome || 'Cliente'}, customerId=${customerId}`);
+  
+  const id = escapeJsSingleQuote(customerId);
   const nome = String(c?.nome || 'Cliente').trim();
   const canal =
     String(c?.canal_principal || 'outros')
@@ -9950,8 +9954,8 @@ function renderCliIntelCard(c, eid, idx) {
   const dias = c?.dias_desde_ultima_compra == null ? null : Number(c.dias_desde_ultima_compra || 0);
   const score = Number(c?.score_recompra || 0) || 0;
   const churn = Number(c?.risco_churn || 0) || 0;
-  // Usar função unificada para garantir consistência
-  const metrics = getCustomerMetrics(c.cliente_id || c.id);
+  // Usar função unificada com customerId canônico
+  const metrics = getCustomerMetrics(customerId, { page: 'list' });
   const pedidos = metrics.total_pedidos;
   const ltv = metrics.total_gasto;
   const next = String(c?.next_best_action || '').trim();
@@ -10038,18 +10042,23 @@ function renderCliIntelCard(c, eid, idx) {
   </div>`;
 }
 
-function openClientePage(clienteId) {
-  const raw = String(clienteId || '').trim();
-  console.log(`[openClientePage] Abrindo cliente: ${raw}`);
+function openClientePage(customerId) {
+  // IDENTIDADE CANÔNICA: esperar sempre customerId (UUID do Supabase)
+  const customerIdCanonical = String(customerId || '').trim();
+  if (!customerIdCanonical) {
+    console.error('[openClientePage] customerId canônico vazio');
+    return;
+  }
   
-  // Tente hidratar do Supabase
-  hydrateClienteInfoFromSupabase(raw);
+  console.log(`[openClientePage] customerId recebido=${customerIdCanonical}`);
   
-  // Mapear para UUID se necessário
-  const mapped = clienteKeyToUuid?.[raw] || raw;
-  console.log(`[openClientePage] Mapeado: ${raw} -> ${mapped}`);
+  // Hidratar dados do cliente do Supabase usando UUID canônico
+  hydrateClienteInfoFromSupabase(customerIdCanonical);
   
-  currentClienteId = mapped;
+  // Usar diretamente o customerId canônico (sem mapeamento)
+  currentClienteId = customerIdCanonical;
+  console.log(`[openClientePage] customerId renderizado=${customerIdCanonical}`);
+  
   showPage('cliente');
 }
 
@@ -10139,21 +10148,26 @@ function openCRMOrderDrawer(orderKey) {
 }
 
 function renderClientePage() {
-  const c = allCustomers.find((x) => x.id === currentClienteId);
+  // IDENTIDADE CANÔNICA: usar currentClienteId como UUID canônico
+  const customerIdCanonical = String(currentClienteId || '').trim();
+  console.log(`[renderClientePage] customerId renderizado=${customerIdCanonical}`);
+  
+  const c = allCustomers.find((x) => x.id === customerIdCanonical);
   const infoEl = document.getElementById('cliente-info');
   const metricsEl = document.getElementById('cliente-metrics');
   const histEl = document.getElementById('cliente-history');
   if (!infoEl || !metricsEl || !histEl) return;
   if (!c) {
+    console.warn(`[renderClientePage] Cliente não encontrado para customerId=${customerIdCanonical}`);
     infoEl.innerHTML = `<div class="modern-empty-state"><div class="mes-icon">👤</div><div class="mes-title">Cliente não encontrado</div><div class="mes-desc">Volte para a lista e selecione novamente.</div></div>`;
     metricsEl.innerHTML = '';
     histEl.innerHTML = '';
     return;
   }
 
-  // Usar função unificada para garantir consistência com a lista
-  const meta = cliMetaCache?.[c.id] || {};
-  const metrics = getCustomerMetrics(c.id, { page: 'profile' });
+  // Usar função unificada com customerId canônico
+  const meta = cliMetaCache?.[customerIdCanonical] || {};
+  const metrics = getCustomerMetrics(customerIdCanonical, { page: 'profile' });
   const total = metrics.total_gasto;
   const n = metrics.total_pedidos;
   const ticket = metrics.ticket_medio;
@@ -10305,7 +10319,6 @@ function renderClientePage() {
 
 const clienteInfoHydrateInFlight = new Set();
 const clienteInfoHydrateDone = new Set();
-const clienteKeyToUuid = {};
 function hydrateClienteInfoFromSupabase(customerKey) {
   if (!supaConnected || !supaClient) return;
   const key = String(customerKey || '').trim();
@@ -10333,7 +10346,7 @@ function hydrateClienteInfoFromSupabase(customerKey) {
       return;
     }
     const uuid = String(data.id || '').trim();
-    if (uuid) clienteKeyToUuid[key] = uuid;
+    // clienteKeyToUuid removido - não é mais necessário com identidade canônica
 
     const doc = cleanDocDigits(data.doc || '');
     const email = cleanEmail(data.email || '');
