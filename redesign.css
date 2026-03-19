@@ -1,0 +1,1056 @@
+/* ═══════════════════════════════════════════════════════════════
+   CHIVA FIT CRM — REDESIGN v2
+   Dark sidebar + Light content — baseado no novo mockup UI
+   Arquivo de override: carregado APÓS style.css
+   ─────────────────────────────────────────────────────────────
+   Não altera lógica, apenas estilos visuais.
+═══════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════
+   1. ROOT OVERRIDES — variáveis para light mode
+════════════════════════════════════════════════════ */
+html.light {
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --card-hover: #f0f5f2;
+  --card2: #f0f5f2;
+  --overlay: rgba(255, 255, 255, 0.92);
+  --border: rgba(0, 0, 0, 0.07);
+  --border-sub: rgba(0, 0, 0, 0.05);
+  --border2: rgba(0, 0, 0, 0.12);
+  --border-hi: rgba(15, 167, 101, 0.22);
+  --text: #1a2b22;
+  --text-1: #2d4435;
+  --text-2: #4a6356;
+  --text2: #4a6356;
+  --text-3: #8faa9b;
+  --text-4: #b8cfc5;
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07), 0 2px 5px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 32px rgba(0, 0, 0, 0.09), 0 4px 10px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.11), 0 8px 20px rgba(0, 0, 0, 0.06);
+  --shadow-brand: 0 4px 18px rgba(15, 167, 101, 0.18);
+}
+
+/* ════════════════════════════════════════════════════
+   2. BODY / MAIN AREA — fundo claro
+════════════════════════════════════════════════════ */
+html.light body {
+  background: #f4f7f5 !important;
+}
+
+html.light #main-area {
+  background: #f4f7f5 !important;
+}
+
+html.light #main-content {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  margin-top: 0 !important;
+}
+
+html.light .page {
+  background: transparent !important;
+}
+
+/* ════════════════════════════════════════════════════
+   3. SIDEBAR — escura (dark green) no light mode
+   Override das regras que a tornam branca
+════════════════════════════════════════════════════ */
+html.light #sidebar,
+html.light #sidebar.collapsed {
+  background: #0d1f14 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.055) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Logo area */
+html.light .sidebar-logo {
+  border-bottom-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+html.light .sidebar-logo-name {
+  color: #e8f0ea !important;
+  font-weight: 700 !important;
+}
+
+html.light .sidebar-logo-sub {
+  color: rgba(164, 233, 107, 0.65) !important;
+}
+
+html.light .sidebar-logo-icon {
+  background: linear-gradient(145deg, #15d17f, #0fa765) !important;
+  color: #fff !important;
+  box-shadow:
+    0 6px 20px rgba(15, 167, 101, 0.38),
+    0 0 0 1px rgba(15, 167, 101, 0.25) !important;
+}
+
+/* Collapse button */
+html.light .sidebar-collapse-btn {
+  color: rgba(200, 220, 210, 0.45) !important;
+}
+
+html.light .sidebar-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(200, 220, 210, 0.8) !important;
+}
+
+/* Section labels */
+html.light .sidebar-section-label {
+  color: rgba(164, 233, 107, 0.42) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+}
+
+/* Nav items — base */
+html.light #sidebar .nav-item,
+html.light .sidebar-nav .nav-item {
+  color: rgba(200, 220, 210, 0.75) !important;
+}
+
+html.light #sidebar .nav-item::before,
+html.light .sidebar-nav .nav-item::before {
+  background: transparent !important;
+}
+
+/* Nav items — hover */
+html.light #sidebar .nav-item:hover,
+html.light .sidebar-nav .nav-item:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  color: #ddeee5 !important;
+}
+
+/* Nav items — active */
+html.light #sidebar .nav-item.active,
+html.light .sidebar-nav .nav-item.active {
+  background: rgba(15, 167, 101, 0.18) !important;
+  border-color: rgba(15, 167, 101, 0.28) !important;
+  color: #a4e96b !important;
+  font-weight: 700 !important;
+}
+
+html.light #sidebar .nav-item.active::before,
+html.light .sidebar-nav .nav-item.active::before {
+  background: #0fa765 !important;
+  box-shadow: 0 0 8px rgba(15, 167, 101, 0.4) !important;
+}
+
+/* AI nav item */
+html.light #sidebar .nav-item.ai-item {
+  color: rgba(167, 139, 250, 0.8) !important;
+}
+
+html.light #sidebar .nav-item.ai-item.active {
+  background: rgba(167, 139, 250, 0.12) !important;
+  border-color: rgba(167, 139, 250, 0.22) !important;
+  color: rgba(219, 212, 255, 0.95) !important;
+}
+
+/* Nav badges */
+html.light .nav-badge {
+  background: rgba(15, 167, 101, 0.18) !important;
+  color: #a4e96b !important;
+  font-weight: 700 !important;
+}
+
+/* Sidebar divider */
+html.light .sidebar-divider {
+  border-top-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* Sidebar footer */
+html.light .sidebar-footer {
+  border-top-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* Theme toggle button */
+html.light .theme-toggle {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+  color: rgba(200, 220, 210, 0.6) !important;
+}
+
+html.light .theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #e8f0ea !important;
+}
+
+/* Sync indicator */
+html.light .sidebar-sync {
+  color: rgba(164, 233, 107, 0.4) !important;
+}
+
+html.light .sync-dot {
+  background: rgba(200, 220, 210, 0.35) !important;
+  box-shadow: none !important;
+}
+
+html.light .sync-dot.on {
+  background: #0fa765 !important;
+  box-shadow: 0 0 8px rgba(15, 167, 101, 0.5) !important;
+}
+
+/* User row */
+html.light .sidebar-user {
+  border-color: transparent !important;
+}
+
+html.light .sidebar-user:hover {
+  background: rgba(255, 255, 255, 0.045) !important;
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+html.light .sidebar-user-avatar {
+  background: rgba(15, 167, 101, 0.2) !important;
+  border-color: rgba(15, 167, 101, 0.28) !important;
+}
+
+html.light .sidebar-user-name {
+  color: #e8f0ea !important;
+  font-weight: 600 !important;
+}
+
+html.light .sidebar-user-role {
+  color: rgba(164, 233, 107, 0.55) !important;
+}
+
+html.light .sidebar-user-exit {
+  color: rgba(200, 220, 210, 0.35) !important;
+}
+
+/* Channel section (se existir) */
+html.light .sidebar-channel,
+html.light .sidebar-channel-item {
+  color: rgba(200, 220, 210, 0.7) !important;
+}
+
+html.light .sidebar-channel-label {
+  color: rgba(164, 233, 107, 0.42) !important;
+}
+
+html.light .channel-status-dot {
+  background: #0fa765 !important;
+  box-shadow: 0 0 6px rgba(15, 167, 101, 0.4) !important;
+}
+
+/* Tooltip no modo collapsed */
+html.light [data-tooltip]::after {
+  background: #1a3024 !important;
+  color: #e8f0ea !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   4. TOPBAR — branca e limpa
+════════════════════════════════════════════════════ */
+html.light #topbar {
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  height: 60px !important;
+}
+
+html.light .topbar-title {
+  color: #1a2b22 !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.5px !important;
+}
+
+html.light .topbar-search-wrap {
+  max-width: 440px !important;
+  flex: 1 !important;
+}
+
+html.light #topbar-search {
+  background: #f2f6f4 !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.08) !important;
+  color: #1a2b22 !important;
+  border-radius: 12px !important;
+  height: 40px !important;
+  font-size: 13px !important;
+  padding: 9px 12px 9px 36px !important;
+  box-shadow: none !important;
+}
+
+html.light #topbar-search::placeholder {
+  color: #b0c4b8 !important;
+}
+
+html.light #topbar-search:hover:not(:focus) {
+  background: #eef3f0 !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light #topbar-search:focus {
+  background: #fff !important;
+  border-color: #0fa765 !important;
+  box-shadow: 0 0 0 3px rgba(15, 167, 101, 0.1) !important;
+}
+
+html.light .topbar-search-icon {
+  color: #b0c4b8 !important;
+}
+
+html.light #mobile-menu-btn,
+html.light #notif-btn,
+html.light .icon-btn {
+  color: #4a6356 !important;
+}
+
+html.light #mobile-menu-btn:hover,
+html.light #notif-btn:hover,
+html.light .icon-btn:hover {
+  background: #f2f6f4 !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #1a2b22 !important;
+}
+
+html.light .notif-badge {
+  background: #f87171 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+html.light .user-avatar-btn,
+html.light .topbar-avatar {
+  border: 2px solid rgba(15, 167, 101, 0.25) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   5. STAT / KPI CARDS
+════════════════════════════════════════════════════ */
+html.light .stat {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.03) !important;
+  border-radius: 20px !important;
+}
+
+html.light .stat:hover {
+  border-color: rgba(15, 167, 101, 0.2) !important;
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.04) !important;
+  transform: translateY(-2px) !important;
+}
+
+html.light .stat::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(15, 167, 101, 0.35) 40%,
+    rgba(164, 233, 107, 0.4) 60%,
+    transparent
+  ) !important;
+  opacity: 0.7 !important;
+}
+
+html.light .stat:hover::before {
+  opacity: 1 !important;
+}
+
+html.light .stat-label {
+  color: #8faa9b !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+}
+
+html.light .stat-value {
+  color: #1a2b22 !important;
+  font-size: 26px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.04em !important;
+}
+
+html.light .stat-sub {
+  color: #4a6356 !important;
+  font-size: 11px !important;
+}
+
+html.light .stat-sub .up {
+  color: #16a34a !important;
+  font-weight: 600 !important;
+}
+
+html.light .stat-sub .down {
+  color: #dc2626 !important;
+  font-weight: 600 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   6. GENERAL CARDS
+════════════════════════════════════════════════════ */
+html.light .card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.03) !important;
+  border-radius: 20px !important;
+}
+
+html.light .meta-card,
+html.light .compare-card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border-radius: 16px !important;
+}
+
+html.light .chart-card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.light .ia-bento-card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .exec-kpi {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light .opp-card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .opp-card.opp-health-churn {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.05), #fff 55%) !important;
+  border-color: rgba(248, 113, 113, 0.14) !important;
+}
+
+html.light .opp-card.opp-health-vip {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.06), #fff 55%) !important;
+  border-color: rgba(251, 191, 36, 0.14) !important;
+}
+
+html.light .task-card {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .task-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(15, 167, 101, 0.18) !important;
+}
+
+html.light .setup-section {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .prod-panel {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   7. PAGE TITLES & TYPOGRAPHY
+════════════════════════════════════════════════════ */
+html.light .page-title {
+  color: #1a2b22 !important;
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.5px !important;
+}
+
+html.light .page-subtitle,
+html.light .page-sub {
+  color: #8faa9b !important;
+}
+
+html.light .page-header {
+  background: transparent !important;
+  border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .card-title,
+html.light .card-hdr {
+  color: #1a2b22 !important;
+}
+
+html.light .meta-pct,
+html.light .meta-val {
+  color: #1a2b22 !important;
+}
+
+html.light .meta-label {
+  color: #8faa9b !important;
+}
+
+html.light .section-title {
+  color: #1a2b22 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   8. TABLES
+════════════════════════════════════════════════════ */
+html.light .table-head {
+  color: #8faa9b !important;
+  background: #f8faf9 !important;
+  border-color: rgba(0, 0, 0, 0.05) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.06em !important;
+}
+
+html.light .table-row,
+html.light .pedido-row,
+html.light .client-row,
+html.light .cidade-row,
+html.light .prod-item {
+  border-color: rgba(0, 0, 0, 0.05) !important;
+  color: #1a2b22 !important;
+}
+
+html.light .table-row:hover,
+html.light .pedido-row:hover,
+html.light .client-row:hover,
+html.light .cidade-row:hover,
+html.light .prod-item:hover {
+  background: #f6faf8 !important;
+}
+
+html.light .pedido-table-header {
+  background: #f8faf9 !important;
+  color: #8faa9b !important;
+  border-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   9. STATUS BADGES
+════════════════════════════════════════════════════ */
+html.light .badge {
+  font-weight: 600 !important;
+}
+
+html.light .badge.ativo {
+  background: rgba(34, 197, 94, 0.1) !important;
+  color: #16a34a !important;
+  border: 1px solid rgba(34, 197, 94, 0.2) !important;
+}
+
+html.light .badge.inativo {
+  background: rgba(248, 113, 113, 0.1) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgba(248, 113, 113, 0.18) !important;
+}
+
+html.light .badge.vip {
+  background: rgba(251, 191, 36, 0.12) !important;
+  color: #d97706 !important;
+  border: 1px solid rgba(251, 191, 36, 0.22) !important;
+}
+
+html.light .badge.novo {
+  background: rgba(139, 92, 246, 0.1) !important;
+  color: #7c3aed !important;
+  border: 1px solid rgba(139, 92, 246, 0.18) !important;
+}
+
+html.light .badge.alerta {
+  background: rgba(251, 191, 36, 0.1) !important;
+  color: #d97706 !important;
+  border: 1px solid rgba(251, 191, 36, 0.2) !important;
+}
+
+html.light .badge-hint.recompra {
+  background: rgba(249, 115, 22, 0.1) !important;
+  color: #ea580c !important;
+  border: 1px solid rgba(249, 115, 22, 0.2) !important;
+}
+
+html.light .badge-hint.churn {
+  background: rgba(248, 113, 113, 0.1) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgba(248, 113, 113, 0.18) !important;
+}
+
+html.light .badge-hint {
+  font-weight: 600 !important;
+}
+
+/* Channel badges */
+html.light .badge.shopify {
+  background: rgba(132, 204, 22, 0.1) !important;
+  color: #65a30d !important;
+  border: 1px solid rgba(132, 204, 22, 0.2) !important;
+}
+
+html.light .badge.shopee {
+  background: rgba(249, 115, 22, 0.1) !important;
+  color: #ea580c !important;
+  border: 1px solid rgba(249, 115, 22, 0.2) !important;
+}
+
+html.light .badge.amazon {
+  background: rgba(6, 182, 212, 0.1) !important;
+  color: #0891b2 !important;
+  border: 1px solid rgba(6, 182, 212, 0.2) !important;
+}
+
+html.light .badge.ml {
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: #d97706 !important;
+  border: 1px solid rgba(245, 158, 11, 0.2) !important;
+}
+
+html.light .badge.yampi {
+  background: rgba(217, 70, 239, 0.1) !important;
+  color: #9333ea !important;
+  border: 1px solid rgba(217, 70, 239, 0.2) !important;
+}
+
+html.light .badge.b2b,
+html.light .badge.outros {
+  background: rgba(148, 163, 184, 0.1) !important;
+  color: #64748b !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   10. BOTÕES
+════════════════════════════════════════════════════ */
+html.light .chiva-btn-primary {
+  background: linear-gradient(135deg, #15d17f, #0fa765) !important;
+  box-shadow: 0 4px 16px rgba(15, 167, 101, 0.32) !important;
+  color: #fff !important;
+}
+
+html.light .chiva-btn-primary:hover {
+  background: linear-gradient(135deg, #18e488, #12bc72) !important;
+  box-shadow: 0 6px 22px rgba(15, 167, 101, 0.42) !important;
+  transform: translateY(-1px) !important;
+}
+
+html.light .chiva-btn-ghost {
+  background: rgba(15, 167, 101, 0.07) !important;
+  border-color: rgba(15, 167, 101, 0.2) !important;
+  color: #0c9257 !important;
+}
+
+html.light .chiva-btn-ghost:hover {
+  background: rgba(15, 167, 101, 0.12) !important;
+  border-color: rgba(15, 167, 101, 0.3) !important;
+  color: #0fa765 !important;
+}
+
+html.light .chiva-btn-danger {
+  background: rgba(248, 113, 113, 0.08) !important;
+  border-color: rgba(248, 113, 113, 0.2) !important;
+  color: #dc2626 !important;
+}
+
+html.light .chiva-btn-danger:hover {
+  background: rgba(248, 113, 113, 0.14) !important;
+}
+
+html.light .np-btn {
+  background: #fff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #1a2b22 !important;
+}
+
+html.light .np-btn:hover {
+  background: #f4f7f5 !important;
+  border-color: #0fa765 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   11. INPUTS / FILTROS / SELETORES
+════════════════════════════════════════════════════ */
+html.light .filter-inp,
+html.light .filter-sel,
+html.light .dash-search,
+html.light .search-inp {
+  background: #fff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.09) !important;
+  color: #1a2b22 !important;
+  border-radius: 10px !important;
+}
+
+html.light .filter-inp:hover,
+html.light .filter-sel:hover {
+  border-color: rgba(0, 0, 0, 0.14) !important;
+}
+
+html.light .filter-inp:focus,
+html.light .filter-sel:focus {
+  border-color: #0fa765 !important;
+  box-shadow: 0 0 0 3px rgba(15, 167, 101, 0.1) !important;
+}
+
+html.light .filter-inp::placeholder,
+html.light .filter-sel::placeholder {
+  color: #b0c4b8 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   12. PROGRESS BARS
+════════════════════════════════════════════════════ */
+html.light .meta-bar-bg,
+html.light .prog-bg {
+  background: rgba(0, 0, 0, 0.07) !important;
+}
+
+html.light .meta-bar,
+html.light .prog-fill {
+  background: linear-gradient(90deg, #0fa765, #a4e96b) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   13. MODAIS / PAINÉIS / DRAWERS
+════════════════════════════════════════════════════ */
+html.light .modal-box,
+html.light .side-panel,
+html.light .drawer-panel,
+html.light .detail-panel,
+html.light .popup-card {
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.13) !important;
+}
+
+html.light .modal-overlay {
+  background: rgba(26, 43, 34, 0.35) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   14. DASH FILTER BAR
+════════════════════════════════════════════════════ */
+html.light .dash-filterbar,
+html.light .filter-bar {
+  background: transparent !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .filter-chip,
+html.light .dash-tab {
+  background: #fff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.09) !important;
+  color: #4a6356 !important;
+}
+
+html.light .filter-chip:hover,
+html.light .dash-tab:hover {
+  background: #f2f6f4 !important;
+  border-color: rgba(15, 167, 101, 0.2) !important;
+  color: #1a2b22 !important;
+}
+
+html.light .filter-chip.active,
+html.light .dash-tab.active {
+  background: rgba(15, 167, 101, 0.1) !important;
+  border-color: rgba(15, 167, 101, 0.25) !important;
+  color: #0c9257 !important;
+  font-weight: 700 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   15. DROPDOWN MENUS
+════════════════════════════════════════════════════ */
+html.light .dropdown-menu,
+html.light .pop-menu,
+html.light .ctx-menu {
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.09) !important;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light .dropdown-item,
+html.light .pop-item,
+html.light .ctx-item {
+  color: #1a2b22 !important;
+}
+
+html.light .dropdown-item:hover,
+html.light .pop-item:hover,
+html.light .ctx-item:hover {
+  background: #f4f7f5 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   16. IA PAGE
+════════════════════════════════════════════════════ */
+html.light .ia-kpi-value {
+  color: #1a2b22 !important;
+}
+
+html.light .ia-modern-list {
+  background: #fff !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .ia-ai-glow {
+  box-shadow:
+    0 8px 24px rgba(15, 167, 101, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light .ia-ghost-btn {
+  background: rgba(15, 167, 101, 0.07) !important;
+  border-color: rgba(15, 167, 101, 0.18) !important;
+  color: #0c9257 !important;
+}
+
+html.light .ia-ghost-btn.primary {
+  background: linear-gradient(135deg, #15d17f, #0fa765) !important;
+  color: #fff !important;
+}
+
+html.light .modern-empty-state {
+  color: #8faa9b !important;
+}
+
+/* ════════════════════════════════════════════════════
+   17. CALENDAR
+════════════════════════════════════════════════════ */
+html.light .cal-day {
+  color: #1a2b22 !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .cal-day:hover {
+  background: #f0f6f3 !important;
+  border-color: rgba(15, 167, 101, 0.18) !important;
+}
+
+html.light .cal-day.hoje {
+  background: rgba(15, 167, 101, 0.1) !important;
+  color: #0fa765 !important;
+  border-color: rgba(15, 167, 101, 0.28) !important;
+  font-weight: 700 !important;
+}
+
+html.light .evento-card {
+  background: rgba(15, 167, 101, 0.08) !important;
+  border-color: rgba(15, 167, 101, 0.2) !important;
+}
+
+html.light .evento-card:hover {
+  background: rgba(15, 167, 101, 0.13) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   18. MAP TOOLTIP
+════════════════════════════════════════════════════ */
+html.light .geo-map-tooltip {
+  background: rgba(255, 255, 255, 0.97) !important;
+  color: #1a2b22 !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   19. CMDBAR
+════════════════════════════════════════════════════ */
+html.light .cmdbar {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light .cmdbar-input {
+  color: #1a2b22 !important;
+  background: transparent !important;
+}
+
+html.light .cmdbar-btn {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #8faa9b !important;
+}
+
+/* ════════════════════════════════════════════════════
+   20. MOBILE OVERLAY
+════════════════════════════════════════════════════ */
+html.light #sidebar-overlay {
+  background: rgba(26, 43, 34, 0.35) !important;
+}
+
+/* ════════════════════════════════════════════════════
+   21. SCROLL BARS — subtle no light mode
+════════════════════════════════════════════════════ */
+html.light ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 99px;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Sidebar tem scrollbar escura */
+html.light #sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html.light #sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ════════════════════════════════════════════════════
+   22. FOCUS RING — acessibilidade com brand color
+════════════════════════════════════════════════════ */
+html.light *:focus-visible {
+  outline: 2px solid rgba(15, 167, 101, 0.6) !important;
+  outline-offset: 2px !important;
+}
+
+/* ════════════════════════════════════════════════════
+   23. TRANSITIONS GLOBAIS
+════════════════════════════════════════════════════ */
+#sidebar,
+#main-area,
+#topbar,
+.stat,
+.card,
+.meta-card,
+.compare-card,
+.chart-card,
+.ia-bento-card,
+.exec-kpi,
+.opp-card,
+.task-card,
+.nav-item {
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    color 0.18s ease !important;
+}
+
+/* ════════════════════════════════════════════════════
+   24. LOADING SCREEN
+════════════════════════════════════════════════════ */
+html.light .login-box {
+  background: #fff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light #login-screen {
+  background: #f4f7f5 !important;
+}
+
+/* ════════════════════════════════════════════════════
+   25. MISC — ajustes finos
+════════════════════════════════════════════════════ */
+
+/* Remover backdrop blur pesado nos cards do light mode */
+html.light [style*="backdrop-filter"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Status line */
+html.light .status-line {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.07) !important;
+}
+
+/* Stat grid top accent */
+html.light .stat-grid-v2 .stat::before {
+  opacity: 0.5 !important;
+}
+
+/* KPI mini chart */
+html.light .mini-chart-line {
+  stroke: #0fa765 !important;
+  opacity: 0.7 !important;
+}
+
+/* City rows */
+html.light .cidade-bar {
+  background: rgba(0, 0, 0, 0.07) !important;
+}
+
+html.light .cidade-bar-fill {
+  background: linear-gradient(90deg, #0fa765, #a4e96b) !important;
+}
+
+/* Product rank numbers */
+html.light .prod-rank {
+  color: #8faa9b !important;
+}
+
+/* Insight cards */
+html.light .insight-card {
+  background: #fff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Alerta items */
+html.light .alerta-item {
+  background: #fff !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .alerta-item:hover {
+  background: #f8faf9 !important;
+}
+
+/* Channel integrations status */
+html.light .integ-card,
+html.light .canal-card {
+  background: #fff !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.055) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Summary totals */
+html.light .summary-total {
+  color: #1a2b22 !important;
+  font-weight: 800 !important;
+}
+
+/* Highlight green text */
+html.light .text-brand,
+html.light .text-green-brand {
+  color: #0fa765 !important;
+}
+
+/* Danger zone */
+html.light .text-danger {
+  color: #dc2626 !important;
+}
+
+html.light .text-warn {
+  color: #d97706 !important;
+}
