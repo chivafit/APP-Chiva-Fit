@@ -219,55 +219,62 @@
   justify-content: center;
   gap: 6px;
   font-family: var(--font);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 12px;
-  border-radius: var(--r-md);
+  border-radius: 10px;
   border: none;
   cursor: pointer;
+  height: 36px;
+  padding: 0 16px;
   transition:
-    background var(--t-base),
+    background var(--t-fast),
     transform var(--t-fast),
-    box-shadow var(--t-base);
-  letter-spacing: 0.1px;
+    box-shadow var(--t-fast);
+  letter-spacing: -0.1px;
   white-space: nowrap;
-  padding: 9px 16px;
 }
 .chiva-btn-primary {
   background: var(--chiva-primary);
   color: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(15, 167, 101, 0.25);
 }
 .chiva-btn-primary:hover {
-  background: var(--chiva-primary-light);
-  color: var(--chiva-dark);
+  background: var(--chiva-primary-deep);
+  color: #fff;
   transform: translateY(-1px);
-  box-shadow: var(--shadow-brand);
+  box-shadow: 0 4px 16px rgba(15, 167, 101, 0.35);
 }
 .chiva-btn-primary:active {
   transform: translateY(0);
-  background: var(--chiva-primary-deep);
+  box-shadow: 0 1px 4px rgba(15, 167, 101, 0.2);
+}
+html.light .chiva-btn-primary {
   color: #fff;
 }
 .chiva-btn-secondary {
   background: var(--chiva-primary-dim);
-  color: var(--chiva-primary-light);
+  color: var(--chiva-primary);
   border: 1px solid var(--chiva-primary-border);
 }
 .chiva-btn-secondary:hover {
   background: rgba(15, 167, 101, 0.2);
   border-color: var(--chiva-primary);
+  color: var(--chiva-primary-light);
   transform: translateY(-1px);
 }
+.chiva-btn-secondary:active { transform: translateY(0); }
 .chiva-btn-ghost {
   background: transparent;
   color: var(--text-2);
   border: 1px solid var(--border);
 }
 .chiva-btn-ghost:hover {
-  background: var(--card2);
+  background: var(--card-hover);
   border-color: var(--border2);
   color: var(--text);
+  transform: translateY(-1px);
 }
+.chiva-btn-ghost:active { transform: translateY(0); }
 
 /* ── Cards ── */
 .chiva-card {
