@@ -4093,59 +4093,132 @@ function saveTasks() {
 function renderTarefas() {
   const statusFil = document.getElementById('fil-task-status')?.value || '';
   const prioFil = document.getElementById('fil-task-prio')?.value || '';
+  const grupoFil = document.getElementById('fil-task-grupo')?.value || '';
   const PRIO_LABEL = { alta: '🔴 Alta', media: '🟡 Média', baixa: '🟢 Baixa' };
-  const STATUS_LABEL = {
-    pendente: '⏳ Pendente',
-    em_andamento: '⚡ Em andamento',
-    concluida: '✅ Concluída',
-  };
+  const PRIO_CLS = { alta: 'task-badge--alta', media: 'task-badge--media', baixa: 'task-badge--baixa' };
+  const STATUS_LABEL = { pendente: '⏳ Pendente', em_andamento: '⚡ Em andamento', concluida: '✅ Concluída' };
+  const STATUS_CLS = { pendente: 'task-badge--pendente', em_andamento: 'task-badge--andamento', concluida: 'task-badge--concluida' };
+
+  // KPIs + progress
+  const total = allTasks.length;
+  const pending = allTasks.filter((t) => t.status === 'pendente').length;
+  const andamento = allTasks.filter((t) => t.status === 'em_andamento').length;
+  const done = allTasks.filter((t) => t.status === 'concluida').length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const kpisEl = document.getElementById('tasks-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="tasks-kpi-row">
+        <div class="tasks-kpi tasks-kpi--total"><div class="tasks-kpi-val">${total}</div><div class="tasks-kpi-lbl">Total</div></div>
+        <div class="tasks-kpi tasks-kpi--pendente"><div class="tasks-kpi-val">${pending}</div><div class="tasks-kpi-lbl">Pendentes</div></div>
+        <div class="tasks-kpi tasks-kpi--andamento"><div class="tasks-kpi-val">${andamento}</div><div class="tasks-kpi-lbl">Em andamento</div></div>
+        <div class="tasks-kpi tasks-kpi--done"><div class="tasks-kpi-val">${done}</div><div class="tasks-kpi-lbl">Concluídas</div></div>
+      </div>
+      <div class="tasks-progress-wrap">
+        <div class="tasks-progress-bar"><div class="tasks-progress-fill" style="width:${pct}%"></div></div>
+        <span class="tasks-progress-pct">${pct}% concluído</span>
+      </div>
+    `;
+  }
+
+  // Filtros
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndIso = weekEnd.toISOString().slice(0, 10);
 
   let tasks = [...allTasks];
   if (statusFil) tasks = tasks.filter((t) => t.status === statusFil);
   if (prioFil) tasks = tasks.filter((t) => t.prioridade === prioFil);
-  tasks.sort((a, b) => {
-    const p = { alta: 0, media: 1, baixa: 2 };
-    return (p[a.prioridade] || 1) - (p[b.prioridade] || 1);
+  if (grupoFil) {
+    tasks = tasks.filter((t) => {
+      const d = t.data || '';
+      if (grupoFil === 'atrasadas') return d && d < todayIso && t.status !== 'concluida';
+      if (grupoFil === 'hoje') return d === todayIso;
+      if (grupoFil === 'semana') return d > todayIso && d <= weekEndIso;
+      if (grupoFil === 'futuras') return d > weekEndIso;
+      if (grupoFil === 'sem_data') return !d;
+      return true;
+    });
+  }
+
+  // Agrupamento por data
+  const grupos = { atrasadas: [], hoje: [], semana: [], futuras: [], sem_data: [] };
+  tasks.forEach((t) => {
+    const d = t.data || '';
+    if (!d) grupos.sem_data.push(t);
+    else if (d < todayIso && t.status !== 'concluida') grupos.atrasadas.push(t);
+    else if (d === todayIso) grupos.hoje.push(t);
+    else if (d <= weekEndIso) grupos.semana.push(t);
+    else grupos.futuras.push(t);
   });
+  const pOrder = { alta: 0, media: 1, baixa: 2 };
+  Object.values(grupos).forEach((g) => g.sort((a, b) => (pOrder[a.prioridade]||1) - (pOrder[b.prioridade]||1)));
 
-  const pending = allTasks.filter((t) => t.status === 'pendente').length;
-  const andamento = allTasks.filter((t) => t.status === 'em_andamento').length;
-  const done = allTasks.filter((t) => t.status === 'concluida').length;
-  document.getElementById('tasks-label').innerHTML = `
-    <span class="tasks-label-total">${allTasks.length} tarefas</span> &nbsp;·&nbsp;
-    <span class="tasks-label-pending">${pending} pendentes</span> &nbsp;·&nbsp;
-    <span class="tasks-label-progress">${andamento} em andamento</span> &nbsp;·&nbsp;
-    <span class="tasks-label-done">${done} concluídas</span>`;
-
-  document.getElementById('tasks-list').innerHTML = tasks.length
-    ? tasks
-        .map(
-          (t) => `
-    <div class="task-card status-${escapeHTML(t.status || 'pendente')}">
-      <div class="task-header">
-        <input type="checkbox" ${t.status === 'concluida' ? 'checked' : ''} 
-          class="task-check"
-          onchange="toggleTask(${t.id},this.checked)"/>
-        <div class="task-main">
-          <div class="task-title ${t.status === 'concluida' ? 'done' : ''}">${escapeHTML(t.titulo)}</div>
-          ${t.desc ? `<div class="task-desc">${escapeHTML(t.desc)}</div>` : ''}
-          ${t.cliente ? `<div class="task-client">👤 ${escapeHTML(t.cliente)}</div>` : ''}
-          <div class="task-badges">
-            <span class="task-badge">${PRIO_LABEL[t.prioridade] || t.prioridade}</span>
-            <span class="task-badge">${STATUS_LABEL[t.status] || t.status}</span>
-            ${t.data ? `<span class="task-badge">📅 ${escapeHTML(fmtDate(t.data))}</span>` : ''}
+  const renderCard = (t) => {
+    const isOverdue = t.data && t.data < todayIso && t.status !== 'concluida';
+    return `
+      <div class="task-card status-${escapeHTML(t.status || 'pendente')}${isOverdue ? ' task-overdue' : ''}">
+        <div class="task-header">
+          <input type="checkbox" ${t.status === 'concluida' ? 'checked' : ''}
+            class="task-check" onchange="toggleTask(${t.id},this.checked)"/>
+          <div class="task-main">
+            <div class="task-title ${t.status === 'concluida' ? 'done' : ''}">${escapeHTML(t.titulo)}</div>
+            ${t.desc ? `<div class="task-desc">${escapeHTML(t.desc)}</div>` : ''}
+            ${t.cliente ? `<div class="task-client">👤 ${escapeHTML(t.cliente)}</div>` : ''}
+            <div class="task-badges">
+              <span class="task-badge ${PRIO_CLS[t.prioridade]||''}">${PRIO_LABEL[t.prioridade]||t.prioridade}</span>
+              <span class="task-badge ${STATUS_CLS[t.status]||''}">${STATUS_LABEL[t.status]||t.status}</span>
+              ${t.data ? `<span class="task-badge ${isOverdue ? 'task-badge--overdue' : ''}">📅 ${escapeHTML(fmtDate(t.data))}</span>` : ''}
+            </div>
+          </div>
+          <div class="task-actions">
+            <button class="task-icon-btn" title="Editar" onclick="openTaskModal(${t.id})">✏️</button>
+            <button class="task-icon-btn" title="Excluir" onclick="deleteTask(${t.id})">🗑️</button>
           </div>
         </div>
-        <div class="task-actions">
-          <button class="task-icon-btn" onclick="openTaskModal(${t.id})">✏️</button>
-          <button class="task-icon-btn" onclick="deleteTask(${t.id})">🗑️</button>
-        </div>
-      </div>
-    </div>`,
-        )
-        .join('')
-    : `<div class="empty">Nenhuma tarefa encontrada.</div>`;
+      </div>`;
+  };
+
+  const renderGrupo = (label, icon, items) => {
+    if (!items.length) return '';
+    return `
+      <div class="tasks-grupo">
+        <div class="tasks-grupo-hdr"><span class="tasks-grupo-ico">${icon}</span><span class="tasks-grupo-lbl">${label}</span><span class="tasks-grupo-count">${items.length}</span></div>
+        ${items.map(renderCard).join('')}
+      </div>`;
+  };
+
+  const html =
+    renderGrupo('Atrasadas', '🔴', grupos.atrasadas) +
+    renderGrupo('Hoje', '📌', grupos.hoje) +
+    renderGrupo('Esta semana', '📅', grupos.semana) +
+    renderGrupo('Próximas', '🔮', grupos.futuras) +
+    renderGrupo('Sem data', '—', grupos.sem_data);
+
+  document.getElementById('tasks-list').innerHTML =
+    html || `<div class="empty">Nenhuma tarefa encontrada.</div>`;
 }
+
+function gerarTarefasDoRadar() {
+  if (!radarOppLastModel) { toast('⚠️ Abra o Radar primeiro para gerar tarefas.'); return; }
+  const { groups } = radarOppLastModel;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let added = 0;
+  const add = (titulo, desc, cliente, customerId, prioridade) => {
+    const jaExiste = allTasks.some((t) => t.titulo === titulo && t.cliente === cliente && t.status !== 'concluida');
+    if (jaExiste) return;
+    allTasks.push({ id: taskIdSeq++, titulo, desc, cliente, customer_id: String(customerId || ''), prioridade, status: 'pendente', data: todayIso });
+    added++;
+  };
+  (groups.visitouHot || []).slice(0, 5).forEach((i) => add(`Recuperar carrinho — ${i.nm}`, 'Carrinho abandonado ativo', i.nm, i.key, 'alta'));
+  (groups.priorityHigh || []).slice(0, 5).forEach((i) => add(`Contatar VIP em risco — ${i.nm}`, i.nextAction || 'Contato prioritário', i.nm, i.key, 'alta'));
+  (groups.risk || []).slice(0, 5).forEach((i) => add(`Reativar cliente — ${i.nm}`, i.nextAction || 'Enviar oferta de reativação', i.nm, i.key, 'media'));
+  (groups.rebuy || []).slice(0, 5).forEach((i) => add(`Recompra — ${i.nm}`, 'Cliente no timing ideal de reposição', i.nm, i.key, 'media'));
+  saveTasks();
+  renderTarefas();
+  toast(`⚡ ${added} tarefa${added !== 1 ? 's' : ''} gerada${added !== 1 ? 's' : ''} do Radar!`);
+}
+window.gerarTarefasDoRadar = gerarTarefasDoRadar;
 
 function toggleTask(id, done) {
   const t = allTasks.find((t) => t.id === id);
@@ -13353,15 +13426,131 @@ async function seedCidadesIBGE() {
 window.seedCidadesIBGE = seedCidadesIBGE;
 
 function renderAlertas() {
-  const ad = parseInt(document.getElementById('alert-days')?.value || '60');
-  const inat = Object.values(buildCli(allOrders))
-    .filter((c) => daysSince(c.last) > ad && !isCNPJ(c.doc))
-    .sort((a, b) => daysSince(b.last) - daysSince(a.last));
-  document.getElementById('alert-label').textContent =
-    `${inat.length} cliente${inat.length !== 1 ? 's' : ''} sem comprar há mais de ${ad} dias`;
-  document.getElementById('alert-list').innerHTML = inat.length
-    ? inat.map((c, i) => renderCliCard(c, 'al' + i)).join('')
-    : `<div class="empty">🎉 Nenhum cliente inativo por mais de ${ad} dias!</div>`;
+  const ad = parseInt(document.getElementById('alert-days')?.value || '60') || 60;
+  const clis = Object.values(buildCli(allOrders))
+    .map((c) => ({ c, s: calcCliScores(c) }))
+    .filter((x) => x.c && !isCNPJ(x.c.doc));
+
+  // ── Categorias ──────────────────────────────────────
+  const vipsRisco = clis
+    .filter((x) => x.s.status === 'vip' && daysSince(x.c.last) >= 45)
+    .sort((a, b) => daysSince(b.c.last) - daysSince(a.c.last));
+
+  const churnAlto = clis
+    .filter((x) => (x.s.churnRisk || 0) >= 70 && x.s.status !== 'vip' && daysSince(x.c.last) < 180)
+    .sort((a, b) => (b.s.churnRisk || 0) - (a.s.churnRisk || 0));
+
+  const foraCiclo = clis
+    .filter((x) => {
+      const avg = x.s.avgInterval || 0;
+      const ds = daysSince(x.c.last);
+      return avg >= 15 && ds > avg * 1.5 && ds < 120 && x.s.status !== 'vip';
+    })
+    .sort((a, b) => {
+      const ra = daysSince(a.c.last) / (a.s.avgInterval || 1);
+      const rb = daysSince(b.c.last) / (b.s.avgInterval || 1);
+      return rb - ra;
+    });
+
+  const inativos = clis
+    .filter((x) => daysSince(x.c.last) > ad)
+    .sort((a, b) => daysSince(b.c.last) - daysSince(a.c.last));
+
+  // ── KPIs ────────────────────────────────────────────
+  const kpisEl = document.getElementById('alert-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="alert-kpi alert-kpi--red">
+        <div class="alert-kpi-ico">👑</div>
+        <div class="alert-kpi-body">
+          <div class="alert-kpi-val">${vipsRisco.length}</div>
+          <div class="alert-kpi-lbl">VIPs em risco</div>
+        </div>
+      </div>
+      <div class="alert-kpi alert-kpi--orange">
+        <div class="alert-kpi-ico">⚠️</div>
+        <div class="alert-kpi-body">
+          <div class="alert-kpi-val">${churnAlto.length}</div>
+          <div class="alert-kpi-lbl">Risco de churn</div>
+        </div>
+      </div>
+      <div class="alert-kpi alert-kpi--blue">
+        <div class="alert-kpi-ico">🔄</div>
+        <div class="alert-kpi-body">
+          <div class="alert-kpi-val">${foraCiclo.length}</div>
+          <div class="alert-kpi-lbl">Fora do ciclo</div>
+        </div>
+      </div>
+      <div class="alert-kpi alert-kpi--gray">
+        <div class="alert-kpi-ico">🧊</div>
+        <div class="alert-kpi-body">
+          <div class="alert-kpi-val">${inativos.length}</div>
+          <div class="alert-kpi-lbl">Inativos ${ad}+ dias</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Render de item ───────────────────────────────────
+  const renderItem = (x, ctxLabel) => {
+    const c = x.c;
+    const s = x.s;
+    const ds = daysSince(c.last);
+    const safeKey = escapeJsSingleQuote(String(c.id || ''));
+    const phone = rawPhone(c.phone || c.phones?.[0] || '');
+    return `
+      <div class="alert-item">
+        <div class="alert-item-left">
+          <div class="alert-item-name">${escapeHTML(c.nome || 'Cliente')}</div>
+          <div class="alert-item-meta">
+            ${ds < 9999 ? `<span>${ds}d sem comprar</span>` : ''}
+            ${s.avgInterval ? `<span>Ciclo médio: ${s.avgInterval}d</span>` : ''}
+            ${s.ltv ? `<span>LTV: ${fmtBRL(s.ltv)}</span>` : ''}
+            ${s.churnRisk ? `<span>Churn: ${s.churnRisk}%</span>` : ''}
+          </div>
+        </div>
+        <div class="alert-item-actions">
+          ${phone ? `<button class="alert-act-btn alert-act-wa" onclick="openWaModal('${safeKey}')">WhatsApp</button>` : ''}
+          ${phone ? `<button class="alert-act-btn alert-act-coupon" onclick="oppSendCoupon('${safeKey}',10)">Cupom 10%</button>` : ''}
+          <button class="alert-act-btn" onclick="openClientePage('${safeKey}')">Ver perfil</button>
+        </div>
+      </div>
+    `;
+  };
+
+  // ── Seções ───────────────────────────────────────────
+  const sectionsEl = document.getElementById('alert-sections');
+  if (!sectionsEl) return;
+
+  const renderSection = (icon, title, subtitle, cls, items, limit = 10) => {
+    if (!items.length) return '';
+    const shown = items.slice(0, limit);
+    const more = items.length - shown.length;
+    return `
+      <div class="alert-section">
+        <div class="alert-section-hdr alert-section-hdr--${cls}">
+          <span class="alert-section-ico">${icon}</span>
+          <div>
+            <div class="alert-section-title">${escapeHTML(title)}</div>
+            <div class="alert-section-sub">${escapeHTML(subtitle)}</div>
+          </div>
+          <span class="alert-section-count">${items.length}</span>
+        </div>
+        <div class="alert-items-list">
+          ${shown.map((x) => renderItem(x)).join('')}
+          ${more > 0 ? `<div class="alert-more">+${more} clientes — ajuste o filtro de dias para ver todos</div>` : ''}
+        </div>
+      </div>
+    `;
+  };
+
+  const html =
+    renderSection('👑', 'VIPs em Risco', 'Clientes VIP inativos há 45+ dias — prioridade máxima', 'red', vipsRisco) +
+    renderSection('⚠️', 'Risco de Churn', 'Score de churn acima de 70% — agir agora', 'orange', churnAlto) +
+    renderSection('🔄', 'Fora do Ciclo de Recompra', 'Deveriam ter recomprado — contato no timing certo', 'blue', foraCiclo) +
+    renderSection('🧊', `Inativos ${ad}+ dias`, 'Clientes sem compra no período configurado', 'gray', inativos);
+
+  sectionsEl.innerHTML = html || `<div class="empty">🎉 Nenhum alerta ativo no momento.</div>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -15743,12 +15932,10 @@ async function upsertOrdersToSupabase(orders) {
         const { error } = await supaClient.from(DB_SCHEMA.TABLES.PRODUTOS).upsert(batch, { onConflict: 'id' });
         if (error) {
           logSupabaseUpsertError(`upsert ${DB_SCHEMA.TABLES.PRODUTOS} error`, error, batch.slice(0, 5));
-          throw error;
         }
       }
     } catch (e) {
       logSupabaseUpsertError('upsert v2_produtos from orders error', e, null);
-      throw e;
     }
     try {
       await upsertV2PedidosItemsFromOrders(orders);
@@ -17795,6 +17982,18 @@ function fecharModal(id) {
     });
   });
 })();
+
+// ── Marca page — expõe para onclick no HTML ──────────
+window.renderCalendario = renderCalendario;
+window.renderMarcaKpis = renderMarcaKpis;
+window.mudarMes = mudarMes;
+window.irParaHoje = irParaHoje;
+window.filtrarDia = filtrarDia;
+window.setMarcaTab = setMarcaTab;
+window.abrirModalEvento = abrirModalEvento;
+window.salvarEvento = salvarEvento;
+window.deletarEvento = deletarEvento;
+window.fecharModal = fecharModal;
 
 function renderChartEstoque() {
   var ctx = document.getElementById('chart-estoque');

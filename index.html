@@ -1171,80 +1171,45 @@
 
               <!-- TAREFAS -->
               <div class="page" id="page-tarefas">
-                <div
-                  style="
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 10px;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                  "
-                >
-                  <h1 style="font-size: 16px; font-weight: 800; letter-spacing: -0.4px">
-                    ✅ Tarefas
-                  </h1>
-                  <button
-                    onpointerup="(function(e){e.preventDefault();openTaskModal(null,null);})(event)"
-                    style="
-                      background: linear-gradient(
-                        135deg,
-                        var(--chiva-primary),
-                        var(--chiva-primary-light)
-                      );
-                      border: none;
-                      border-radius: 9px;
-                      padding: 8px 16px;
-                      color: #fff;
-                      font-size: 12px;
-                      font-weight: 700;
-                      cursor: pointer;
-                      font-family: inherit;
-                      touch-action: manipulation;
-                    "
-                  >
-                    + Nova Tarefa
-                  </button>
+                <!-- Header -->
+                <div class="tasks-page-header">
+                  <div>
+                    <h1 class="page-title-h1">✅ Tarefas</h1>
+                    <p class="page-title-sub">Organize, priorize e execute suas ações de CRM</p>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="tasks-gen-btn" onclick="gerarTarefasDoRadar()">⚡ Gerar do Radar</button>
+                    <button class="chiva-btn-primary" onpointerup="(function(e){e.preventDefault();openTaskModal(null,null);})(event)">+ Nova Tarefa</button>
+                  </div>
                 </div>
-                <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px">
-                  <select
-                    id="fil-task-status"
-                    onchange="renderTarefas()"
-                    style="
-                      background: var(--card);
-                      border: 1px solid var(--border);
-                      border-radius: 8px;
-                      padding: 6px 10px;
-                      color: var(--text);
-                      font-size: 11px;
-                      flex: 1;
-                    "
-                  >
-                    <option value="">Todos status</option>
+
+                <!-- KPI + progress -->
+                <div id="tasks-kpis"></div>
+
+                <!-- Filtros -->
+                <div class="tasks-filterbar">
+                  <select id="fil-task-status" class="dash-fsel" onchange="renderTarefas()">
+                    <option value="">Todos os status</option>
                     <option value="pendente">⏳ Pendentes</option>
                     <option value="em_andamento">⚡ Em andamento</option>
                     <option value="concluida">✅ Concluídas</option>
                   </select>
-                  <select
-                    id="fil-task-prio"
-                    onchange="renderTarefas()"
-                    style="
-                      background: var(--card);
-                      border: 1px solid var(--border);
-                      border-radius: 8px;
-                      padding: 6px 10px;
-                      color: var(--text);
-                      font-size: 11px;
-                      flex: 1;
-                    "
-                  >
+                  <select id="fil-task-prio" class="dash-fsel" onchange="renderTarefas()">
                     <option value="">Toda prioridade</option>
                     <option value="alta">🔴 Alta</option>
                     <option value="media">🟡 Média</option>
                     <option value="baixa">🟢 Baixa</option>
                   </select>
+                  <select id="fil-task-grupo" class="dash-fsel" onchange="renderTarefas()">
+                    <option value="">Qualquer data</option>
+                    <option value="atrasadas">⚠️ Atrasadas</option>
+                    <option value="hoje">📌 Hoje</option>
+                    <option value="semana">📅 Esta semana</option>
+                    <option value="futuras">🔮 Próximas</option>
+                    <option value="sem_data">— Sem data</option>
+                  </select>
                 </div>
-                <div class="section-label" id="tasks-label"></div>
+
                 <div id="tasks-list"></div>
               </div>
 
@@ -2075,58 +2040,28 @@
 
               <!-- ALERTAS -->
               <div class="page" id="page-alertas">
-                <div
-                  style="
-                    display: flex;
-                    align-items: flex-start;
-                    justify-content: space-between;
-                    margin-bottom: var(--sp-6);
-                    padding-bottom: var(--sp-5);
-                    border-bottom: 1px solid var(--border-sub);
-                  "
-                >
+                <!-- Header -->
+                <div class="tasks-page-header">
                   <div>
-                    <h1
-                      style="
-                        font-size: 16px;
-                        font-weight: 800;
-                        letter-spacing: -0.4px;
-                        display: flex;
-                        align-items: center;
-                        gap: var(--sp-3);
-                      "
-                    >
-                      🚨 Alertas
-                    </h1>
-                    <p
-                      style="
-                        font-size: 11px;
-                        color: var(--text-3);
-                        margin-top: 3px;
-                        font-weight: 500;
-                      "
-                    >
-                      Clientes que precisam de atenção
-                    </p>
+                    <h1 class="page-title-h1">🚨 Alertas</h1>
+                    <p class="page-title-sub">Clientes que precisam de atenção imediata</p>
+                  </div>
+                  <div class="alert-config">
+                    <span>Inativos há mais de</span>
+                    <input type="number" id="alert-days" value="60" min="1" max="365"
+                      onchange="saveAlertDays(); renderAlertas();" />
+                    <span>dias</span>
                   </div>
                 </div>
-                <div class="alert-config">
-                  <span>⚠️ Alertar sem comprar há mais de</span>
-                  <input
-                    type="number"
-                    id="alert-days"
-                    value="60"
-                    min="1"
-                    max="365"
-                    onchange="
-                      saveAlertDays();
-                      renderAlertas();
-                    "
-                  />
-                  <span>dias</span>
-                </div>
-                <div class="section-label" id="alert-label"></div>
-                <div class="client-list" id="alert-list"></div>
+
+                <!-- KPIs por categoria -->
+                <div id="alert-kpis" class="alert-kpi-row"></div>
+
+                <!-- Seções de alerta -->
+                <div id="alert-sections"></div>
+
+                <!-- Lista de inativos (compatibilidade) -->
+                <div class="client-list" id="alert-list" style="display:none"></div>
               </div>
 
               <!-- CONFIG -->
