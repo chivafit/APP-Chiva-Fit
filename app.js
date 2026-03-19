@@ -6284,150 +6284,60 @@ function renderDashNow() {
         : '') +
       (!ordersSales.length ? `<span style="color:var(--text-3)">Sem dados no período</span>` : '');
 
-  const dayEl = document.getElementById('dash-insights-day');
-  if (dayEl) {
-    const ticket = ordersSales.length ? total / ordersSales.length : 0;
-    const inativos30 = cliList.filter((c) => daysSince(c.last) >= 30).length;
-    const potencial = inativos30 ? inativos30 * ticket : 0;
-    const deltaTicket = pctDelta(
-      ticket,
-      ordersPrevSales.length ? totalPrev / ordersPrevSales.length : 0,
-    );
-    const insights = [];
-    if (inativos30) {
-      insights.push(
-        `⚠️ ${inativos30} clientes sem comprar há mais de 30 dias → potencial de recuperação de ${fmtBRL(potencial)}`,
-      );
-    }
-    if (deltaTicket != null && isFinite(deltaTicket) && Math.abs(deltaTicket) >= 8) {
-      const dir = deltaTicket >= 0 ? 'subiu' : 'caiu';
-      insights.push(
-        `📈 ticket médio ${dir} ${Math.abs(deltaTicket).toFixed(0)}% → oportunidade de kits promocionais`,
-      );
-    }
-    if (vipCount) {
-      insights.push(`💎 ${vipCount} clientes VIP ativos na base → priorize retenção e recompra`);
-    }
-    if (!insights.length) {
-      dayEl.innerHTML = '';
-    } else {
-      dayEl.innerHTML = `
-        <div class="dash-day-insights">
-          <div class="dash-day-insights-title">Insights do Dia</div>
-          <div class="dash-day-insights-body">
-            ${insights
-              .slice(0, 3)
-              .map((t) => `<div class="dash-day-insight">${escapeHTML(t)}</div>`)
-              .join('')}
-          </div>
-        </div>
-      `;
-    }
-  }
+  // ── Control Center ──────────────────────────────────
+  const weekMs = 7 * 86400000;
+  const nowTs = Date.now();
+  const w1 = ordersSales.filter((o) => { const d = new Date(o.data); return !isNaN(d) && nowTs - d.getTime() <= 7 * 86400000; });
+  const w2 = ordersSales.filter((o) => { const d = new Date(o.data); const dt = d.getTime(); return !isNaN(d) && nowTs - dt > weekMs && nowTs - dt <= 2 * weekMs; });
+  const t1 = w1.reduce((s, o) => s + val(o), 0);
+  const t2 = w2.reduce((s, o) => s + val(o), 0);
+  const ticket1 = w1.length ? t1 / w1.length : 0;
+  const ticket2 = w2.length ? t2 / w2.length : 0;
+  const ticketDeltaW = ticket2 > 0 ? ((ticket1 - ticket2) / ticket2) * 100 : 0;
+  const inativos30 = cliList.filter((c) => daysSince(c.last) >= 30).length;
+  const prontosCiclo = cliList.filter((c) => {
+    const s = calcCliScores(c);
+    const avg = s.avgInterval || 0;
+    const ds = daysSince(c.last);
+    return avg >= 15 && ds >= avg * 0.9 && ds <= avg * 1.6;
+  });
+  const vips45 = cliList
+    .filter((c) => calcCliScores(c).status === 'vip' && daysSince(c.last) >= 45)
+    .sort((a, b) => daysSince(b.last) - daysSince(a.last));
+  const prod7 = {}, prod14 = {};
+  w1.forEach((o) => { getPedidoItens(o).forEach((it) => { const k = String(it?.codigo || it?.descricao || '—'); prod7[k] = (prod7[k] || 0) + (Number(it?.quantidade || 1) || 1); }); });
+  w2.forEach((o) => { getPedidoItens(o).forEach((it) => { const k = String(it?.codigo || it?.descricao || '—'); prod14[k] = (prod14[k] || 0) + (Number(it?.quantidade || 1) || 1); }); });
+  const stoppedProd = Object.entries(prod14).filter(([k, q]) => q >= 3 && !prod7[k]).slice(0, 1).map(([k]) => k)[0];
+  const potencial = prontosCiclo.length ? prontosCiclo.reduce((s, c) => s + (calcCliScores(c).ltv || 0), 0) / Math.max(prontosCiclo.length, 1) * prontosCiclo.length : inativos30 * ticket;
+  const vipRiscoLtv = vips45.reduce((s, c) => s + (calcCliScores(c).ltv || 0), 0);
 
-  const autoEl = document.getElementById('auto-insights');
-  if (autoEl) {
-    const weekMs = 7 * 86400000;
-    const nowTs = Date.now();
-    const inLast = (days) =>
-      ordersSales.filter((o) => {
-        const d = new Date(o.data);
-        return !isNaN(d) && nowTs - d.getTime() <= days * 86400000;
-      });
-    const w1 = inLast(7);
-    const w2 = ordersSales.filter((o) => {
-      const d = new Date(o.data);
-      const dt = d.getTime();
-      return !isNaN(d) && nowTs - dt > weekMs && nowTs - dt <= 2 * weekMs;
-    });
-    const t1 = w1.reduce((s, o) => s + val(o), 0);
-    const t2 = w2.reduce((s, o) => s + val(o), 0);
-    const ticket1 = w1.length ? t1 / w1.length : 0;
-    const ticket2 = w2.length ? t2 / w2.length : 0;
-    const ticketDelta = ticket2 > 0 ? ((ticket1 - ticket2) / ticket2) * 100 : 0;
-
-    const vips45 = cliList
-      .filter((c) => calcCliScores(c).status === 'vip' && daysSince(c.last) >= 45)
-      .sort((a, b) => daysSince(b.last) - daysSince(a.last))
-      .slice(0, 6);
-
-    const prod7 = {};
-    w1.forEach((o) => {
-      const itens = getPedidoItens(o);
-      itens.forEach((it) => {
-        const k = String(it?.codigo || it?.descricao || '—');
-        prod7[k] = (prod7[k] || 0) + (Number(it?.quantidade || 1) || 1);
-      });
-    });
-    const prod14 = {};
-    w2.forEach((o) => {
-      const itens = getPedidoItens(o);
-      itens.forEach((it) => {
-        const k = String(it?.codigo || it?.descricao || '—');
-        prod14[k] = (prod14[k] || 0) + (Number(it?.quantidade || 1) || 1);
-      });
-    });
-    const stopped = Object.entries(prod14)
-      .filter(([k, q]) => q >= 6 && !prod7[k])
-      .slice(0, 1)
-      .map(([k]) => k)[0];
-
-    const insights = [];
-    if (vips45.length) {
-      insights.push({
-        title: `⚠ ${vips45.length} VIP sem comprar há 45+ dias`,
-        desc: `Priorize reativação com oferta VIP e WhatsApp.`,
-        cta: `Ver VIPs`,
-        action: `showPage('inteligencia');selectSegment('vip')`,
-      });
-    }
-    if (ticket2 > 0 && Math.abs(ticketDelta) >= 8) {
-      const dir = ticketDelta >= 0 ? 'subiu' : 'caiu';
-      insights.push({
-        title: `📉 Ticket médio ${dir} ${Math.abs(ticketDelta).toFixed(0)}% na semana`,
-        desc: `Compare últimos 7 dias vs semana anterior para ajustar oferta/kit.`,
-        cta: `Comparar`,
-        action: `showPage('dashboard');document.getElementById('cmp-card')?.scrollIntoView({behavior:'smooth',block:'start'})`,
-      });
-    }
-    if (stopped) {
-      insights.push({
-        title: `📦 Produto com queda forte: ${stopped}`,
-        desc: `Vendeu na semana anterior e zerou nos últimos 7 dias.`,
-        cta: `Ver Produtos`,
-        action: `showPage('produtos');document.getElementById('search-prod').value='${escapeJsSingleQuote(stopped)}';renderProdutos()`,
-      });
-    }
-    if (!insights.length) {
-      autoEl.innerHTML = '';
-    } else {
-      // Armazena as ações em um registry seguro para evitar injeção via onclick inline
-      window._insightActions = insights.slice(0, 3).map((i) => i.action);
-      autoEl.innerHTML = `<div class="auto-insights">${insights
-        .slice(0, 3)
-        .map(
-          (i, idx) => `
-        <div class="insight">
-          <div>
-            <div class="insight-title">${escapeHTML(i.title)}</div>
-            <div class="insight-desc">${escapeHTML(i.desc)}</div>
-          </div>
-          <button class="insight-cta" data-insight-idx="${idx}">${escapeHTML(i.cta)}</button>
-        </div>
-      `,
-        )
-        .join('')}</div>`;
-      autoEl.querySelectorAll('.insight-cta').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.dataset.insightIdx, 10);
-          const action = (window._insightActions || [])[idx];
-          if (typeof action === 'string') {
-            try { new Function(action)(); } catch (e) { console.warn('[insight] ação falhou:', e); }
-          }
-        });
-      });
-    }
-  }
+  renderCCHero({
+    potencial,
+    prontosCiclo: prontosCiclo.length,
+    vips45: vips45.length,
+    vipRiscoLtv,
+    stoppedProd,
+    total,
+    totalPrev,
+    ordersSalesLen: ordersSales.length,
+    inativos30,
+    ticket,
+    ticketDeltaW,
+  });
+  renderCCAlerts({
+    ticketDeltaW,
+    inativos30,
+    vips45: vips45.length,
+    vipRiscoLtv,
+    stoppedProd,
+    total,
+    totalPrev,
+    prontosCiclo: prontosCiclo.length,
+    potencial,
+    recorrentes,
+    pctRec,
+    vipCount,
+  });
 
   const firstByCustomer = {};
   ordersBase.forEach((o) => {
@@ -6482,68 +6392,63 @@ function renderDashNow() {
 
   const dashKpisEl = document.getElementById('dash-kpis');
   if (dashKpisEl) {
+    const kpiInterpret = (key, cur, prev) => {
+      const d = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+      if (d === null || !isFinite(d)) return '';
+      if (key === 'revenue') {
+        if (d >= 15) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">crescimento saudável</div>`;
+        if (d <= -15) return `<div class="dash-kpi-interpret dash-kpi-interpret--neg">queda crítica</div>`;
+        if (d >= 5) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">em alta</div>`;
+        return `<div class="dash-kpi-interpret dash-kpi-interpret--neutral">estável</div>`;
+      }
+      if (key === 'ticket') {
+        if (d <= -20) return `<div class="dash-kpi-interpret dash-kpi-interpret--neg">queda crítica</div>`;
+        if (d <= -8) return `<div class="dash-kpi-interpret dash-kpi-interpret--warn">atenção leve</div>`;
+        if (d >= 10) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">ticket crescendo</div>`;
+        return `<div class="dash-kpi-interpret dash-kpi-interpret--neutral">estável</div>`;
+      }
+      if (key === 'orders') {
+        if (d >= 10) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">volume crescendo</div>`;
+        if (d <= -15) return `<div class="dash-kpi-interpret dash-kpi-interpret--warn">atenção leve</div>`;
+        return `<div class="dash-kpi-interpret dash-kpi-interpret--neutral">estável</div>`;
+      }
+      return '';
+    };
+    const SVG_REVENUE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`;
+    const SVG_ORDERS  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
+    const SVG_TICKET  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>`;
+    const SVG_LTV     = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>`;
+    const SVG_USERS   = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+
     const items = [
-      {
-        key: 'revenue',
-        label: 'Receita (30 dias)',
-        value: fmtBRL(total),
-        delta: deltaLine(total, totalPrev),
-        icon: '💹',
-        iconCls: 'dash-kpi-icon--green',
-        spark: 'kpi-spark-revenue',
-      },
-      {
-        key: 'orders',
-        label: 'Pedidos',
-        value: String(ordersSales.length),
-        delta: deltaLine(ordersSales.length, pedidosPrev),
-        icon: '📦',
-        iconCls: 'dash-kpi-icon--amber',
-        spark: 'kpi-spark-orders',
-      },
-      {
-        key: 'ticket',
-        label: 'Ticket Médio',
-        value: fmtBRL(ticket),
-        delta: deltaLine(ticket, ticketPrev),
-        icon: '🎟️',
-        iconCls: 'dash-kpi-icon--orange',
-        spark: 'kpi-spark-ticket',
-      },
+      { key: 'revenue', label: 'Receita', value: fmtBRL(total),            delta: deltaLine(total, totalPrev),                   icon: SVG_REVENUE, iconCls: 'dash-kpi-icon--green',  spark: 'kpi-spark-revenue', cur: total,             prev: totalPrev },
+      { key: 'orders',  label: 'Pedidos', value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev),   icon: SVG_ORDERS,  iconCls: 'dash-kpi-icon--amber',  spark: 'kpi-spark-orders',  cur: ordersSales.length, prev: pedidosPrev },
+      { key: 'ticket',  label: 'Ticket Médio', value: fmtBRL(ticket),       delta: deltaLine(ticket, ticketPrev),                icon: SVG_TICKET,  iconCls: 'dash-kpi-icon--orange', spark: 'kpi-spark-ticket',  cur: ticket,            prev: ticketPrev },
     ];
     dashKpisEl.innerHTML =
-      items
-        .map(
-          (s, i) => `
+      items.map((s, i) => `
       <div class="dash-kpi" data-kpi="${escapeHTML(s.key)}" style="--i:${i}">
         <div class="dash-kpi-top">
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">${escapeHTML(s.label)}</div>
             <div class="dash-kpi-value">${escapeHTML(s.value)}</div>
             ${s.delta}
+            ${showCompare ? kpiInterpret(s.key, s.cur, s.prev) : ''}
           </div>
           <div class="dash-kpi-side">
-            <div class="dash-kpi-icon ${escapeHTML(s.iconCls)}">${escapeHTML(s.icon)}</div>
-            <div class="dash-kpi-spark">
-              <canvas id="${escapeHTML(s.spark)}"></canvas>
-            </div>
+            <div class="dash-kpi-icon ${escapeHTML(s.iconCls)}">${s.icon}</div>
+            <div class="dash-kpi-spark"><canvas id="${escapeHTML(s.spark)}"></canvas></div>
           </div>
         </div>
-      </div>
-    `,
-        )
-        .join('') +
-      `
-      <div class="dash-kpi dash-kpi--ghost" data-kpi="ltv">
+      </div>`).join('') +
+      `<div class="dash-kpi dash-kpi--ghost" data-kpi="ltv">
         <div class="dash-kpi-top">
           <div class="dash-kpi-main">
             <div class="dash-kpi-label">LTV Médio</div>
             <div class="dash-kpi-value"><span id="kpi-ltv-medio">—</span></div>
             <div class="dash-kpi-delta"> </div>
           </div>
-          <div class="dash-kpi-side">
-            <div class="dash-kpi-icon dash-kpi-icon--ghost">💎</div>
-          </div>
+          <div class="dash-kpi-side"><div class="dash-kpi-icon dash-kpi-icon--ghost">${SVG_LTV}</div></div>
         </div>
       </div>
       <div class="dash-kpi dash-kpi--ghost" data-kpi="base">
@@ -6553,12 +6458,9 @@ function renderDashNow() {
             <div class="dash-kpi-value"><span id="kpi-clientes-base">—</span></div>
             <div class="dash-kpi-delta"> </div>
           </div>
-          <div class="dash-kpi-side">
-            <div class="dash-kpi-icon dash-kpi-icon--ghost">👥</div>
-          </div>
+          <div class="dash-kpi-side"><div class="dash-kpi-icon dash-kpi-icon--ghost">${SVG_USERS}</div></div>
         </div>
-      </div>
-    `;
+      </div>`;
     try {
       renderDashKpiSparklines({ ordersSales, ordersPrevSales, fromIso, toIso, firstByCustomer });
     } catch (_e) {}
@@ -6641,6 +6543,191 @@ function renderDashNow() {
       '[dashboard] falha ao atualizar KPIs secundários do Supabase:',
       e?.message || String(e),
     );
+  });
+}
+
+function renderCCHero({ potencial, prontosCiclo, vips45, vipRiscoLtv, stoppedProd, total, totalPrev, ordersSalesLen, inativos30, ticket, ticketDeltaW }) {
+  const el = document.getElementById('cc-hero');
+  if (!el) return;
+  if (!ordersSalesLen) { el.innerHTML = ''; return; }
+
+  const pctTotal = totalPrev > 0 ? ((total - totalPrev) / totalPrev) * 100 : 0;
+  const isGrowing = pctTotal >= 5;
+  const isFalling = pctTotal <= -5;
+  const ticketFalling = ticketDeltaW <= -15;
+
+  const bullets = [];
+  if (prontosCiclo > 0) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--green"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>${prontosCiclo} cliente${prontosCiclo > 1 ? 's' : ''} pronto${prontosCiclo > 1 ? 's' : ''} para recompra</span>`);
+  if (vips45 > 0) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--red"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>${vips45} VIP em risco${vipRiscoLtv > 0 ? ' · ' + fmtBRL(vipRiscoLtv) : ''}</span>`);
+  if (stoppedProd) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--amber"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>${escapeHTML(stoppedProd)} com queda</span>`);
+  if (inativos30 > 0 && !prontosCiclo) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--amber"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${inativos30} inativos há 30+ dias</span>`);
+
+  const hasOpportunity = potencial > 0;
+
+  el.innerHTML = `
+    <div class="cc-hero">
+      <div class="cc-hero-left">
+        <div class="cc-hero-eyebrow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Control Center
+        </div>
+        <div class="cc-hero-title">
+          ${hasOpportunity
+            ? `Você pode gerar <span class="cc-hero-value">${fmtBRL(potencial)}</span> hoje`
+            : isGrowing
+              ? `Receita crescendo <span class="cc-hero-value cc-hero-value--green">+${pctTotal.toFixed(0)}%</span>`
+              : `${ordersSalesLen} pedido${ordersSalesLen > 1 ? 's' : ''} no período`}
+        </div>
+        ${bullets.length ? `<div class="cc-hero-bullets">${bullets.join('')}</div>` : ''}
+      </div>
+      <div class="cc-hero-right">
+        <button class="cc-hero-cta" onclick="openDashActionsModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Executar ações agora
+        </button>
+        <button class="cc-hero-secondary" onclick="showPage('alertas')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          Ver todos alertas
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderCCAlerts({ ticketDeltaW, inativos30, vips45, vipRiscoLtv, stoppedProd, total, totalPrev, prontosCiclo, potencial, recorrentes, pctRec, vipCount }) {
+  const el = document.getElementById('cc-alerts');
+  if (!el) return;
+
+  const pctTotal = totalPrev > 0 ? ((total - totalPrev) / totalPrev) * 100 : 0;
+  const alerts = [];
+
+  // Críticos (vermelho)
+  if (vips45 > 0) {
+    alerts.push({
+      level: 'critical',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`,
+      title: `${vips45} VIP${vips45 > 1 ? 's' : ''} sem comprar há 45+ dias`,
+      sub: vipRiscoLtv > 0 ? `${fmtBRL(vipRiscoLtv)} em risco de perda` : 'Prioridade máxima',
+      cta: 'Reativar agora',
+      action: `showPage('alertas')`,
+    });
+  }
+  if (ticketDeltaW <= -20) {
+    alerts.push({
+      level: 'critical',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+      title: `Ticket médio caiu ${Math.abs(ticketDeltaW).toFixed(0)}% na semana`,
+      sub: 'Queda crítica — criar kit promocional urgente',
+      cta: 'Criar campanha',
+      action: `showPage('ia')`,
+    });
+  }
+  if (stoppedProd) {
+    alerts.push({
+      level: 'critical',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+      title: `Produto com queda forte: ${stoppedProd}`,
+      sub: 'Zerou vendas nos últimos 7 dias',
+      cta: 'Ver produto',
+      action: `showPage('produtos')`,
+    });
+  }
+
+  // Atenção (amarelo)
+  if (inativos30 > 0) {
+    alerts.push({
+      level: 'warning',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+      title: `${inativos30} clientes inativos há 30+ dias`,
+      sub: `Potencial de recuperação: ${fmtBRL(inativos30 * (total / Math.max(1, inativos30 + 1)))}`,
+      cta: 'Enviar campanha',
+      action: `showPage('ia')`,
+    });
+  }
+  if (ticketDeltaW < -8 && ticketDeltaW > -20) {
+    alerts.push({
+      level: 'warning',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+      title: `Ticket médio caiu ${Math.abs(ticketDeltaW).toFixed(0)}% na semana`,
+      sub: 'Considere ajustar oferta ou criar kit',
+      cta: 'Ver dados',
+      action: `showPage('dashboard')`,
+    });
+  }
+
+  // Positivos (verde)
+  if (prontosCiclo > 0) {
+    alerts.push({
+      level: 'positive',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`,
+      title: `${prontosCiclo} cliente${prontosCiclo > 1 ? 's' : ''} no ciclo de recompra`,
+      sub: `Momento certo para abordar — ${fmtBRL(potencial)} potencial`,
+      cta: 'Ver clientes',
+      action: `showPage('clientes')`,
+    });
+  }
+  if (pctTotal >= 10) {
+    alerts.push({
+      level: 'positive',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`,
+      title: `Receita subiu ${pctTotal.toFixed(0)}% vs período anterior`,
+      sub: 'Crescimento saudável — considere escalar tráfego',
+      cta: 'Ver detalhes',
+      action: `showPage('dashboard')`,
+    });
+  }
+  if (vipCount > 0 && pctRec >= 30) {
+    alerts.push({
+      level: 'positive',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+      title: `${pctRec}% de taxa de recorrência`,
+      sub: `${vipCount} clientes VIP ativos — priorize retenção`,
+      cta: 'Ver VIPs',
+      action: `showPage('inteligencia')`,
+    });
+  }
+
+  if (!alerts.length) { el.innerHTML = ''; return; }
+
+  window._ccAlertActions = alerts.map((a) => a.action);
+
+  const levelLabel = { critical: 'Crítico', warning: 'Atenção', positive: 'Positivo' };
+
+  el.innerHTML = `
+    <div class="cc-alerts-wrap">
+      <div class="cc-alerts-header">
+        <div class="cc-alerts-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          Alertas Ativos
+        </div>
+        <span class="cc-alerts-count">${alerts.length} alert${alerts.length > 1 ? 'as' : 'a'}</span>
+      </div>
+      <div class="cc-alerts-list">
+        ${alerts.map((a, idx) => `
+          <div class="cc-alert cc-alert--${a.level}">
+            <div class="cc-alert-icon">${a.icon}</div>
+            <div class="cc-alert-body">
+              <div class="cc-alert-title">${escapeHTML(a.title)}</div>
+              <div class="cc-alert-sub">${escapeHTML(a.sub)}</div>
+            </div>
+            <div class="cc-alert-right">
+              <span class="cc-alert-level cc-alert-level--${a.level}">${levelLabel[a.level]}</span>
+              <button class="cc-alert-cta" data-cc-idx="${idx}">${escapeHTML(a.cta)}</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  el.querySelectorAll('.cc-alert-cta').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.ccIdx, 10);
+      const action = (window._ccAlertActions || [])[idx];
+      if (typeof action === 'string') {
+        try { new Function(action)(); } catch (e) { console.warn('[cc-alert]', e); }
+      }
+    });
   });
 }
 
