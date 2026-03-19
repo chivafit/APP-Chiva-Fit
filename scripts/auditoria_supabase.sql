@@ -201,14 +201,14 @@ WHERE NOT EXISTS (
 -- Mostra quantos pedidos do yampi_orders ainda não estão em v2_pedidos.
 -- -----------------------------------------------------------------------
 SELECT
-  (SELECT COUNT(*) FROM yampi_orders)                            AS yampi_raw_total,
+  (SELECT COUNT(*) FROM yampi_orders)                                  AS yampi_raw_total,
   (SELECT COUNT(*) FROM v2_pedidos WHERE source::text = 'yampi')       AS v2_pedidos_yampi,
   (SELECT COUNT(*) FROM yampi_orders yo
    WHERE NOT EXISTS (
      SELECT 1 FROM v2_pedidos p
-     WHERE p.numero_pedido = yo.numero_pedido::text
-        OR p.id::text = yo.numero_pedido::text
-   ))                                                             AS yampi_nao_sincronizados;
+     WHERE p.numero_pedido = yo.external_id
+        OR p.id::text = yo.external_id
+   ))                                                                   AS yampi_nao_sincronizados;
 
 -- -----------------------------------------------------------------------
 -- 18. CUSTOMER INTELLIGENCE — estado
