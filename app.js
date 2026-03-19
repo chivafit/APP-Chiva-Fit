@@ -157,6 +157,37 @@ function getCustomerMetrics(customerId, context = {}) {
   };
 }
 
+/**
+ * FUNÇÃO ESTRITA DE PEDIDOS DO CLIENTE
+ * Retorna pedidos usando APENAS matching por UUID canônico
+ * Sem fallback frouxo por documento/email/telefone/nome
+ */
+function getCustomerOrdersStrict(customerId) {
+  const customerIdCanonical = String(customerId || '').trim();
+  
+  if (!customerIdCanonical) {
+    console.warn('[getCustomerOrdersStrict] customerId vazio - retornando array vazio');
+    return [];
+  }
+  
+  // Validar se é UUID válido
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(customerIdCanonical);
+  if (!isUuid) {
+    console.error(`[getCustomerOrdersStrict] customerId não é UUID válido: ${customerIdCanonical}`);
+    return [];
+  }
+  
+  // Matching ESTRITO: apenas por cliente_id (UUID)
+  const orders = allOrders
+    .filter((o) => String(o?.cliente_id || '').trim() === customerIdCanonical)
+    .slice()
+    .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
+  
+  console.log(`[getCustomerOrdersStrict] customerId=${customerIdCanonical}, total=${orders.length}, strict_mode=enabled`);
+  
+  return orders;
+}
+
 window.addEventListener('unhandledrejection', function (event) {
   captureError(event.reason, { type: 'unhandledrejection' });
 });
@@ -10150,7 +10181,21 @@ function openCRMOrderDrawer(orderKey) {
 function renderClientePage() {
   // IDENTIDADE CANÔNICA: usar currentClienteId como UUID canônico
   const customerIdCanonical = String(currentClienteId || '').trim();
-  console.log(`[renderClientePage] customerId renderizado=${customerIdCanonical}`);
+  
+  // GUARD CLAUSE: validar customerId
+  if (!customerIdCanonical) {
+    console.error('[renderClientePage] customerId vazio - abortando render');
+    return;
+  }
+  
+  // GUARD CLAUSE: validar se é UUID válido
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(customerIdCanonical);
+  if (!isUuid) {
+    console.error(`[renderClientePage] customerId não é UUID válido: ${customerIdCanonical}`);
+    return;
+  }
+  
+  console.log(`[renderClientePage] customerId=${customerIdCanonical}, strict_mode=enabled`);
   
   const c = allCustomers.find((x) => x.id === customerIdCanonical);
   const infoEl = document.getElementById('cliente-info');
@@ -10251,15 +10296,13 @@ function renderClientePage() {
     </div>
   `;
 
-  // Buscar pedidos do cliente para histórico
-  const orders = allOrders
-    .filter((o) => orderCustomerKey(o) === customerIdCanonical)
-    .slice()
-    .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
+  // MATCHING ESTRITO: buscar pedidos apenas por UUID canônico
+  const customerOrders = getCustomerOrdersStrict(customerIdCanonical);
+  console.log(`[renderClientePage] customerOrders=${customerOrders.length}`);
 
   const chAgg = {};
   const prodAgg = {};
-  orders.forEach((o) => {
+  customerOrders.forEach((o) => {
     const ch = detectCh(o);
     chAgg[ch] = chAgg[ch] || { total: 0, n: 0 };
     chAgg[ch].n += 1;
@@ -10295,8 +10338,8 @@ function renderClientePage() {
       </div>
     </div>
     ${
-      orders.length
-        ? `<div class="profile-orders">${orders
+      customerOrders.length
+        ? `<div class="profile-orders">${customerOrders
             .map((o) => {
               const st = normSt(o.situacao);
               const ch = detectCh(o);
@@ -10322,6 +10365,13 @@ function renderClientePage() {
 
 const clienteInfoHydrateInFlight = new Set();
 const clienteInfoHydrateDone = new Set();
+/**
+ * HIDRATAÇÃO DE DADOS DO CLIENTE
+ * NOTA: Esta função ainda aceita matching flexível (doc/email/telefone/nome)
+ * para compatibilidade com outros fluxos do sistema.
+ * No contexto do perfil, ela recebe apenas UUID canônico de openClientePage(),
+ * então não há risco de hidratar cliente errado.
+ */
 function hydrateClienteInfoFromSupabase(customerKey) {
   if (!supaConnected || !supaClient) return;
   const key = String(customerKey || '').trim();
