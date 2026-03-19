@@ -188,6 +188,281 @@ function getCustomerOrdersStrict(customerId) {
   return orders;
 }
 
+/**
+ * ANÁLISE DE TENDÊNCIA DO CLIENTE
+ * Compara últimos pedidos para identificar tendência de valor
+ */
+function analyzeCustomerTrend(orders) {
+  if (orders.length < 4) return { trend: 'insuficiente', change: 0, label: 'Dados insuficientes' };
+  
+  const recent = orders.slice(0, 3).map(o => val(o));
+  const previous = orders.slice(3, 6).map(o => val(o));
+  
+  const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const previousAvg = previous.reduce((a, b) => a + b, 0) / previous.length;
+  
+  const change = previousAvg > 0 ? ((recentAvg - previousAvg) / previousAvg) * 100 : 0;
+  
+  if (change > 10) return { trend: 'crescente', change, label: `+${change.toFixed(0)}% nos últimos pedidos` };
+  if (change < -10) return { trend: 'decrescente', change, label: `${change.toFixed(0)}% nos últimos pedidos` };
+  return { trend: 'estavel', change, label: 'Estável' };
+}
+
+/**
+ * CLASSIFICAÇÃO DO CLIENTE
+ * Determina segmento baseado em valor e comportamento
+ */
+function classifyCustomer(metrics, avgInterval, daysSince) {
+  const { total_gasto, total_pedidos, ticket_medio } = metrics;
+  
+  // Calcular médias globais
+  const allMetrics = allCustomers.map(c => getCustomerMetrics(c.id, { page: 'classification' }));
+  const avgTotalGasto = allMetrics.reduce((sum, m) => sum + m.total_gasto, 0) / allMetrics.length;
+  const avgTicket = allMetrics.reduce((sum, m) => sum + m.ticket_medio, 0) / allMetrics.length;
+  
+  // VIP: gasta 2x+ acima da média OU ticket 1.5x+ acima da média
+  if (total_gasto >= avgTotalGasto * 2 || ticket_medio >= avgTicket * 1.5) {
+    return { segment: 'vip', icon: '🏆', label: 'VIP', color: 'var(--gold)' };
+  }
+  
+  // Em risco: dias sem comprar > intervalo médio + 50%
+  if (avgInterval && daysSince > avgInterval * 1.5) {
+    return { segment: 'em_risco', icon: '⚠️', label: 'Em Risco', color: 'var(--red)' };
+  }
+  
+  // Novo: menos de 3 pedidos
+  if (total_pedidos < 3) {
+    return { segment: 'novo', icon: '🌱', label: 'Novo', color: 'var(--blue)' };
+  }
+  
+  // Regular: padrão normal
+  return { segment: 'regular', icon: '✅', label: 'Regular', color: 'var(--green)' };
+}
+
+/**
+ * PREVISÃO DE PRÓXIMA COMPRA
+ * Estima quando cliente deve comprar novamente
+ */
+function predictNextPurchase(lastPurchase, avgInterval, daysSince) {
+  if (!lastPurchase || !avgInterval) {
+    return { predicted: null, status: 'indefinido', daysUntil: null, label: 'Sem dados suficientes' };
+  }
+  
+  const lastDate = new Date(lastPurchase);
+  const predictedDate = new Date(lastDate.getTime() + avgInterval * 24 * 60 * 60 * 1000);
+  const today = new Date();
+  const daysUntil = Math.ceil((predictedDate - today) / (24 * 60 * 60 * 1000));
+  
+  let status, label, icon;
+  if (daysUntil < -3) {
+    status = 'atrasado';
+    label = `Atrasado ${Math.abs(daysUntil)} dias`;
+    icon = '🔴';
+  } else if (daysUntil <= 0) {
+    status = 'previsto_agora';
+    label = 'Previsto para agora';
+    icon = '🎯';
+  } else if (daysUntil <= 7) {
+    status = 'proximo';
+    label = `Em ${daysUntil} dias`;
+    icon = '🟡';
+  } else {
+    status = 'futuro';
+    label = `Em ${daysUntil} dias`;
+    icon = '🟢';
+  }
+  
+  return { predicted: predictedDate, status, daysUntil, label, icon };
+}
+
+/**
+ * ANÁLISE DE PADRÕES DE COMPRA
+ * Identifica preferências de canal, dia, horário e produtos
+ */
+function analyzePatterns(orders) {
+  if (!orders.length) return null;
+  
+  // Canal preferido
+  const channelCount = {};
+  orders.forEach(o => {
+    const ch = detectCh(o);
+    channelCount[ch] = (channelCount[ch] || 0) + 1;
+  });
+  const topChannel = Object.entries(channelCount).sort((a, b) => b[1] - a[1])[0];
+  
+  // Dia da semana preferido
+  const dayCount = {};
+  orders.forEach(o => {
+    if (!o.data) return;
+    const day = new Date(o.data).getDay();
+    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const dayName = dayNames[day];
+    dayCount[dayName] = (dayCount[dayName] || 0) + 1;
+  });
+  const topDay = Object.entries(dayCount).sort((a, b) => b[1] - a[1])[0];
+  
+  // Horário preferido (manhã, tarde, noite)
+  const timeCount = { manha: 0, tarde: 0, noite: 0 };
+  orders.forEach(o => {
+    if (!o.data) return;
+    const hour = new Date(o.data).getHours();
+    if (hour >= 6 && hour < 12) timeCount.manha++;
+    else if (hour >= 12 && hour < 18) timeCount.tarde++;
+    else timeCount.noite++;
+  });
+  const topTime = Object.entries(timeCount).sort((a, b) => b[1] - a[1])[0];
+  const timeLabels = { manha: 'Manhã (6h-12h)', tarde: 'Tarde (12h-18h)', noite: 'Noite (18h-6h)' };
+  
+  return {
+    channel: topChannel ? { name: CH[topChannel[0]] || topChannel[0], count: topChannel[1], pct: Math.round(topChannel[1] / orders.length * 100) } : null,
+    day: topDay ? { name: topDay[0], count: topDay[1], pct: Math.round(topDay[1] / orders.length * 100) } : null,
+    time: topTime ? { name: timeLabels[topTime[0]], count: topTime[1], pct: Math.round(topTime[1] / orders.length * 100) } : null
+  };
+}
+
+/**
+ * CÁLCULO DE LTV (LIFETIME VALUE)
+ * Estima valor vitalício do cliente
+ */
+function calculateLTV(metrics, avgInterval) {
+  const { total_gasto, total_pedidos, ticket_medio } = metrics;
+  
+  if (!avgInterval || avgInterval === 0) {
+    return { ltv: total_gasto, potential: 0, label: 'Baseado em histórico atual' };
+  }
+  
+  // Estimar quantas compras por ano
+  const purchasesPerYear = 365 / avgInterval;
+  
+  // Estimar valor anual
+  const annualValue = ticket_medio * purchasesPerYear;
+  
+  // Estimar LTV (assumindo 2 anos de relacionamento)
+  const ltv = annualValue * 2;
+  
+  // Potencial de crescimento (30% do LTV)
+  const potential = ltv * 0.3;
+  
+  return { ltv, potential, annualValue, purchasesPerYear, label: `${purchasesPerYear.toFixed(1)} compras/ano` };
+}
+
+/**
+ * GERAÇÃO DE INSIGHTS INTELIGENTES
+ * Combina todas as análises para gerar insights acionáveis
+ */
+function generateCustomerInsights(customer, orders, metrics, classification, trend, prediction) {
+  const insights = [];
+  
+  // Insight de classificação
+  if (classification.segment === 'vip') {
+    insights.push({
+      icon: '🏆',
+      title: 'Cliente VIP',
+      desc: `Gasta ${(metrics.total_gasto / (allCustomers.reduce((sum, c) => sum + getCustomerMetrics(c.id).total_gasto, 0) / allCustomers.length)).toFixed(1)}x mais que a média`,
+      type: 'success'
+    });
+  }
+  
+  // Insight de risco de churn
+  if (prediction.status === 'atrasado') {
+    insights.push({
+      icon: '⚠️',
+      title: 'Risco de Churn',
+      desc: prediction.label,
+      type: 'warning',
+      action: 'Enviar mensagem de reengajamento'
+    });
+  }
+  
+  // Insight de tendência
+  if (trend.trend === 'crescente') {
+    insights.push({
+      icon: '📈',
+      title: 'Tendência Crescente',
+      desc: trend.label,
+      type: 'success'
+    });
+  } else if (trend.trend === 'decrescente') {
+    insights.push({
+      icon: '📉',
+      title: 'Tendência Decrescente',
+      desc: trend.label,
+      type: 'warning'
+    });
+  }
+  
+  // Insight de recorrência
+  if (orders.length >= 3) {
+    const avgInterval = calcCliScores(customer).avgInterval;
+    insights.push({
+      icon: '🔄',
+      title: 'Cliente Recorrente',
+      desc: `Compra a cada ${avgInterval} dias em média`,
+      type: 'info'
+    });
+  }
+  
+  return insights;
+}
+
+/**
+ * GERAÇÃO DE RECOMENDAÇÕES
+ * Sugere ações baseadas em análise do cliente
+ */
+function generateRecommendations(customer, orders, metrics, insights, prediction, patterns) {
+  const recommendations = [];
+  
+  // Recomendação urgente: cliente atrasado
+  if (prediction.status === 'atrasado') {
+    recommendations.push({
+      priority: 'urgent',
+      icon: '🎯',
+      title: 'Ação Urgente',
+      desc: `Cliente atrasado ${Math.abs(prediction.daysUntil)} dias. Envie mensagem com oferta especial.`,
+      action: 'whatsapp',
+      actionLabel: 'Enviar WhatsApp'
+    });
+  }
+  
+  // Recomendação: próxima compra prevista
+  if (prediction.status === 'proximo') {
+    recommendations.push({
+      priority: 'high',
+      icon: '📅',
+      title: 'Próxima Compra Prevista',
+      desc: `Cliente deve comprar ${prediction.label}. Prepare oferta personalizada.`,
+      action: 'prepare_offer',
+      actionLabel: 'Criar Oferta'
+    });
+  }
+  
+  // Recomendação: upsell para VIP
+  if (metrics.total_gasto > 500 && metrics.total_pedidos >= 3) {
+    recommendations.push({
+      priority: 'medium',
+      icon: '💎',
+      title: 'Oportunidade VIP',
+      desc: 'Cliente elegível para programa de fidelidade. Ofereça benefícios exclusivos.',
+      action: 'vip_program',
+      actionLabel: 'Ativar VIP'
+    });
+  }
+  
+  // Recomendação: baseada em padrões
+  if (patterns && patterns.channel) {
+    recommendations.push({
+      priority: 'low',
+      icon: '📱',
+      title: 'Canal Preferido',
+      desc: `Cliente prefere ${patterns.channel.name}. Use este canal para comunicação.`,
+      action: 'info',
+      actionLabel: 'Entendido'
+    });
+  }
+  
+  return recommendations;
+}
+
 window.addEventListener('unhandledrejection', function (event) {
   captureError(event.reason, { type: 'unhandledrejection' });
 });
@@ -10273,19 +10548,78 @@ function renderClientePage() {
   ].filter(Boolean);
   if (subEl) subEl.textContent = subParts.join(' · ');
 
+  // MATCHING ESTRITO: buscar pedidos apenas por UUID canônico
+  const customerOrders = getCustomerOrdersStrict(customerIdCanonical);
+  console.log(`[renderClientePage] customerOrders=${customerOrders.length}`);
+
+  // ANÁLISES INTELIGENTES
+  const classification = classifyCustomer(metrics, avgInterval, ds);
+  const trend = analyzeCustomerTrend(customerOrders);
+  const prediction = predictNextPurchase(last, avgInterval, ds);
+  const patterns = analyzePatterns(customerOrders);
+  const ltv = calculateLTV(metrics, avgInterval);
+  const insights = generateCustomerInsights(c, customerOrders, metrics, classification, trend, prediction);
+  const recommendations = generateRecommendations(c, customerOrders, metrics, insights, prediction, patterns);
+
+  // SEÇÃO DE CONTATO RÁPIDO
+  const whatsappLink = enriched.telefone ? `https://wa.me/55${enriched.telefone}` : null;
+  const emailLink = enriched.email ? `mailto:${enriched.email}` : null;
+  
   infoEl.innerHTML = `
-    <div class="profile-h2">Informações</div>
-    <div class="profile-row"><span style="color:var(--text-3)">Nome</span><span>${escapeHTML(enriched.nome || '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Documento</span><span>${escapeHTML(enriched.doc ? fmtDoc(enriched.doc) : '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Telefone</span><span>${escapeHTML(enriched.telefone ? fmtPhone(enriched.telefone) : '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Email</span><span>${escapeHTML(enriched.email || '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Cidade</span><span>${escapeHTML(loc || '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">CEP</span><span>${escapeHTML(enriched.cep || '—')}</span></div>
-    <div class="profile-row"><span style="color:var(--text-3)">Primeiro pedido</span><span>${escapeHTML(fmtDate(first))}</span></div>
+    <div class="profile-h2">📞 Contato Rápido</div>
+    ${enriched.telefone ? `
+      <div class="profile-row" style="align-items:center">
+        <span style="color:var(--text-3)">📱 Telefone</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span>${escapeHTML(fmtPhone(enriched.telefone))}</span>
+          <a href="${whatsappLink}" target="_blank" class="profile-quick-btn" title="WhatsApp">💬</a>
+          <button class="profile-quick-btn" onclick="navigator.clipboard.writeText('${enriched.telefone}')" title="Copiar">📋</button>
+        </div>
+      </div>
+    ` : ''}
+    ${enriched.email ? `
+      <div class="profile-row" style="align-items:center">
+        <span style="color:var(--text-3)">📧 Email</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px">${escapeHTML(enriched.email)}</span>
+          <a href="${emailLink}" class="profile-quick-btn" title="Enviar email">✉️</a>
+          <button class="profile-quick-btn" onclick="navigator.clipboard.writeText('${enriched.email}')" title="Copiar">📋</button>
+        </div>
+      </div>
+    ` : ''}
+    ${loc ? `<div class="profile-row"><span style="color:var(--text-3)">📍 Localização</span><span>${escapeHTML(loc)}</span></div>` : ''}
+    ${enriched.doc ? `<div class="profile-row"><span style="color:var(--text-3)">🆔 Documento</span><span>${escapeHTML(fmtDoc(enriched.doc))}</span></div>` : ''}
+    
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div class="profile-h2">💡 Insights do Cliente</div>
+      ${insights.length ? insights.map(ins => `
+        <div class="profile-insight profile-insight-${ins.type}" style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--card);border-left:3px solid ${ins.type === 'success' ? 'var(--green)' : ins.type === 'warning' ? 'var(--orange)' : 'var(--blue)'}">
+          <div style="display:flex;align-items:start;gap:8px">
+            <span style="font-size:18px">${ins.icon}</span>
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:12px;margin-bottom:2px">${escapeHTML(ins.title)}</div>
+              <div style="font-size:11px;color:var(--text-3)">${escapeHTML(ins.desc)}</div>
+              ${ins.action ? `<div style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:600">→ ${escapeHTML(ins.action)}</div>` : ''}
+            </div>
+          </div>
+        </div>
+      `).join('') : '<div style="font-size:11px;color:var(--text-3);padding:8px 0">Sem insights disponíveis</div>'}
+    </div>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div class="profile-h2">🎯 Segmento</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--card);border-radius:8px">
+        <span style="font-size:24px">${classification.icon}</span>
+        <div>
+          <div style="font-weight:700;font-size:13px;color:${classification.color}">${classification.label}</div>
+          <div style="font-size:10px;color:var(--text-3)">Classificação automática</div>
+        </div>
+      </div>
+    </div>
   `;
 
   metricsEl.innerHTML = `
-    <div class="profile-h2">Métricas</div>
+    <div class="profile-h2">📊 Métricas</div>
     <div class="profile-kpi-grid">
       <div class="profile-kpi"><div class="profile-kpi-label">Total gasto</div><div class="profile-kpi-val">${escapeHTML(fmtBRL(total))}</div></div>
       <div class="profile-kpi"><div class="profile-kpi-label">Pedidos</div><div class="profile-kpi-val">${escapeHTML(String(n))}</div></div>
@@ -10294,12 +10628,114 @@ function renderClientePage() {
       <div class="profile-kpi"><div class="profile-kpi-label">Dias sem comprar</div><div class="profile-kpi-val">${escapeHTML(String(ds))}</div></div>
       <div class="profile-kpi"><div class="profile-kpi-label">Intervalo médio</div><div class="profile-kpi-val">${escapeHTML(avgInterval ? avgInterval + 'd' : '—')}</div></div>
     </div>
+
+    ${avgInterval && last ? `
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="profile-h2">🔄 Análise de Recorrência</div>
+        <div style="padding:12px;background:var(--card);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text-3)">Frequência</span>
+            <span style="font-size:12px;font-weight:700">A cada ${avgInterval} dias</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text-3)">Última compra</span>
+            <span style="font-size:12px">${escapeHTML(fmtDate(last))} (${ds}d)</span>
+          </div>
+          ${prediction.predicted ? `
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-size:20px">${prediction.icon}</span>
+                <div>
+                  <div style="font-size:11px;color:var(--text-3)">Próxima compra prevista</div>
+                  <div style="font-size:13px;font-weight:700">${escapeHTML(fmtDate(prediction.predicted.toISOString().split('T')[0]))}</div>
+                </div>
+              </div>
+              <div style="font-size:11px;color:${prediction.status === 'atrasado' ? 'var(--red)' : prediction.status === 'proximo' ? 'var(--orange)' : 'var(--green)'}">
+                Status: ${escapeHTML(prediction.label)}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    ` : ''}
+
+    ${ltv.ltv > 0 ? `
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="profile-h2">💰 Valor do Cliente (LTV)</div>
+        <div style="padding:12px;background:var(--card);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text-3)">LTV Estimado (2 anos)</span>
+            <span style="font-size:14px;font-weight:700;color:var(--green)">${escapeHTML(fmtBRL(ltv.ltv))}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text-3)">Valor Atual</span>
+            <span style="font-size:12px">${escapeHTML(fmtBRL(total))}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="font-size:11px;color:var(--text-3)">Potencial Restante</span>
+            <span style="font-size:12px;color:var(--blue)">${escapeHTML(fmtBRL(ltv.ltv - total))}</span>
+          </div>
+          <div style="margin-top:8px;font-size:10px;color:var(--text-3)">
+            ${escapeHTML(ltv.label)}
+          </div>
+        </div>
+      </div>
+    ` : ''}
+
+    ${patterns ? `
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="profile-h2">🎯 Padrões de Compra</div>
+        <div style="padding:12px;background:var(--card);border-radius:8px;font-size:11px">
+          ${patterns.channel ? `
+            <div style="margin-bottom:8px">
+              <span style="color:var(--text-3)">Canal Preferido:</span>
+              <span style="font-weight:700;margin-left:6px">${escapeHTML(patterns.channel.name)} (${patterns.channel.pct}%)</span>
+            </div>
+          ` : ''}
+          ${patterns.day ? `
+            <div style="margin-bottom:8px">
+              <span style="color:var(--text-3)">Dia Preferido:</span>
+              <span style="font-weight:700;margin-left:6px">${escapeHTML(patterns.day.name)} (${patterns.day.pct}%)</span>
+            </div>
+          ` : ''}
+          ${patterns.time ? `
+            <div>
+              <span style="color:var(--text-3)">Horário Preferido:</span>
+              <span style="font-weight:700;margin-left:6px">${escapeHTML(patterns.time.name)} (${patterns.time.pct}%)</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    ` : ''}
+
+    ${recommendations.length ? `
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="profile-h2">🤖 Recomendações</div>
+        ${recommendations.map(rec => `
+          <div style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--card);border-left:3px solid ${rec.priority === 'urgent' ? 'var(--red)' : rec.priority === 'high' ? 'var(--orange)' : 'var(--blue)'}">
+            <div style="display:flex;align-items:start;gap:8px">
+              <span style="font-size:18px">${rec.icon}</span>
+              <div style="flex:1">
+                <div style="font-weight:700;font-size:12px;margin-bottom:2px">${escapeHTML(rec.title)}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">${escapeHTML(rec.desc)}</div>
+                ${rec.action === 'whatsapp' && whatsappLink ? `
+                  <a href="${whatsappLink}" target="_blank" style="display:inline-block;padding:4px 10px;background:var(--green);color:white;border-radius:6px;font-size:10px;font-weight:600;text-decoration:none">
+                    ${escapeHTML(rec.actionLabel)}
+                  </a>
+                ` : `
+                  <button style="padding:4px 10px;background:var(--blue);color:white;border:none;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer">
+                    ${escapeHTML(rec.actionLabel)}
+                  </button>
+                `}
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
   `;
 
-  // MATCHING ESTRITO: buscar pedidos apenas por UUID canônico
-  const customerOrders = getCustomerOrdersStrict(customerIdCanonical);
-  console.log(`[renderClientePage] customerOrders=${customerOrders.length}`);
-
+  // Agregações de canais e produtos
   const chAgg = {};
   const prodAgg = {};
   customerOrders.forEach((o) => {
@@ -10317,38 +10753,62 @@ function renderClientePage() {
       prodAgg[key].total += qty * price;
     });
   });
-  const topCh = Object.entries(chAgg)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 3)
-    .map(([ch, v]) => `${CH[ch] || ch} (${v.n})`)
-    .join(' · ');
-  const topProd = Object.values(prodAgg)
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5)
-    .map((p) => p.nome)
-    .join(', ');
+  
+  const topProducts = Object.values(prodAgg)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 5);
 
   histEl.innerHTML = `
-    <div class="profile-h2">Histórico</div>
-    <div style="font-size:11px;color:var(--text-3);margin-bottom:12px">${escapeHTML(topCh || '—')}<span>${topProd ? ' · ' + escapeHTML(topProd) : ''}</span></div>
+    <div class="profile-h2">📦 Histórico de Pedidos</div>
+    
+    ${topProducts.length ? `
+      <div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--card)">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px">🏆 Produtos Favoritos</div>
+        ${topProducts.map((p, idx) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:${idx < topProducts.length - 1 ? '1px solid var(--border-sub)' : 'none'}">
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600">${escapeHTML(p.nome)}</div>
+              <div style="font-size:10px;color:var(--text-3)">${p.qty}x comprado · ${escapeHTML(fmtBRL(p.total))} total</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
     <div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--card)">
-      <div class="profile-h2" style="margin-bottom:8px">Timeline de interações</div>
+      <div class="profile-h2" style="margin-bottom:8px">📅 Timeline de Interações</div>
       <div id="cliente-timeline">
         <div style="font-size:12px;color:var(--text-3);padding:8px 0">Carregando...</div>
       </div>
     </div>
+    
     ${
       customerOrders.length
-        ? `<div class="profile-orders">${customerOrders
-            .map((o) => {
+        ? `<div style="font-size:12px;font-weight:700;margin-bottom:10px">${customerOrders.length} ${customerOrders.length === 1 ? 'Pedido' : 'Pedidos'}</div>
+           <div class="profile-orders">${customerOrders
+            .map((o, idx) => {
               const st = normSt(o.situacao);
               const ch = detectCh(o);
               const items = summarizeOrderItemsMini(o);
+              const orderDate = o.data ? new Date(o.data) : null;
+              const daysSinceOrder = orderDate ? Math.floor((new Date() - orderDate) / (24 * 60 * 60 * 1000)) : null;
+              
+              // Calcular diferença com pedido anterior
+              let diffWithPrevious = null;
+              if (idx < customerOrders.length - 1 && orderDate) {
+                const prevDate = customerOrders[idx + 1].data ? new Date(customerOrders[idx + 1].data) : null;
+                if (prevDate) {
+                  diffWithPrevious = Math.floor((orderDate - prevDate) / (24 * 60 * 60 * 1000));
+                }
+              }
+              
               return `<div class="profile-order" onclick="openCRMOrderDrawer('${escapeJsSingleQuote(String(o.id || o.numero || ''))}')">
         <div class="profile-order-top">
           <div>
             <div class="profile-order-num">#${escapeHTML(String(o.numero || o.id || '—'))}</div>
             <div class="profile-order-sub">${escapeHTML(fmtDate(o.data))} · ${escapeHTML(CH[ch] || ch)} · <span class="sp ${ST_CLASS[st] || 's-outros'}">${escapeHTML(ST_LABEL[st] || st)}</span></div>
+            ${diffWithPrevious !== null ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">⏱️ ${diffWithPrevious} dias após pedido anterior</div>` : ''}
+            ${idx === 0 && daysSinceOrder !== null ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">🕐 Há ${daysSinceOrder} dias</div>` : ''}
           </div>
           <div class="profile-order-num" style="color:var(--green)">${escapeHTML(fmtBRL(val(o)))}</div>
         </div>

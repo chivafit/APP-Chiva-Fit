@@ -7376,6 +7376,60 @@ html.light .compare-card {
   margin-top: 10px;
 }
 
+/* ═══════════════════════════════════════════
+   PERFIL DO CLIENTE - COMPONENTES INTELIGENTES
+   ═══════════════════════════════════════════ */
+
+.profile-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--card-hover);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--t-fast);
+  text-decoration: none;
+  color: inherit;
+}
+
+.profile-quick-btn:hover {
+  background: var(--chiva-primary);
+  border-color: var(--chiva-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--chiva-primary-glow);
+}
+
+.profile-insight {
+  animation: slideInFromLeft 0.3s ease-out;
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.profile-insight-success {
+  background: linear-gradient(135deg, var(--card) 0%, rgba(15, 167, 101, 0.05) 100%);
+}
+
+.profile-insight-warning {
+  background: linear-gradient(135deg, var(--card) 0%, rgba(255, 159, 64, 0.05) 100%);
+}
+
+.profile-insight-info {
+  background: linear-gradient(135deg, var(--card) 0%, rgba(54, 162, 235, 0.05) 100%);
+}
+
 .kanban {
   display: grid;
   grid-template-columns: repeat(5, minmax(240px, 1fr));
