@@ -97,13 +97,13 @@ FROM v2_pedidos;
 -- NULL em canal_nome = pedido sem canal vinculado
 -- -----------------------------------------------------------------------
 SELECT
-  p.source,
+  p.source::text,
   COALESCE(c.nome, '⚠ SEM CANAL') AS canal_nome,
   c.slug,
-  COUNT(*)                         AS qtd
+  COUNT(*) AS qtd
 FROM v2_pedidos p
 LEFT JOIN v2_canais c ON c.id = p.canal_id
-GROUP BY p.source, c.nome, c.slug
+GROUP BY p.source::text, c.nome, c.slug
 ORDER BY qtd DESC;
 
 -- -----------------------------------------------------------------------
@@ -123,7 +123,7 @@ SELECT
   COUNT(*) FILTER (WHERE data_pedido IS NULL)                        AS pedidos_sem_data,
   COUNT(*) FILTER (WHERE status IS NULL OR trim(status::text) = '')   AS pedidos_sem_status,
   COUNT(*) FILTER (WHERE numero_pedido IS NULL OR trim(numero_pedido) = '') AS pedidos_sem_numero,
-  COUNT(*) FILTER (WHERE source IS NULL OR trim(source) = '')        AS pedidos_sem_source
+  COUNT(*) FILTER (WHERE source::text IS NULL OR trim(source::text) = '')   AS pedidos_sem_source
 FROM v2_pedidos;
 
 -- -----------------------------------------------------------------------
@@ -131,20 +131,20 @@ FROM v2_pedidos;
 -- -----------------------------------------------------------------------
 SELECT
   COALESCE(status::text, '⚠ NULL') AS status,
-  source,
+  source::text,
   COUNT(*) AS qtd
 FROM v2_pedidos
-GROUP BY status, source
+GROUP BY status::text, source::text
 ORDER BY qtd DESC;
 
 -- -----------------------------------------------------------------------
 -- 11. PEDIDOS DUPLICADOS — mesmo numero_pedido + source
 -- Esperado: 0 linhas (índice único garante). Qualquer linha = problema grave.
 -- -----------------------------------------------------------------------
-SELECT numero_pedido, source, COUNT(*) AS ocorrencias
+SELECT numero_pedido, source::text, COUNT(*) AS ocorrencias
 FROM v2_pedidos
 WHERE numero_pedido IS NOT NULL
-GROUP BY numero_pedido, source
+GROUP BY numero_pedido, source::text
 HAVING COUNT(*) > 1
 ORDER BY ocorrencias DESC
 LIMIT 20;
@@ -176,13 +176,13 @@ LEFT JOIN v2_pedidos_items i ON i.pedido_id::text = p.id::text;
 -- -----------------------------------------------------------------------
 -- 14. ITENS — PEDIDOS SEM ITENS POR SOURCE
 -- -----------------------------------------------------------------------
-SELECT p.source, COUNT(*) AS pedidos_sem_itens
+SELECT p.source::text, COUNT(*) AS pedidos_sem_itens
 FROM v2_pedidos p
 WHERE NOT EXISTS (
   SELECT 1 FROM v2_pedidos_items i
   WHERE i.pedido_id::text = p.id::text
 )
-GROUP BY p.source
+GROUP BY p.source::text
 ORDER BY pedidos_sem_itens DESC;
 
 -- -----------------------------------------------------------------------
@@ -215,7 +215,7 @@ WHERE jsonb_array_length(COALESCE(itens, '[]'::jsonb)) > 0
 -- -----------------------------------------------------------------------
 SELECT
   (SELECT COUNT(*) FROM yampi_orders)                            AS yampi_raw_total,
-  (SELECT COUNT(*) FROM v2_pedidos WHERE source = 'yampi')       AS v2_pedidos_yampi,
+  (SELECT COUNT(*) FROM v2_pedidos WHERE source::text = 'yampi')       AS v2_pedidos_yampi,
   (SELECT COUNT(*) FROM yampi_orders yo
    WHERE NOT EXISTS (
      SELECT 1 FROM v2_pedidos p
@@ -283,12 +283,12 @@ ORDER BY tablename, indexname;
 -- -----------------------------------------------------------------------
 SELECT
   TO_CHAR(data_pedido, 'YYYY-MM') AS mes,
-  source,
+  source::text,
   COUNT(*)                         AS qtd,
   ROUND(SUM(total), 2)             AS receita
 FROM v2_pedidos
 WHERE data_pedido IS NOT NULL
-GROUP BY TO_CHAR(data_pedido, 'YYYY-MM'), source
+GROUP BY TO_CHAR(data_pedido, 'YYYY-MM'), source::text
 ORDER BY TO_CHAR(data_pedido, 'YYYY-MM') DESC, qtd DESC
 LIMIT 24;
 
@@ -333,16 +333,16 @@ FROM (
   UNION ALL
   SELECT 'pedidos_sem_cliente',           COUNT(*)::text                 FROM v2_pedidos WHERE cliente_id IS NULL
   UNION ALL
-  SELECT 'pedidos_sem_canal',             COUNT(*)::text                 FROM v2_pedidos WHERE canal_id IS NULL
+  SELECT 'pedidos_sem_canal',             COUNT(*)::text FROM v2_pedidos WHERE canal_id IS NULL
   UNION ALL
-  SELECT 'pedidos_valor_null_ou_zero',    COUNT(*)::text                 FROM v2_pedidos WHERE total IS NULL OR total = 0
+  SELECT 'pedidos_valor_null_ou_zero',    COUNT(*)::text FROM v2_pedidos WHERE total IS NULL OR total = 0
   UNION ALL
-  SELECT 'pedidos_sem_status',            COUNT(*)::text                 FROM v2_pedidos WHERE status IS NULL OR trim(status::text) = ''
+    SELECT 'pedidos_sem_status',          COUNT(*)::text                 FROM v2_pedidos WHERE status IS NULL OR trim(status::text) = ''
   UNION ALL
   SELECT 'pedidos_duplicados',            COUNT(*)::text                 FROM (
-    SELECT numero_pedido, source FROM v2_pedidos
+    SELECT numero_pedido, source::text FROM v2_pedidos
     WHERE numero_pedido IS NOT NULL
-    GROUP BY numero_pedido, source HAVING COUNT(*) > 1
+    GROUP BY numero_pedido, source::text HAVING COUNT(*) > 1
   ) dup
   UNION ALL
   SELECT 'pedidos_com_itens',             COUNT(DISTINCT pedido_id)::text FROM v2_pedidos_items
