@@ -4264,9 +4264,11 @@ function showPage(id) {
   const navId =
     id === 'cliente'
       ? 'clientes'
-      : id === 'segmento-detalhe' || id === 'ia' || id === 'segmentos'
-        ? 'inteligencia'
-        : id;
+      : id === 'pedidos-page'
+        ? 'pedidos'
+        : id === 'segmento-detalhe' || id === 'ia' || id === 'segmentos'
+          ? 'inteligencia'
+          : id;
   const navEl = document.getElementById('nav-' + navId);
   if (navEl) navEl.classList.add('active');
 
@@ -6398,6 +6400,12 @@ function renderDashNow() {
   const dashKpisEl = document.getElementById('dash-kpis');
   if (dashKpisEl) {
     const kpiInterpret = (key, cur, prev) => {
+      if (key === 'recompra') {
+        if (cur >= 40) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">base fidelizada</div>`;
+        if (cur >= 25) return `<div class="dash-kpi-interpret dash-kpi-interpret--pos">recompra saudável</div>`;
+        if (cur <= 15) return `<div class="dash-kpi-interpret dash-kpi-interpret--neg">recompra baixa</div>`;
+        return `<div class="dash-kpi-interpret dash-kpi-interpret--neutral">estável</div>`;
+      }
       const d = prev > 0 ? ((cur - prev) / prev) * 100 : null;
       if (d === null || !isFinite(d)) return '';
       if (key === 'revenue') {
@@ -6424,11 +6432,18 @@ function renderDashNow() {
     const SVG_TICKET  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>`;
     const SVG_LTV     = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>`;
     const SVG_USERS   = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+    const SVG_REPEAT  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;
+
+    const cliMapPrev   = buildCli(ordersPrevSales);
+    const cliListPrev  = Object.values(cliMapPrev);
+    const recPrev      = cliListPrev.filter((c) => c.orders.length >= 2).length;
+    const pctRecPrev   = cliListPrev.length ? (recPrev / cliListPrev.length) * 100 : 0;
 
     const items = [
-      { key: 'revenue', label: 'Receita', value: fmtBRL(total),            delta: deltaLine(total, totalPrev),                   icon: SVG_REVENUE, iconCls: 'dash-kpi-icon--green',  spark: 'kpi-spark-revenue', cur: total,             prev: totalPrev },
-      { key: 'orders',  label: 'Pedidos', value: String(ordersSales.length), delta: deltaLine(ordersSales.length, pedidosPrev),   icon: SVG_ORDERS,  iconCls: 'dash-kpi-icon--amber',  spark: 'kpi-spark-orders',  cur: ordersSales.length, prev: pedidosPrev },
-      { key: 'ticket',  label: 'Ticket Médio', value: fmtBRL(ticket),       delta: deltaLine(ticket, ticketPrev),                icon: SVG_TICKET,  iconCls: 'dash-kpi-icon--orange', spark: 'kpi-spark-ticket',  cur: ticket,            prev: ticketPrev },
+      { key: 'revenue',   label: 'Receita',          value: fmtBRL(total),                delta: deltaLine(total, totalPrev),                   icon: SVG_REVENUE, iconCls: 'dash-kpi-icon--green',   spark: 'kpi-spark-revenue', cur: total,             prev: totalPrev  },
+      { key: 'orders',    label: 'Pedidos',           value: String(ordersSales.length),   delta: deltaLine(ordersSales.length, pedidosPrev),   icon: SVG_ORDERS,  iconCls: 'dash-kpi-icon--amber',   spark: 'kpi-spark-orders',  cur: ordersSales.length, prev: pedidosPrev },
+      { key: 'ticket',    label: 'Ticket Médio',      value: fmtBRL(ticket),               delta: deltaLine(ticket, ticketPrev),                icon: SVG_TICKET,  iconCls: 'dash-kpi-icon--orange',  spark: 'kpi-spark-ticket',  cur: ticket,            prev: ticketPrev },
+      { key: 'recompra',  label: 'Taxa de Recompra',  value: pctRec.toFixed(0) + '%',      delta: deltaLine(pctRec, pctRecPrev),               icon: SVG_REPEAT,  iconCls: 'dash-kpi-icon--purple',  spark: null,                cur: pctRec,            prev: pctRecPrev },
     ];
     dashKpisEl.innerHTML =
       items.map((s, i) => `
@@ -6442,7 +6457,7 @@ function renderDashNow() {
           </div>
           <div class="dash-kpi-side">
             <div class="dash-kpi-icon ${escapeHTML(s.iconCls)}">${s.icon}</div>
-            <div class="dash-kpi-spark"><canvas id="${escapeHTML(s.spark)}"></canvas></div>
+            ${s.spark ? `<div class="dash-kpi-spark"><canvas id="${escapeHTML(s.spark)}"></canvas></div>` : ''}
           </div>
         </div>
       </div>`).join('') +
@@ -6558,17 +6573,31 @@ function renderCCHero({ potencial, prontosCiclo, vips45, vipRiscoLtv, stoppedPro
   if (!ordersSalesLen) { el.innerHTML = ''; return; }
 
   const pctTotal = totalPrev > 0 ? ((total - totalPrev) / totalPrev) * 100 : 0;
-  const isGrowing = pctTotal >= 5;
-  const isFalling = pctTotal <= -5;
-  const ticketFalling = ticketDeltaW <= -15;
+  const quedaTicket = ticketDeltaW < -8 ? Math.abs(ticketDeltaW).toFixed(0) : 0;
 
-  const bullets = [];
-  if (prontosCiclo > 0) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--green"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>${prontosCiclo} cliente${prontosCiclo > 1 ? 's' : ''} pronto${prontosCiclo > 1 ? 's' : ''} para recompra</span>`);
-  if (vips45 > 0) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--red"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>${vips45} VIP em risco${vipRiscoLtv > 0 ? ' · ' + fmtBRL(vipRiscoLtv) : ''}</span>`);
-  if (stoppedProd) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--amber"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>${escapeHTML(stoppedProd)} com queda</span>`);
-  if (inativos30 > 0 && !prontosCiclo) bullets.push(`<span class="cc-hero-bullet cc-hero-bullet--amber"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${inativos30} inativos há 30+ dias</span>`);
+  // ── Headline dinâmica por prioridade ──────────────
+  let headline, headlineHtml;
+  if (vips45 > 0) {
+    headlineHtml = `<span class="cc-chip-inline danger">${vips45} VIP${vips45 > 1 ? 's' : ''}</span> em risco hoje`;
+  } else if (prontosCiclo > 0) {
+    headlineHtml = `<span class="cc-chip-inline success">${prontosCiclo} cliente${prontosCiclo > 1 ? 's' : ''}</span> pronto${prontosCiclo > 1 ? 's' : ''} para recompra`;
+  } else if (quedaTicket > 0) {
+    headlineHtml = `Ticket médio em queda <span class="cc-chip-inline warning">${quedaTicket}%</span>`;
+  } else if (pctTotal >= 5) {
+    headlineHtml = `Receita crescendo <span class="cc-chip-inline success">+${pctTotal.toFixed(0)}%</span>`;
+  } else {
+    headlineHtml = `Operação estável hoje`;
+  }
 
-  const hasOpportunity = potencial > 0;
+  // ── Chips inteligentes (máx 3) ────────────────────
+  const rawChips = [];
+  if (vips45 > 0) rawChips.push({ label: `${vips45} VIP em risco`, type: 'danger', action: `showPage('inteligencia')` });
+  if (prontosCiclo > 0) rawChips.push({ label: `${prontosCiclo} recompra possível`, type: 'success', action: `showPage('clientes')` });
+  if (inativos30 > 0) rawChips.push({ label: `${inativos30} inativos`, type: 'warning', action: `showPage('alertas')` });
+  if (stoppedProd && rawChips.length < 3) rawChips.push({ label: `${escapeHTML(stoppedProd)} em queda`, type: 'warning', action: `showPage('produtos')` });
+  const chips = rawChips.slice(0, 3);
+
+  window._heroChipActions = chips.map((c) => c.action);
 
   el.innerHTML = `
     <div class="cc-hero">
@@ -6577,14 +6606,9 @@ function renderCCHero({ potencial, prontosCiclo, vips45, vipRiscoLtv, stoppedPro
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           Control Center
         </div>
-        <div class="cc-hero-title">
-          ${hasOpportunity
-            ? `Você pode gerar <span class="cc-hero-value">${fmtBRL(potencial)}</span> hoje`
-            : isGrowing
-              ? `Receita crescendo <span class="cc-hero-value cc-hero-value--green">+${pctTotal.toFixed(0)}%</span>`
-              : `${ordersSalesLen} pedido${ordersSalesLen > 1 ? 's' : ''} no período`}
-        </div>
-        ${bullets.length ? `<div class="cc-hero-bullets">${bullets.join('')}</div>` : ''}
+        <h1 class="cc-hero-title">${headlineHtml}</h1>
+        <p class="cc-hero-sub">Ações recomendadas com base no comportamento atual dos clientes</p>
+        ${chips.length ? `<div class="cc-hero-chips">${chips.map((c, i) => `<button class="cc-chip cc-chip--${c.type}" data-chip-idx="${i}">${escapeHTML(c.label)}</button>`).join('')}</div>` : ''}
       </div>
       <div class="cc-hero-right">
         <button class="cc-hero-cta" onclick="openDashActionsModal()">
@@ -6598,6 +6622,16 @@ function renderCCHero({ potencial, prontosCiclo, vips45, vipRiscoLtv, stoppedPro
       </div>
     </div>
   `;
+
+  el.querySelectorAll('.cc-chip[data-chip-idx]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.chipIdx, 10);
+      const action = (window._heroChipActions || [])[idx];
+      if (typeof action === 'string') {
+        try { new Function(action)(); } catch (e) { console.warn('[cc-hero chip]', e); }
+      }
+    });
+  });
 }
 
 function renderCCAlerts({ ticketDeltaW, inativos30, vips45, vipRiscoLtv, stoppedProd, total, totalPrev, prontosCiclo, potencial, recorrentes, pctRec, vipCount }) {
