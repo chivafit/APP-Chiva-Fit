@@ -1834,81 +1834,144 @@ body {
 /* ═══ CHARTS ══════════════════════════════════════════════════ */
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
 }
+
+/* ── Chart card — design premium ── */
 .chart-card {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 55%),
-    rgba(17, 26, 20, 0.55);
-  border: 1px solid rgba(15, 167, 101, 0.22);
-  border-radius: 18px;
-  padding: 14px 16px;
+    linear-gradient(160deg, rgba(164, 233, 107, 0.04) 0%, rgba(15, 167, 101, 0.02) 40%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0) 60%),
+    var(--card);
+  border: 1px solid rgba(15, 167, 101, 0.18);
+  border-radius: 20px;
+  padding: 18px 20px 16px;
   position: relative;
   overflow: hidden;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(15, 167, 101, 0.12),
-    0 0 28px rgba(164, 233, 107, 0.1);
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 12px 40px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(15, 167, 101, 0.08),
+    0 0 40px rgba(15, 167, 101, 0.06);
   transition:
-    border-color var(--t-base),
-    box-shadow var(--t-base),
-    transform var(--t-base);
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
 }
+
+/* Linha de brilho no topo */
 .chart-card::before {
   content: '';
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
+  left: 16px;
+  right: 16px;
+  height: 1px;
   background: linear-gradient(
     90deg,
-    rgba(15, 167, 101, 0),
-    rgba(15, 167, 101, 0.65),
-    rgba(164, 233, 107, 0.55),
-    rgba(15, 167, 101, 0)
+    transparent,
+    rgba(164, 233, 107, 0.6) 30%,
+    rgba(15, 167, 101, 0.8) 50%,
+    rgba(164, 233, 107, 0.6) 70%,
+    transparent
   );
-  opacity: 0.55;
   pointer-events: none;
 }
+
+/* Glow radial no canto superior esquerdo */
 .chart-card::after {
   content: '';
   position: absolute;
-  top: -40px;
-  left: -40px;
-  width: 180px;
-  height: 180px;
+  top: -60px;
+  left: -60px;
+  width: 220px;
+  height: 220px;
   background: radial-gradient(
-    circle at 30% 30%,
-    rgba(164, 233, 107, 0.18),
-    rgba(15, 167, 101, 0) 70%
+    circle at center,
+    rgba(164, 233, 107, 0.1),
+    rgba(15, 167, 101, 0.04) 45%,
+    transparent 70%
   );
-  opacity: 0.9;
   pointer-events: none;
 }
+
 .chart-card:hover {
-  border-color: rgba(15, 167, 101, 0.38);
+  border-color: rgba(15, 167, 101, 0.32);
   box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(15, 167, 101, 0.18),
-    0 0 34px rgba(164, 233, 107, 0.14);
-  transform: translateY(-1px);
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 18px 50px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(15, 167, 101, 0.14),
+    0 0 52px rgba(15, 167, 101, 0.1),
+    0 0 80px rgba(164, 233, 107, 0.06);
+  transform: translateY(-2px);
 }
+
 .chart-title {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-2);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 12px;
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+
+.chart-title::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--chiva-primary-light), var(--chiva-primary));
+  flex-shrink: 0;
+}
+
 .chart-wrap {
   position: relative;
-  height: 175px;
+  height: 190px;
+}
+
+/* Light mode overrides */
+html.light .chart-card {
+  background:
+    linear-gradient(160deg, rgba(15, 167, 101, 0.04) 0%, transparent 60%),
+    #ffffff;
+  border-color: rgba(15, 167, 101, 0.14);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 4px 24px rgba(15, 23, 42, 0.07),
+    0 0 0 1px rgba(15, 167, 101, 0.06);
+}
+html.light .chart-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(15, 167, 101, 0.4) 30%,
+    rgba(15, 167, 101, 0.6) 50%,
+    rgba(15, 167, 101, 0.4) 70%,
+    transparent
+  );
+}
+html.light .chart-card::after {
+  background: radial-gradient(
+    circle at center,
+    rgba(15, 167, 101, 0.07),
+    transparent 65%
+  );
+}
+html.light .chart-card:hover {
+  border-color: rgba(15, 167, 101, 0.28);
+  box-shadow:
+    0 8px 32px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(15, 167, 101, 0.12),
+    0 0 40px rgba(15, 167, 101, 0.08);
+  transform: translateY(-2px);
 }
 .top-list {
   display: flex;
@@ -4414,93 +4477,402 @@ html.light .prod-panel {
   box-shadow: var(--shadow-md);
 }
 
-/* ── Calendário ── */
-.cal-day {
+/* ══════════════════════════════════════════
+   CALENDÁRIO — DESIGN PREMIUM
+══════════════════════════════════════════ */
+
+/* Navegação */
+.cal-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cal-titulo {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.cal-nav-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  padding: 6px 4px;
-  min-height: 54px;
+  border-radius: 10px;
+  color: var(--text);
   cursor: pointer;
-  transition: all var(--t-fast);
-  position: relative;
-  font-size: 11px;
+  font-size: 16px;
+  font-family: var(--font);
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
 }
-.cal-day:hover {
-  border-color: var(--indigo-border);
+
+.cal-nav-btn:hover {
   background: var(--card-hover);
+  border-color: var(--chiva-primary-border);
+  transform: scale(1.05);
 }
-.cal-day.hoje {
-  border-color: var(--indigo);
-  background: var(--indigo-bg);
+
+.cal-hoje-btn {
+  background: var(--chiva-primary-dim);
+  border: 1px solid var(--chiva-primary-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--chiva-primary-light);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: var(--font);
+  letter-spacing: 0.3px;
+  transition: background 150ms ease, transform 150ms ease;
 }
-.cal-day.tem-evento::after {
-  content: '';
-  position: absolute;
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--indigo);
+
+.cal-hoje-btn:hover {
+  background: rgba(15, 167, 101, 0.2);
+  transform: scale(1.04);
 }
-.cal-day-num {
-  font-weight: 700;
-  font-size: 11px;
-  text-align: center;
+
+/* Grid do calendário */
+.calendario-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: var(--sp-4);
 }
-.cal-day.outro-mes {
-  opacity: 0.3;
-}
+
+/* Header dos dias da semana */
 .cal-header-day {
   text-align: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   color: var(--text-3);
   text-transform: uppercase;
-  padding: 4px 0;
-  letter-spacing: 0.5px;
+  padding: 6px 0 8px;
+  letter-spacing: 0.6px;
 }
 
-/* ── Evento card ── */
-.evento-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: var(--sp-3);
-  margin-bottom: var(--sp-2);
+/* Células do dia */
+.cal-day {
+  background: var(--card);
+  border: 1px solid var(--border-sub);
+  border-radius: 12px;
+  padding: 8px 6px 6px;
+  min-height: 68px;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+  position: relative;
   display: flex;
-  gap: var(--sp-3);
-  align-items: flex-start;
-  transition: all var(--t-base);
-  border-left: 3px solid var(--indigo);
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
-.evento-card:hover {
-  border-color: var(--indigo);
+
+.cal-day:hover {
+  border-color: var(--chiva-primary-border);
   background: var(--card-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
+
+/* Dia atual — destaque com glow */
+.cal-day.hoje {
+  background: linear-gradient(
+    145deg,
+    rgba(15, 167, 101, 0.16),
+    rgba(164, 233, 107, 0.06)
+  );
+  border-color: var(--chiva-primary);
+  box-shadow:
+    0 0 0 1px rgba(15, 167, 101, 0.2),
+    0 4px 20px rgba(15, 167, 101, 0.18);
+}
+
+.cal-day.hoje:hover {
+  box-shadow:
+    0 0 0 1px rgba(15, 167, 101, 0.35),
+    0 6px 24px rgba(15, 167, 101, 0.25);
+}
+
+/* Número do dia */
+.cal-day-num {
+  font-weight: 800;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-2);
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.cal-day.hoje .cal-day-num {
+  background: var(--chiva-primary);
+  color: #ffffff;
+  font-weight: 900;
+  box-shadow: 0 2px 8px rgba(15, 167, 101, 0.5);
+}
+
+/* Dias selecionados / com evento: ponto colorido */
+.cal-day.tem-evento::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--chiva-primary-light);
+  box-shadow: 0 0 6px rgba(164, 233, 107, 0.7);
+}
+
+.cal-day.outro-mes {
+  opacity: 0.28;
+}
+
+.cal-day.outro-mes:hover {
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Evento card — design premium ── */
+.evento-card {
+  background:
+    linear-gradient(135deg, rgba(15, 167, 101, 0.04), transparent 60%),
+    var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--chiva-primary);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.evento-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--chiva-primary-light), var(--chiva-primary));
+  border-radius: 3px 0 0 3px;
+}
+
+.evento-card:hover {
+  background:
+    linear-gradient(135deg, rgba(15, 167, 101, 0.07), transparent 60%),
+    var(--card-hover);
+  border-color: var(--chiva-primary-border);
+  transform: translateX(2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+}
+
 .evento-tipo-dot {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--r-md);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 18px;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
+
 .ev-degustacao {
-  background: var(--amber-bg);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(251, 191, 36, 0.1));
+  border: 1px solid rgba(251, 191, 36, 0.3);
 }
+
 .ev-evento {
-  background: var(--indigo-bg);
+  background: linear-gradient(135deg, rgba(15, 167, 101, 0.2), rgba(15, 167, 101, 0.08));
+  border: 1px solid rgba(15, 167, 101, 0.25);
 }
+
 .ev-feira {
-  background: var(--green-bg);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.08));
+  border: 1px solid rgba(34, 197, 94, 0.25);
 }
+
 .ev-reuniao {
-  background: var(--blue-bg);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(96, 165, 250, 0.08));
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+/* Light mode calendar */
+html.light .cal-day {
+  background: #ffffff;
+  border-color: #e8ecf0;
+}
+
+html.light .cal-day:hover {
+  background: #f4f8f5;
+  border-color: rgba(15, 167, 101, 0.3);
+}
+
+html.light .cal-day.hoje {
+  background: linear-gradient(145deg, rgba(15, 167, 101, 0.1), rgba(164, 233, 107, 0.04));
+  border-color: var(--chiva-primary);
+}
+
+html.light .evento-card {
+  background: linear-gradient(135deg, rgba(15, 167, 101, 0.03), transparent 60%), #ffffff;
+}
+
+html.light .evento-card:hover {
+  background: linear-gradient(135deg, rgba(15, 167, 101, 0.06), transparent 60%), #f8fbf9;
+}
+
+/* ── Evento card internos ── */
+.ev-section-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+
+.evento-card-past {
+  opacity: 0.65;
+}
+
+.ev-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ev-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.ev-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ev-meta {
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 2px;
+  font-weight: 600;
+}
+
+.ev-metrics {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ev-metric {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ev-metric-green {
+  color: var(--green);
+}
+
+.ev-metric-bold {
+  font-weight: 900;
+}
+
+.ev-obs {
+  font-size: 10px;
+  color: var(--text-2);
+  margin-top: 5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.ev-edit-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ev-edit-btn:hover {
+  border-color: var(--chiva-primary-border);
+  color: var(--chiva-primary-light);
+  background: var(--chiva-primary-dim);
+}
+
+/* Badges de status dos eventos */
+.ev-badge {
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 5px;
+  padding: 2px 6px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.ev-badge-hoje {
+  background: var(--chiva-primary);
+  color: #ffffff;
+}
+
+.ev-badge-past {
+  background: var(--card);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+
+.ev-badge-next {
+  background: var(--chiva-primary-dim);
+  color: var(--chiva-primary-light);
+  border: 1px solid var(--chiva-primary-border);
 }
 
 /* ── Degustacao card ── */

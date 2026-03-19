@@ -96,16 +96,36 @@ window.onerror = function (message, source, lineno, colno, error) {
 
 (function () {
   if (window.Chart) {
+    // Tipografia
     Chart.defaults.font.family = "'Plus Jakarta Sans',system-ui,sans-serif";
-    Chart.defaults.color = '#585f78';
-    Chart.defaults.borderColor = 'rgba(255,255,255,.04)';
-    Chart.defaults.plugins.tooltip.backgroundColor = '#0e1018';
-    Chart.defaults.plugins.tooltip.borderColor = '#1d2235';
+    Chart.defaults.font.size = 11;
+    Chart.defaults.font.weight = 700;
+    Chart.defaults.color = '#6b7a8d';
+
+    // Grid padrão muito sutil
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.04)';
+
+    // Animações suaves
+    Chart.defaults.animation = { duration: 700, easing: 'easeInOutQuart' };
+    Chart.defaults.transitions.active.animation.duration = 150;
+
+    // Tooltip premium
+    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(10, 14, 20, 0.92)';
+    Chart.defaults.plugins.tooltip.borderColor = 'rgba(15, 167, 101, 0.3)';
     Chart.defaults.plugins.tooltip.borderWidth = 1;
-    Chart.defaults.plugins.tooltip.titleColor = '#edeef4';
-    Chart.defaults.plugins.tooltip.bodyColor = '#a0a8be';
-    Chart.defaults.plugins.tooltip.padding = 10;
-    Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    Chart.defaults.plugins.tooltip.titleColor = '#e8edf5';
+    Chart.defaults.plugins.tooltip.bodyColor = '#8c9ab0';
+    Chart.defaults.plugins.tooltip.padding = { x: 14, y: 10 };
+    Chart.defaults.plugins.tooltip.cornerRadius = 12;
+    Chart.defaults.plugins.tooltip.titleFont = { size: 12, weight: 800, family: "'Plus Jakarta Sans',system-ui,sans-serif" };
+    Chart.defaults.plugins.tooltip.bodyFont = { size: 11, weight: 600, family: "'Plus Jakarta Sans',system-ui,sans-serif" };
+    Chart.defaults.plugins.tooltip.displayColors = false;
+    Chart.defaults.plugins.tooltip.caretSize = 5;
+    Chart.defaults.plugins.tooltip.caretPadding = 8;
+
+    // Hover mode
+    Chart.defaults.hover.mode = 'index';
+    Chart.defaults.hover.intersect = false;
   }
 })();
 
@@ -8134,30 +8154,25 @@ function renderChartCanal(ordersOverride) {
         {
           data: sorted.map(([, v]) => v),
           backgroundColor: sorted.map(([c]) => brandColors[c] || brandColors.default),
-          borderWidth: 0,
-          borderColor: 'transparent',
-          spacing: 4,
-          hoverOffset: 8,
+          borderWidth: 3,
+          borderColor: isLight ? '#ffffff' : '#0c1410',
+          spacing: 3,
+          hoverOffset: 10,
+          hoverBorderWidth: 3,
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      cutout: '68%',
+      cutout: '72%',
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: isLight ? '#ffffff' : '#0e1018',
-          borderColor: isLight ? 'rgba(0,0,0,.12)' : '#1d2235',
-          borderWidth: 1,
-          titleColor: isLight ? '#111827' : '#edeef4',
-          bodyColor: isLight ? '#334155' : '#a0a8be',
-          padding: 10,
           callbacks: {
             label: function (ctx) {
               const pct = Math.round((ctx.raw / total) * 100);
-              return ' ' + fmtBRL(ctx.raw) + ' (' + pct + '%)';
+              return '  ' + fmtBRL(ctx.raw) + ' · ' + pct + '%';
             },
           },
         },
@@ -8220,55 +8235,55 @@ function renderChartMes(ordersOverride) {
       datasets: [
         {
           data: sk.map((k) => bm[k]),
-          tension: 0.4,
+          tension: 0.45,
           fill: true,
           borderColor: '#0FA765',
           backgroundColor: (c) => {
             const g = c.chart.ctx.createLinearGradient(0, 0, 0, c.chart.height);
-            g.addColorStop(0, 'rgba(15,167,101,0.28)');
+            g.addColorStop(0, 'rgba(15,167,101,0.32)');
+            g.addColorStop(0.5, 'rgba(15,167,101,0.10)');
             g.addColorStop(1, 'rgba(15,167,101,0)');
             return g;
           },
           borderWidth: 2.5,
-          pointRadius: 4,
-          pointHoverRadius: 7,
-          pointBackgroundColor: '#0FA765',
-          pointBorderColor: 'var(--surface,#181f2e)',
-          pointBorderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#0FA765',
+          pointHoverBorderColor: '#0c1410',
+          pointHoverBorderWidth: 2.5,
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#0e1018',
-          borderColor: 'rgba(15,167,101,.35)',
-          borderWidth: 1,
-          titleColor: '#edeef4',
-          bodyColor: '#a0a8be',
-          padding: 12,
-          cornerRadius: 10,
-          callbacks: { label: (c) => ' ' + fmtBRL(c.raw) },
+          callbacks: { label: (c) => '  ' + fmtBRL(c.raw) },
         },
       },
       scales: {
         x: {
           grid: { display: false },
+          border: { display: false },
           ticks: {
-            color: 'rgba(160,168,190,0.7)',
-            font: { size: 10 },
+            color: 'rgba(160,168,190,0.6)',
+            font: { size: 10, weight: 700 },
             maxRotation: 0,
             maxTicksLimit: 8,
           },
         },
         y: {
-          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          grid: {
+            color: 'rgba(255,255,255,0.035)',
+            borderDash: [4, 4],
+          },
+          border: { display: false, dash: [4, 4] },
           ticks: {
-            color: 'rgba(160,168,190,0.7)',
-            font: { size: 10 },
+            color: 'rgba(160,168,190,0.6)',
+            font: { size: 10, weight: 700 },
             callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
           },
         },
@@ -13217,6 +13232,7 @@ async function seedCidadesIBGE() {
     btn.textContent = '📥 Importar Base IBGE';
   }
 }
+window.seedCidadesIBGE = seedCidadesIBGE;
 
 function renderAlertas() {
   const ad = parseInt(document.getElementById('alert-days')?.value || '60');
@@ -17290,34 +17306,16 @@ function renderEventosLista() {
       return d.getMonth() === calMesAtual && d.getFullYear() === calAnoAtual;
     });
   }
-  var titulo = filtroDia
-    ? 'Eventos — dia ' + filtroDia
-    : 'Eventos de ' +
-      [
-        'Janeiro',
-        'Fevereiro',
-        'Março',
-        'Abril',
-        'Maio',
-        'Junho',
-        'Julho',
-        'Agosto',
-        'Setembro',
-        'Outubro',
-        'Novembro',
-        'Dezembro',
-      ][calMesAtual];
+  var meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  var titulo = filtroDia ? 'Eventos — dia ' + filtroDia : 'Eventos de ' + meses[calMesAtual];
   if (!list.length) {
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">' +
-      escapeHTML(titulo) +
-      '</div><div class="empty">Nenhum evento neste período.</div>';
+      '<div class="ev-section-title">' + escapeHTML(titulo) + '</div>' +
+      '<div class="empty">Nenhum evento neste período.</div>';
     return;
   }
   el.innerHTML =
-    '<div style="font-size:9px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">' +
-    escapeHTML(titulo) +
-    '</div>' +
+    '<div class="ev-section-title">' + escapeHTML(titulo) + '</div>' +
     list
       .map(function (e) {
         var evData = new Date(e.data + 'T12:00:00');
@@ -17325,47 +17323,37 @@ function renderEventosLista() {
         var isPast = evData < hoje;
         var isHoje = evData.getTime() === hoje.getTime();
         var badge = isHoje
-          ? '<span style="background:var(--indigo);color:#fff;font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">HOJE</span>'
+          ? '<span class="ev-badge ev-badge-hoje">HOJE</span>'
           : isPast
-            ? '<span style="background:var(--card);color:var(--text-3);font-size:9px;border-radius:4px;padding:1px 5px;margin-left:6px;border:1px solid var(--border)">Realizado</span>'
-            : '<span style="background:var(--chiva-primary-dim);color:var(--chiva-primary);font-size:9px;font-weight:700;border-radius:4px;padding:1px 5px;margin-left:6px">Próximo</span>';
+            ? '<span class="ev-badge ev-badge-past">Realizado</span>'
+            : '<span class="ev-badge ev-badge-next">Próximo</span>';
+        var metrics = (e.amostras || e.conversoes || e.receita)
+          ? '<div class="ev-metrics">' +
+            (e.amostras ? '<span class="ev-metric">🧪 ' + e.amostras + ' amostras</span>' : '') +
+            (e.conversoes ? '<span class="ev-metric ev-metric-green">✅ ' + e.conversoes + ' conv.</span>' : '') +
+            (e.receita ? '<span class="ev-metric ev-metric-green ev-metric-bold">R$' + e.receita.toLocaleString('pt-BR') + '</span>' : '') +
+            '</div>'
+          : '';
+        var obs = e.obs
+          ? '<div class="ev-obs">' + escapeHTML(e.obs) + '</div>'
+          : '';
         return (
-          '<div class="evento-card" style="' +
-          (isPast && !isHoje ? 'opacity:.7' : '') +
-          '"><div class="evento-tipo-dot ' +
-          (tC[e.tipo] || 'ev-evento') +
-          '">' +
-          (tE[e.tipo] || '📌') +
-          '</div><div style="flex:1"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div style="font-size:13px;font-weight:700">' +
-          escapeHTML(e.titulo) +
-          badge +
-          '</div><button onclick="abrirModalEvento(' +
-          e.id +
-          ')" style="background:none;border:1px solid var(--border);border-radius:var(--r-md);padding:3px 10px;color:var(--text-2);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)">Editar</button></div><div style="font-size:10px;color:var(--text-3);margin-top:3px">' +
-          escapeHTML(fmtDate(e.data)) +
-          (e.hora ? ' ' + escapeHTML(e.hora) : '') +
-          (e.local ? ' · ' + escapeHTML(e.local) : '') +
-          (e.responsavel ? ' · ' + escapeHTML(e.responsavel) : '') +
+          '<div class="evento-card' + (isPast && !isHoje ? ' evento-card-past' : '') + '">' +
+          '<div class="evento-tipo-dot ' + (tC[e.tipo] || 'ev-evento') + '">' + (tE[e.tipo] || '📌') + '</div>' +
+          '<div class="ev-body">' +
+            '<div class="ev-header">' +
+              '<div class="ev-title">' + escapeHTML(e.titulo) + badge + '</div>' +
+              '<button class="ev-edit-btn" onclick="abrirModalEvento(' + e.id + ')">Editar</button>' +
+            '</div>' +
+            '<div class="ev-meta">' +
+              escapeHTML(fmtDate(e.data)) +
+              (e.hora ? ' · ' + escapeHTML(e.hora) : '') +
+              (e.local ? ' · 📍 ' + escapeHTML(e.local) : '') +
+              (e.responsavel ? ' · 👤 ' + escapeHTML(e.responsavel) : '') +
+            '</div>' +
+            metrics + obs +
           '</div>' +
-          (e.amostras || e.conversoes || e.receita
-            ? '<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text-3)">' +
-              (e.amostras ? '<span>🧪 ' + e.amostras + ' amostras</span>' : '') +
-              (e.conversoes
-                ? '<span style="color:var(--green)">✅ ' + e.conversoes + ' conv.</span>'
-                : '') +
-              (e.receita
-                ? '<span style="color:var(--green);font-weight:700">R$' +
-                  e.receita.toLocaleString('pt-BR') +
-                  '</span>'
-                : '') +
-              '</div>'
-            : '') +
-          (e.obs
-            ? '<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">' +
-              escapeHTML(e.obs) +
-              '</div>'
-            : '') +
-          '</div></div>'
+          '</div>'
         );
       })
       .join('');
@@ -17655,12 +17643,16 @@ function renderChartEstoque() {
           backgroundColor: sorted.map(function (i) {
             var st = getEstStatus(i);
             return st === 'ok'
-              ? 'rgba(34,197,94,.75)'
+              ? 'rgba(34,197,94,0.85)'
               : st === 'baixo'
-                ? 'rgba(251,191,36,.75)'
-                : 'rgba(248,113,113,.75)';
+                ? 'rgba(251,191,36,0.85)'
+                : 'rgba(248,113,113,0.85)';
           }),
-          borderRadius: 4,
+          hoverBackgroundColor: sorted.map(function (i) {
+            var st = getEstStatus(i);
+            return st === 'ok' ? '#22c55e' : st === 'baixo' ? '#fbbf24' : '#f87171';
+          }),
+          borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
           borderSkipped: false,
           borderWidth: 0,
         },
@@ -17669,33 +17661,31 @@ function renderChartEstoque() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#0e1018',
-          borderColor: '#1d2235',
-          borderWidth: 1,
-          titleColor: '#edeef4',
-          bodyColor: '#a0a8be',
-          padding: 10,
           callbacks: {
             label: function (c) {
-              return ' ' + c.raw.toFixed(0) + '% do mínimo';
+              return '  ' + c.raw.toFixed(0) + '% do mínimo';
             },
           },
         },
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#585f78', font: { size: 9 } } },
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { color: 'rgba(160,168,190,0.55)', font: { size: 9, weight: 700 } },
+        },
         y: {
           max: 100,
-          grid: { color: 'rgba(255,255,255,.04)' },
+          grid: { color: 'rgba(255,255,255,0.035)', borderDash: [4, 4] },
+          border: { display: false },
           ticks: {
-            color: '#585f78',
-            font: { size: 9 },
-            callback: function (v) {
-              return v + '%';
-            },
+            color: 'rgba(160,168,190,0.55)',
+            font: { size: 9, weight: 700 },
+            callback: function (v) { return v + '%'; },
           },
         },
       },

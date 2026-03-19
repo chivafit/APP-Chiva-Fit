@@ -3241,72 +3241,19 @@
                   </button>
                 </div>
                 <div id="marca-tab-calendario">
-                  <div
-                    id="cal-nav"
-                    style="
-                      display: flex;
-                      align-items: center;
-                      justify-content: space-between;
-                      margin-bottom: var(--sp-3);
-                    "
-                  >
-                    <button
-                      onclick="mudarMes(-1)"
-                      style="
-                        background: var(--card);
-                        border: 1px solid var(--border);
-                        border-radius: var(--r-md);
-                        padding: 6px 12px;
-                        color: var(--text);
-                        cursor: pointer;
-                        font-size: 13px;
-                      "
-                    >
+                  <div id="cal-nav" class="cal-nav-bar">
+                    <button class="cal-nav-btn" onclick="mudarMes(-1)" aria-label="Mês anterior">
                       ‹
                     </button>
-                    <div style="display: flex; align-items: center; gap: 8px">
-                      <span id="cal-titulo" style="font-size: 13px; font-weight: 700"></span>
-                      <button
-                        onclick="irParaHoje()"
-                        style="
-                          background: none;
-                          border: 1px solid var(--border);
-                          border-radius: var(--r-md);
-                          padding: 3px 8px;
-                          color: var(--text-3);
-                          font-size: 10px;
-                          font-weight: 700;
-                          cursor: pointer;
-                          font-family: var(--font);
-                        "
-                      >
-                        Hoje
-                      </button>
+                    <div style="display: flex; align-items: center; gap: 10px">
+                      <span id="cal-titulo" class="cal-titulo"></span>
+                      <button class="cal-hoje-btn" onclick="irParaHoje()">Hoje</button>
                     </div>
-                    <button
-                      onclick="mudarMes(1)"
-                      style="
-                        background: var(--card);
-                        border: 1px solid var(--border);
-                        border-radius: var(--r-md);
-                        padding: 6px 12px;
-                        color: var(--text);
-                        cursor: pointer;
-                        font-size: 13px;
-                      "
-                    >
+                    <button class="cal-nav-btn" onclick="mudarMes(1)" aria-label="Próximo mês">
                       ›
                     </button>
                   </div>
-                  <div
-                    id="calendario-grid"
-                    style="
-                      display: grid;
-                      grid-template-columns: repeat(7, 1fr);
-                      gap: 3px;
-                      margin-bottom: var(--sp-4);
-                    "
-                  ></div>
+                  <div id="calendario-grid" class="calendario-grid"></div>
                   <div id="eventos-lista"></div>
                 </div>
                 <div id="marca-tab-degustacoes" style="display: none">
