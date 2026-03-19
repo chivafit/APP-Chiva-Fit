@@ -6270,23 +6270,7 @@ function renderDashNow() {
   const pctRec = cliList.length ? Math.round((recorrentes / cliList.length) * 100) : 0;
 
   const sr = document.getElementById('source-row');
-  if (sr) {
-    const dot = (color) => `<svg width="6" height="6" viewBox="0 0 6 6" fill="${color}"><circle cx="3" cy="3" r="3"/></svg>`;
-    sr.innerHTML =
-      (blingOrders.length
-        ? `<span class="src-badge">${dot('#60a5fa')} Bling · ${blingOrders.length}</span>`
-        : '') +
-      (yampiOrders.length
-        ? `<span class="src-badge">${dot('#d946ef')} Yampi · ${yampiOrders.length}</span>`
-        : '') +
-      (shopifyOrders.length
-        ? `<span class="src-badge">${dot('#84cc16')} Shopify · ${shopifyOrders.length}</span>`
-        : '') +
-      (dashCh
-        ? `<span class="src-badge">Filtro: ${escapeHTML(CH[dashCh] || dashCh)}</span>`
-        : '') +
-      (!ordersSales.length ? `<span style="color:var(--text-3);font-size:12px">Sem dados no período</span>` : '');
-  }
+  if (sr) sr.innerHTML = '';
 
   // ticket precisa ser declarado antes do bloco CC (evita TDZ com const)
   const ticket = ordersSales.length ? total / ordersSales.length : 0;
