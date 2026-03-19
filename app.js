@@ -14310,7 +14310,9 @@ function renderAlertas() {
     kpisEl.innerHTML = `
       <div class="alert-kpi-grid">
         <div class="alert-kpi alert-kpi--danger">
-          <div class="alert-kpi-icon">👑</div>
+          <div class="alert-kpi-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+          </div>
           <div class="alert-kpi-content">
             <div class="alert-kpi-value">${vipsRisco.length}</div>
             <div class="alert-kpi-label">VIPs em Risco</div>
@@ -14319,7 +14321,9 @@ function renderAlertas() {
         </div>
         
         <div class="alert-kpi alert-kpi--warning">
-          <div class="alert-kpi-icon">⚠️</div>
+          <div class="alert-kpi-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          </div>
           <div class="alert-kpi-content">
             <div class="alert-kpi-value">${churnAlto.length}</div>
             <div class="alert-kpi-label">Risco de Churn</div>
@@ -14328,7 +14332,9 @@ function renderAlertas() {
         </div>
         
         <div class="alert-kpi alert-kpi--info">
-          <div class="alert-kpi-icon">🔄</div>
+          <div class="alert-kpi-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          </div>
           <div class="alert-kpi-content">
             <div class="alert-kpi-value">${foraCiclo.length}</div>
             <div class="alert-kpi-label">Fora do Ciclo</div>
@@ -14337,7 +14343,9 @@ function renderAlertas() {
         </div>
         
         <div class="alert-kpi alert-kpi--neutral">
-          <div class="alert-kpi-icon">🧊</div>
+          <div class="alert-kpi-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h.01"/><path d="M17 7h.01"/><path d="M7 17h.01"/><path d="M17 17h.01"/></svg>
+          </div>
           <div class="alert-kpi-content">
             <div class="alert-kpi-value">${inativos.length}</div>
             <div class="alert-kpi-label">Inativos ${ad}+ dias</div>
@@ -14346,7 +14354,9 @@ function renderAlertas() {
         </div>
         
         <div class="alert-kpi alert-kpi--primary">
-          <div class="alert-kpi-icon">🔔</div>
+          <div class="alert-kpi-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          </div>
           <div class="alert-kpi-content">
             <div class="alert-kpi-value">${total}</div>
             <div class="alert-kpi-label">Total de Alertas</div>
@@ -14404,16 +14414,19 @@ function renderAlertas() {
         <div class="alert-card-actions" onclick="event.stopPropagation()">
           ${phone ? `
             <button class="alert-action-btn alert-action-btn--primary" onclick="openWaModal('${safeKey}')" title="Enviar WhatsApp">
-              💬 WhatsApp
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              WhatsApp
             </button>
           ` : ''}
           ${phone ? `
             <button class="alert-action-btn alert-action-btn--secondary" onclick="oppSendCoupon('${safeKey}',10)" title="Enviar cupom de 10%">
-              🎟️ Cupom 10%
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+              Cupom 10%
             </button>
           ` : ''}
           <button class="alert-action-btn alert-action-btn--ghost" onclick="openClientePage('${safeKey}')" title="Ver perfil completo">
-            Ver Perfil →
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+            Ver Perfil
           </button>
         </div>
       </div>
