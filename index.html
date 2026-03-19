@@ -784,16 +784,15 @@
             </div>
 
             <!-- ── Filtros ── -->
-            <div class="saas-filterbar dash-filterbar">
-              <div class="saas-chips">
-                <select id="dash-year" class="saas-chip saas-chip-select" onchange="renderDash()">
-                  <option value="">Ano</option>
+            <div class="dash-filterbar-v2">
+              <!-- Grupo esquerdo: seletores fixos -->
+              <div class="dash-filter-selects">
+                <select id="dash-year" class="dash-fsel" onchange="renderDash()">
+                  <option value="">Todos os anos</option>
+                  <option value="2025">2025</option>
+                  <option value="2026">2026</option>
                 </select>
-                <select
-                  id="dash-canal-filter"
-                  class="saas-chip saas-chip-select"
-                  onchange="renderDash()"
-                >
+                <select id="dash-canal-filter" class="dash-fsel" onchange="renderDash()">
                   <option value="">Canal</option>
                   <option value="ml">Mercado Livre</option>
                   <option value="shopee">Shopee</option>
@@ -803,40 +802,69 @@
                   <option value="cnpj">B2B/CNPJ</option>
                   <option value="outros">Outros</option>
                 </select>
-                <select
-                  id="dash-tipo-filter"
-                  class="saas-chip saas-chip-select"
-                  onchange="renderDash()"
-                >
+                <select id="dash-tipo-filter" class="dash-fsel" onchange="renderDash()">
                   <option value="">Tipo de venda</option>
                   <option value="b2c">B2C</option>
                   <option value="b2b">B2B</option>
                 </select>
-                <input
-                  id="dash-from"
-                  class="saas-chip saas-chip-input"
-                  data-date-mask="1"
-                  inputmode="numeric"
-                  placeholder="de (dd/mm/aaaa)"
-                  onchange="renderDash()"
-                />
-                <input
-                  id="dash-to"
-                  class="saas-chip saas-chip-input"
-                  data-date-mask="1"
-                  inputmode="numeric"
-                  placeholder="até (dd/mm/aaaa)"
-                  onchange="renderDash()"
-                />
-                <button id="dash-range-30" class="saas-chip" onclick="setDashRange(30)">30d</button>
-                <button id="dash-range-90" class="saas-chip" onclick="setDashRange(90)">90d</button>
-                <button id="dash-compare-btn" class="saas-chip" onclick="toggleDashCompare()">
-                  Comparar
-                </button>
-                <button id="dash-ma-btn" class="saas-chip" onclick="toggleDashMA()">
-                  Média móvel
-                </button>
               </div>
+
+              <!-- Separador -->
+              <div class="dash-filter-sep"></div>
+
+              <!-- Pill de período personalizado -->
+              <div class="dash-date-pill" id="dash-date-pill" tabindex="0" onclick="dashDatePillToggle(event)">
+                <span class="dash-date-ico">📅</span>
+                <span id="dash-date-pill-label">Selecionar período</span>
+                <span class="dash-date-caret">▾</span>
+                <div class="dash-date-dropdown" id="dash-date-dropdown" onclick="event.stopPropagation()">
+                  <div class="dash-date-fields">
+                    <div class="dash-date-field">
+                      <label class="dash-date-lbl">De</label>
+                      <input
+                        id="dash-from"
+                        class="dash-date-input"
+                        data-date-mask="1"
+                        inputmode="numeric"
+                        placeholder="dd/mm/aaaa"
+                      />
+                    </div>
+                    <span class="dash-date-between">—</span>
+                    <div class="dash-date-field">
+                      <label class="dash-date-lbl">Até</label>
+                      <input
+                        id="dash-to"
+                        class="dash-date-input"
+                        data-date-mask="1"
+                        inputmode="numeric"
+                        placeholder="dd/mm/aaaa"
+                      />
+                    </div>
+                  </div>
+                  <button class="dash-date-apply-btn" onclick="applyDashDateRange()">Aplicar</button>
+                </div>
+              </div>
+
+              <!-- Dropdown de período rápido -->
+              <div class="dash-period-wrap" id="dash-period-wrap">
+                <button class="dash-period-trigger" id="dash-period-trigger" onclick="dashPeriodToggle(event)">
+                  <span id="dash-period-label">Período</span>
+                  <span class="dash-period-caret">▾</span>
+                </button>
+                <div class="dash-period-menu" id="dash-period-menu">
+                  <button class="dash-period-item" onclick="setDashRange(15)">15 dias</button>
+                  <button class="dash-period-item" onclick="setDashRange(30)">30 dias</button>
+                  <button class="dash-period-item" onclick="setDashRange(45)">45 dias</button>
+                  <div class="dash-period-divider"></div>
+                  <button class="dash-period-item" onclick="setDashRangeMonths(3)">3 meses</button>
+                  <button class="dash-period-item" onclick="setDashRangeMonths(6)">6 meses</button>
+                  <button class="dash-period-item" onclick="setDashRangeMonths(12)">1 ano</button>
+                </div>
+              </div>
+
+              <!-- Comparar e Média móvel -->
+              <button id="dash-compare-btn" class="dash-filter-btn" onclick="toggleDashCompare()">Comparar</button>
+              <button id="dash-ma-btn" class="dash-filter-btn" onclick="toggleDashMA()">Média móvel</button>
             </div>
 
             <!-- ── Banners & Insights ── -->

@@ -5622,6 +5622,11 @@ function renderDashNow() {
     }
     if (storedFrom && !fromEl.value) fromEl.value = fmtDate(storedFrom);
     if (storedTo && !toEl.value) toEl.value = fmtDate(storedTo);
+    // atualiza label da pill de data
+    const pillLabel = document.getElementById('dash-date-pill-label');
+    if (pillLabel && fromEl.value && toEl.value) {
+      pillLabel.textContent = fromEl.value + ' — ' + toEl.value;
+    }
 
     const selectedYear = Number(yearSel?.value || '');
     if (selectedYear && selectedYear > 1900 && selectedYear < 2200) {
@@ -5716,14 +5721,8 @@ function renderDashNow() {
   try {
     const compareBtn = document.getElementById('dash-compare-btn');
     const maBtn = document.getElementById('dash-ma-btn');
-    const r30 = document.getElementById('dash-range-30');
-    const r90 = document.getElementById('dash-range-90');
     if (compareBtn) compareBtn.classList.toggle('active', isDashCompareEnabled());
     if (maBtn) maBtn.classList.toggle('active', isDashMAEnabled());
-    const diffDays =
-      fromTs != null && toTs != null ? Math.round((toTs - fromTs) / (24 * 60 * 60 * 1000)) + 1 : 0;
-    if (r30) r30.classList.toggle('active', diffDays === 30);
-    if (r90) r90.classList.toggle('active', diffDays === 90);
   } catch (_e) {}
 
   const ordersTipo = dashTipo
@@ -7352,13 +7351,7 @@ function openDashActionsModal() {
   modal.classList.add('open');
 }
 
-function setDashRange(days) {
-  const n = Math.max(1, Number(days) || 30);
-  const to = new Date();
-  const from = new Date();
-  from.setDate(to.getDate() - (n - 1));
-  const fromIso = iso(from);
-  const toIso = iso(to);
+function _applyDashIsoRange(fromIso, toIso, label) {
   const fromEl = document.getElementById('dash-from');
   const toEl = document.getElementById('dash-to');
   const yearSel = document.getElementById('dash-year');
@@ -7371,8 +7364,87 @@ function setDashRange(days) {
   if (toEl) toEl.value = fmtDate(toIso);
   localStorage.setItem('crm_dash_from', fromIso);
   localStorage.setItem('crm_dash_to', toIso);
+  // atualiza label da pill
+  const pill = document.getElementById('dash-date-pill-label');
+  if (pill) pill.textContent = fmtDate(fromIso) + ' — ' + fmtDate(toIso);
+  // marca item ativo no menu de período
+  if (label) {
+    document.querySelectorAll('.dash-period-item').forEach((b) => {
+      b.classList.toggle('active', b.textContent.trim() === label);
+    });
+    const trigger = document.getElementById('dash-period-label');
+    if (trigger) trigger.textContent = label;
+  }
+  // fecha os dropdowns
+  document.getElementById('dash-period-wrap')?.classList.remove('open');
   renderDash();
 }
+
+function setDashRange(days) {
+  const n = Math.max(1, Number(days) || 30);
+  const to = new Date();
+  const from = new Date();
+  from.setDate(to.getDate() - (n - 1));
+  const label = n === 15 ? '15 dias' : n === 30 ? '30 dias' : n === 45 ? '45 dias' : `${n}d`;
+  _applyDashIsoRange(iso(from), iso(to), label);
+}
+
+function setDashRangeMonths(months) {
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(to.getMonth() - months);
+  const label = months === 3 ? '3 meses' : months === 6 ? '6 meses' : months === 12 ? '1 ano' : `${months}m`;
+  _applyDashIsoRange(iso(from), iso(to), label);
+}
+
+function applyDashDateRange() {
+  const fromEl = document.getElementById('dash-from');
+  const toEl = document.getElementById('dash-to');
+  const fromIso = parseDateToIso(String(fromEl?.value || ''));
+  const toIso = parseDateToIso(String(toEl?.value || ''));
+  if (!fromIso || !toIso) return;
+  // limpa seleção de período rápido
+  document.querySelectorAll('.dash-period-item').forEach((b) => b.classList.remove('active'));
+  const trigger = document.getElementById('dash-period-label');
+  if (trigger) trigger.textContent = 'Período';
+  // atualiza label da pill
+  const pill = document.getElementById('dash-date-pill-label');
+  if (pill) pill.textContent = fmtDate(fromIso) + ' — ' + fmtDate(toIso);
+  localStorage.setItem('crm_dash_from', fromIso);
+  localStorage.setItem('crm_dash_to', toIso);
+  document.getElementById('dash-date-pill')?.classList.remove('open');
+  renderDash();
+}
+
+function dashDatePillToggle(e) {
+  const pill = document.getElementById('dash-date-pill');
+  const periodWrap = document.getElementById('dash-period-wrap');
+  periodWrap?.classList.remove('open');
+  pill?.classList.toggle('open');
+}
+
+function dashPeriodToggle(e) {
+  e.stopPropagation();
+  const wrap = document.getElementById('dash-period-wrap');
+  const pill = document.getElementById('dash-date-pill');
+  pill?.classList.remove('open');
+  wrap?.classList.toggle('open');
+}
+
+// fechar dropdowns ao clicar fora
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('#dash-date-pill')) {
+    document.getElementById('dash-date-pill')?.classList.remove('open');
+  }
+  if (!e.target.closest('#dash-period-wrap')) {
+    document.getElementById('dash-period-wrap')?.classList.remove('open');
+  }
+});
+
+window.setDashRangeMonths = setDashRangeMonths;
+window.applyDashDateRange = applyDashDateRange;
+window.dashDatePillToggle = dashDatePillToggle;
+window.dashPeriodToggle = dashPeriodToggle;
 
 function getDashRangeIso() {
   const fromEl = document.getElementById('dash-from');
