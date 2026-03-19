@@ -105,8 +105,10 @@ window.onerror = function (message, source, lineno, colno, error) {
     // Grid padrão muito sutil
     Chart.defaults.borderColor = 'rgba(255,255,255,0.04)';
 
-    // Animações suaves
-    Chart.defaults.animation = { duration: 700, easing: 'easeInOutQuart' };
+    // Animações suaves — setar propriedades individualmente para não quebrar
+    // a instância interna Animations do Chart.js 4.x (this._fn)
+    Chart.defaults.animation.duration = 700;
+    Chart.defaults.animation.easing = 'easeInOutQuart';
     Chart.defaults.transitions.active.animation.duration = 150;
 
     // Tooltip premium
@@ -123,9 +125,9 @@ window.onerror = function (message, source, lineno, colno, error) {
     Chart.defaults.plugins.tooltip.caretSize = 5;
     Chart.defaults.plugins.tooltip.caretPadding = 8;
 
-    // Hover mode
-    Chart.defaults.hover.mode = 'index';
-    Chart.defaults.hover.intersect = false;
+    // Interação global (Chart.js 4.x: interaction, não hover)
+    Chart.defaults.interaction.mode = 'index';
+    Chart.defaults.interaction.intersect = false;
   }
 })();
 
