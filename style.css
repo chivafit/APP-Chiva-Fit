@@ -10665,6 +10665,130 @@ html.light .chart-card-header .chart-title {
   }
 }
 
+/* ── cc-funil: 5 etapas CRM locais ── */
+.cc-funil {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.cc-funil-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.cc-funil-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.cc-funil-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.cc-funil-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.cc-funil-pct {
+  font-size: 10px;
+  font-weight: 800;
+}
+.cc-funil-track {
+  height: 6px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 99px;
+  overflow: hidden;
+}
+html.light .cc-funil-track { background: rgba(0,0,0,0.07); }
+.cc-funil-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s cubic-bezier(.4,0,.2,1);
+}
+.cc-funil-insight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.cc-funil-insight svg { flex-shrink: 0; }
+.cc-funil-insight--pos     { background: rgba(16,185,129,0.10); color: #34d399; }
+.cc-funil-insight--warn    { background: rgba(245,158,11,0.10);  color: #fbbf24; }
+.cc-funil-insight--neutral { background: rgba(99,102,241,0.10);  color: #a5b4fc; }
+html.light .cc-funil-insight--pos     { background: #ecfdf5; color: #059669; }
+html.light .cc-funil-insight--warn    { background: #fffbeb; color: #d97706; }
+html.light .cc-funil-insight--neutral { background: #eef2ff; color: #4f46e5; }
+
+/* ── cc-channels: barras horizontais de canais ── */
+.cc-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.cc-channel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.cc-channel-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cc-channel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cc-channel-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-channel-value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.cc-channel-pct {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-3);
+  min-width: 28px;
+  text-align: right;
+  white-space: nowrap;
+}
+.cc-channel-track {
+  height: 6px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 99px;
+  overflow: hidden;
+}
+html.light .cc-channel-track { background: rgba(0,0,0,0.07); }
+.cc-channel-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s cubic-bezier(.4,0,.2,1);
+}
+
 /* ── Funil de Recompra — CSS bars ── */
 .funil-bars-wrap {
   display: flex;

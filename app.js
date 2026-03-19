@@ -6524,7 +6524,9 @@ function renderDashNow() {
   renderAlertBanner(ordersSales);
   renderDashSalesByDay(ordersSales, ordersPrevSales);
   const ordersNew = ordersSales.filter((o) => novosSet.has(orderCustomerKey(o)));
-  renderChartCanal(ordersNew);
+  renderCCFunil(cliList);
+  renderCCChannels(ordersSales);
+  renderChartCanal(ordersSales);
   try {
     const prodEl = document.getElementById('dash-top-products');
     if (prodEl && !prodEl.innerHTML)
@@ -8663,6 +8665,132 @@ function renderDashV2NovosClientes(series) {
       },
     },
   });
+}
+
+function renderCCFunil(cliList) {
+  const el = document.getElementById('dash-funil-bars');
+  if (!el) return;
+  const list = Array.isArray(cliList) ? cliList : [];
+  if (!list.length) { el.innerHTML = '<div class="empty">Sem dados no período</div>'; return; }
+
+  const total = list.length;
+  const vipCount   = list.filter((c) => calcCliScores(c).status === 'vip').length;
+  const novosCount = list.filter((c) => c.orders.length === 1 && daysSince(c.last) <= 60 && !isCNPJ(c.doc)).length;
+  const ativosCount = list.filter((c) => {
+    const sc = calcCliScores(c);
+    return c.orders.length >= 2 && daysSince(c.last) <= 90 && sc.status !== 'vip' && !isCNPJ(c.doc);
+  }).length;
+  const cicloCount = list.filter((c) => {
+    const sc = calcCliScores(c);
+    const avg = sc.avgInterval || 0;
+    const ds = daysSince(c.last);
+    return avg >= 15 && ds >= avg * 0.9 && ds <= avg * 1.6 && sc.status !== 'vip';
+  }).length;
+  const inativosCount = list.filter((c) => daysSince(c.last) > 90 && !isCNPJ(c.doc) && calcCliScores(c).status !== 'vip').length;
+
+  const stages = [
+    { label: 'Novos',        count: novosCount,    color: '#22c55e' },
+    { label: 'Ativos',       count: ativosCount,   color: '#10b981' },
+    { label: 'Em recompra',  count: cicloCount,    color: '#3b82f6' },
+    { label: 'Inativos',     count: inativosCount, color: '#ef4444' },
+    { label: 'VIP',          count: vipCount,      color: '#f59e0b' },
+  ].map((s) => ({ ...s, pct: total > 0 ? Math.round((s.count / total) * 100) : 0 }));
+
+  const maxCount = Math.max(...stages.map((s) => s.count), 1);
+
+  const pctInativos = total > 0 ? (inativosCount / total) * 100 : 0;
+  const pctCiclo    = total > 0 ? (cicloCount    / total) * 100 : 0;
+  const pctVip      = total > 0 ? (vipCount      / total) * 100 : 0;
+
+  let insight = '', insightType = 'neutral';
+  if (pctInativos > 50) {
+    insight = `Alta concentração de inativos — ${pctInativos.toFixed(0)}% da base`;
+    insightType = 'warn';
+  } else if (pctCiclo >= 15) {
+    insight = `Base com bom potencial de recompra (${cicloCount} clientes no ciclo)`;
+    insightType = 'pos';
+  } else if (pctVip >= 5) {
+    insight = `VIPs representam ${pctVip.toFixed(0)}% da base — proteja essa fatia`;
+    insightType = 'pos';
+  } else if (pctInativos > 25) {
+    insight = `${pctInativos.toFixed(0)}% da base inativa — campanha de reativação recomendada`;
+    insightType = 'warn';
+  }
+
+  const SVG_INFO = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`;
+
+  el.innerHTML = `
+    <div class="cc-funil">
+      ${stages.map((s) => `
+        <div class="cc-funil-item">
+          <div class="cc-funil-label">
+            <span class="cc-funil-name">${escapeHTML(s.label)}</span>
+            <span class="cc-funil-count">${s.count.toLocaleString('pt-BR')}<span class="cc-funil-pct" style="color:${s.color}"> ${s.pct}%</span></span>
+          </div>
+          <div class="cc-funil-track">
+            <div class="cc-funil-fill" style="width:${Math.round((s.count / maxCount) * 100)}%;background:${s.color}"></div>
+          </div>
+        </div>`).join('')}
+      ${insight ? `<div class="cc-funil-insight cc-funil-insight--${insightType}">${SVG_INFO} ${escapeHTML(insight)}</div>` : ''}
+    </div>`;
+}
+
+function renderCCChannels(orders) {
+  const el = document.getElementById('dash-channel-breakdown');
+  if (!el) return;
+  const list = Array.isArray(orders) ? orders : [];
+  if (!list.length) { el.innerHTML = '<div class="empty">Sem dados no período</div>'; return; }
+
+  const byKey = {};
+  list.forEach((o) => {
+    const c = detectCh(o);
+    if (!byKey[c]) byKey[c] = { revenue: 0, count: 0 };
+    byKey[c].revenue += val(o);
+    byKey[c].count++;
+  });
+
+  const totalRevenue = Object.values(byKey).reduce((s, v) => s + v.revenue, 0) || 1;
+  const brandColors = { ml: '#fbbf24', shopee: '#f97316', amazon: '#22d3ee', shopify: '#84cc16', yampi: '#d946ef', cnpj: '#f59e0b', outros: '#94a3b8' };
+
+  const sorted = Object.entries(byKey)
+    .map(([key, v]) => ({ key, ...v, pct: Math.round((v.revenue / totalRevenue) * 100), color: brandColors[key] || '#0FA765' }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const maxPct = sorted[0]?.pct || 1;
+  const dominant = sorted[0];
+
+  let insight = '', insightType = 'neutral';
+  if (dominant) {
+    if (dominant.pct > 70) {
+      insight = `Dependência alta de ${CH[dominant.key] || dominant.key} (${dominant.pct}% da receita)`;
+      insightType = 'warn';
+    } else if (dominant.pct > 50) {
+      insight = `${CH[dominant.key] || dominant.key} lidera com ${dominant.pct}% — diversifique canais`;
+      insightType = 'neutral';
+    } else {
+      insight = `Canais bem distribuídos — ${CH[dominant.key] || dominant.key} lidera com ${dominant.pct}%`;
+      insightType = 'pos';
+    }
+  }
+
+  const SVG_INFO = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`;
+
+  el.innerHTML = `
+    <div class="cc-channels">
+      ${sorted.map((s) => `
+        <div class="cc-channel-item">
+          <div class="cc-channel-header">
+            <span class="cc-channel-dot" style="background:${s.color}"></span>
+            <span class="cc-channel-name">${escapeHTML(CH[s.key] || s.key)}</span>
+            <span class="cc-channel-value">${escapeHTML(fmtBRL(s.revenue))}</span>
+            <span class="cc-channel-pct">${s.pct}%</span>
+          </div>
+          <div class="cc-channel-track">
+            <div class="cc-channel-fill" style="width:${Math.round((s.pct / maxPct) * 100)}%;background:${s.color}"></div>
+          </div>
+        </div>`).join('')}
+      ${insight ? `<div class="cc-funil-insight cc-funil-insight--${insightType}">${SVG_INFO} ${escapeHTML(insight)}</div>` : ''}
+    </div>`;
 }
 
 function renderDashV2Funil(rows) {
