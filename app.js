@@ -10197,10 +10197,7 @@ function renderClientePage() {
     console.groupCollapsed('cliente carregado na tela');
     console.log('currentClienteId:', currentClienteId);
     console.log('cliente carregado na tela:', c);
-    console.log('orders:', orders.length, orders[0] || null);
-    console.log('firstOrder:', firstOrder || null);
-    console.log('firstOrder.contato:', firstOrder?.contato || null);
-    console.log('firstOrder.contato.endereco:', firstOrder?.contato?.endereco || null);
+    console.log('metrics:', metrics);
     console.log('enriched:', enriched);
     console.groupEnd();
   } catch (_e) {}
@@ -10253,6 +10250,12 @@ function renderClientePage() {
       <div class="profile-kpi"><div class="profile-kpi-label">Intervalo médio</div><div class="profile-kpi-val">${escapeHTML(avgInterval ? avgInterval + 'd' : '—')}</div></div>
     </div>
   `;
+
+  // Buscar pedidos do cliente para histórico
+  const orders = allOrders
+    .filter((o) => orderCustomerKey(o) === customerIdCanonical)
+    .slice()
+    .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
 
   const chAgg = {};
   const prodAgg = {};
