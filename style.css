@@ -152,8 +152,8 @@
      --font         : interface, botões, labels, corpo
      --mono         : dados numéricos, código, IDs
   ═══════════════════════════════════════════ */
-  --font-display: 'Playfair Display', 'Plus Jakarta Sans', serif;
-  --font: 'Plus Jakarta Sans', 'system-ui', sans-serif;
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font: 'Inter', system-ui, sans-serif;
   --mono: 'JetBrains Mono', monospace;
 
   /* ═══════════════════════════════════════════
@@ -12893,3 +12893,153 @@ html.light .cc-alert { border-bottom-color: rgba(15, 23, 42, 0.06); }
 html.light .cc-alert:hover { background: #f8faf9; }
 html.light .cc-alerts-header { border-bottom-color: rgba(15, 23, 42, 0.06); }
 html.light .cc-alert-cta { background: #f8faf9; border-color: rgba(15, 23, 42, 0.1); color: #334155; }
+
+/* ═══════════════════════════════════════════════════════
+   MINIMAL REDESIGN — DASHBOARD v2
+   ═══════════════════════════════════════════════════════ */
+
+/* Hide the old hero block entirely */
+.cc-hero { display: none !important; }
+
+/* Source badges — compact minimal pills */
+.src-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  letter-spacing: 0.01em;
+}
+.dash-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-weight: 400;
+}
+
+/* Page header — minimal */
+.dash-page-header {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+}
+.page-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em;
+}
+.dash-period-badge {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 400;
+  margin-top: 1px;
+}
+.btn-dash-primary,
+.btn-dash-primary:hover {
+  font-size: 12px;
+  padding: 6px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  border-radius: 8px;
+}
+.btn {
+  font-size: 12px !important;
+  padding: 6px 11px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+}
+
+/* Alerts panel — compact & minimal */
+.cc-alerts-wrap {
+  border-radius: 12px !important;
+  margin-bottom: 16px !important;
+}
+.cc-alerts-header {
+  padding: 12px 16px !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cc-alerts-title {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: var(--text-2) !important;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cc-alerts-count {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 1px 7px !important;
+  border-radius: 99px !important;
+  min-width: 0;
+}
+
+/* "Ações do dia" button inside alerts header */
+.cc-alerts-exec {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--card);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.cc-alerts-exec:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+html.light .cc-alerts-exec {
+  background: #f8faf9;
+  border-color: rgba(15,23,42,0.1);
+  color: #334155;
+}
+
+/* Alert rows — tighter, no icon box */
+.cc-alert {
+  padding: 11px 16px !important;
+  gap: 12px !important;
+}
+.cc-alert-icon { display: none !important; }
+.cc-alert-title {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+.cc-alert-sub {
+  font-size: 11px !important;
+}
+.cc-alert-level { display: none !important; }
+.cc-alert-cta {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  padding: 5px 11px !important;
+  border-radius: 7px !important;
+  white-space: nowrap;
+}
+
+/* Filter bar — minor tightening */
+.dash-filterbar-v2 {
+  margin-bottom: 10px;
+}
+.dash-fsel {
+  font-size: 12px;
+  font-family: var(--font);
+}
