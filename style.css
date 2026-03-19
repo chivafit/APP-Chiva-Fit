@@ -6901,6 +6901,7 @@ html.light .chart-card {
 html.light .filter-bar input,
 html.light .filter-bar select {
   border-color: #e5e7eb;
+  color-scheme: light;
 }
 .filter-bar input:hover,
 .filter-bar select:hover {
@@ -8815,6 +8816,7 @@ html.light .mod-field select,
 html.light .mod-field textarea {
   background: #fff;
   border-color: var(--border);
+  color-scheme: light;
 }
 
 .mod-actions {
@@ -8923,7 +8925,7 @@ html.light .dash-filterbar-v2 {
 }
 .dash-fsel:hover { border-color: var(--border2); color: var(--text); }
 .dash-fsel:focus { border-color: var(--border2); box-shadow: none; }
-html.light .dash-fsel { background: #fff; }
+html.light .dash-fsel { background: #fff; color-scheme: light; }
 
 /* separador vertical */
 .dash-filter-sep {
