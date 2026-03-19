@@ -1746,6 +1746,7 @@ function salvarInsumo() {
   toast('Insumo salvo!');
 }
 function deletarInsumo() {
+  if (!confirm('Excluir este insumo? Essa ação não pode ser desfeita.')) return;
   var id = String(document.getElementById('insumo-edit-id').value || '');
   var idx = allInsumos.findIndex(function (x) {
     return String(x.id) === String(id);
@@ -1988,6 +1989,7 @@ function salvarOrdem() {
   toast('OP salva!');
 }
 function deletarOrdem() {
+  if (!confirm('Excluir esta ordem de produção? Essa ação não pode ser desfeita.')) return;
   var id = String(document.getElementById('ordem-edit-id').value || '');
   allOrdens = (allOrdens || []).filter(function (x) {
     return String((x && x.id) || '') !== id;

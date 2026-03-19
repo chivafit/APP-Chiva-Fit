@@ -811,8 +811,8 @@ body {
   height: 8px;
   flex: 1;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(15,167,101,0.18) 0%, var(--chiva-primary) 55%, var(--chiva-dark) 100%);
-  border: 1px solid var(--chiva-primary-border);
+  background: linear-gradient(90deg, #0d3320 0%, #00a85e 50%, #00D97E 100%);
+  border: 1px solid rgba(0, 217, 126, 0.25);
 }
 .geo-map-legend .lbl {
   font-size: 10px;
