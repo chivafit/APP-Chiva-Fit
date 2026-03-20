@@ -1250,6 +1250,199 @@
 
 .alert-warn a { color: var(--gold); font-weight: 700; cursor: pointer; }
 
+/* ════════════════════════════════════════════════════════════════
+   PAINEL OPERACIONAL — Estilos
+   ════════════════════════════════════════════════════════════════ */
+
+.painel-page {}
+
+.painel-header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.engine-running {
+  color: #60a5fa;
+  font-weight: 700;
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* KPIs do motor */
+.painel-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+/* Grid do painel */
+.painel-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 960px) {
+  .painel-main-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── Barra de status da fila ────────────────────────────────── */
+.queue-status-bar { padding: 14px 18px; }
+
+.queue-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.queue-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.queue-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.queue-pill-count { color: var(--text); }
+.queue-pill-label { color: var(--text-3); }
+
+.queue-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.qbar-seg {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+.queue-bar-total {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+}
+
+/* ─── Tabela de regras ───────────────────────────────────────── */
+.table-scroll { overflow-x: auto; }
+
+.rule-nome {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.trigger-badge {
+  display: inline-block;
+  font-size: 11px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.count-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.count-badge.green  { background: rgba(34,197,94,0.15);  color: var(--green); }
+.count-badge.amber  { background: rgba(251,191,36,0.15); color: var(--gold); }
+.count-badge.red    { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+.count-muted { font-size: 12px; color: var(--text-3); }
+.rate-green  { color: var(--green); font-weight: 700; }
+.text-nowrap { white-space: nowrap; }
+
+.row-inactive { opacity: 0.5; }
+
+/* ─── Fila ao vivo ───────────────────────────────────────────── */
+.queue-live-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.queue-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.queue-item-row:last-child { border-bottom: none; }
+.queue-item-row:hover { background: rgba(255,255,255,0.02); }
+
+.queue-item-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.queue-item-info { flex: 1; min-width: 0; }
+.queue-item-nome { font-size: 13px; font-weight: 600; color: var(--text); }
+.queue-item-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.queue-item-error {
+  font-size: 11px;
+  color: var(--red);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.queue-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ─── Log de execuções ───────────────────────────────────────── */
+.exec-table { min-width: 800px; }
+
+.error-hint {
+  font-size: 11px;
+  color: var(--red);
+  cursor: help;
+  text-decoration: underline dotted;
+}
+
+.failed-section .card-header {
+  border-bottom-color: rgba(239,68,68,0.3);
+}
+
 /* ─── Responsividade ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   .recompra-page { padding: 14px 16px 32px; }
