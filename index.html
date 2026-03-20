@@ -629,6 +629,35 @@
             ><span class="nav-label">Marca</span>
           </div>
 
+          <!-- ── MÓDULO RECOMPRA & WHATSAPP ── -->
+          <div class="sidebar-section-label">Recompra</div>
+
+          <div class="nav-item" data-page="recompra" id="nav-recompra" data-tooltip="Central de Recompra">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg></span
+            ><span class="nav-label">Central de Recompra</span>
+          </div>
+
+          <div class="nav-item" data-page="campanhas" id="nav-campanhas" data-tooltip="Campanhas WhatsApp">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></span
+            ><span class="nav-label">Campanhas</span>
+          </div>
+
+          <div class="nav-item" data-page="automacoes" id="nav-automacoes" data-tooltip="Automações">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span
+            ><span class="nav-label">Automações</span>
+          </div>
+
+          <div class="nav-item" data-page="mensagens" id="nav-mensagens" data-tooltip="Mensagens">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span
+            ><span class="nav-label">Mensagens</span>
+          </div>
+
+          <div class="nav-item" data-page="painel-operacional" id="nav-painel-operacional" data-tooltip="Motor de Recompra">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></span
+            ><span class="nav-label">Motor</span
+            ><span class="nav-badge" id="badge-motor" style="display:none">0</span>
+          </div>
+
           <hr class="sidebar-divider" />
           <div class="nav-item" data-page="config" id="nav-config" data-tooltip="Configurações">
             <span class="nav-icon"
@@ -3642,6 +3671,28 @@
                   </div>
                 </div>
               </div>
+            <!-- ═══════════════════════════════════════════════════
+                 MÓDULO RECOMPRA & AUTOMAÇÃO WHATSAPP
+            ════════════════════════════════════════════════════ -->
+
+            <!-- Central de Recompra -->
+            <div class="page" id="page-recompra"></div>
+
+            <!-- Campanhas WhatsApp -->
+            <div class="page" id="page-campanhas"></div>
+
+            <!-- Automações -->
+            <div class="page" id="page-automacoes"></div>
+
+            <!-- Mensagens (Inbox) -->
+            <div class="page" id="page-mensagens"></div>
+
+            <!-- Configurações WhatsApp -->
+            <div class="page" id="page-config-whatsapp"></div>
+
+            <!-- Motor de Recompra — Painel Operacional -->
+            <div class="page" id="page-painel-operacional"></div>
+
             <!-- /main-content -->
           <!-- /main-area -->
         </main>
@@ -3741,5 +3792,9 @@
   <!-- Mobile behavior layer: gestures, scroll-lock, table wrappers, nav auto-close -->
   <!-- Loaded last so window.openMobileSidebar / closeMobileSidebar are already defined -->
   <script src="./mobile-behavior.js" defer></script>
+
+  <!-- Módulo Recompra & WhatsApp -->
+  <link rel="stylesheet" href="./recompra/recompra.css">
+  <script type="module" src="./recompra/recompraInit.js" defer></script>
   </body>
 </html>
