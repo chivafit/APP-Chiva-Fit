@@ -68,6 +68,7 @@
     <link rel="stylesheet" href="./main.css" />
     <link rel="stylesheet" href="./styles/main.css" />
     <link rel="stylesheet" href="./redesign.css" />
+    <link rel="stylesheet" href="./mobile.css" />
   </head>
   <body>
     <!-- LOGIN -->
@@ -3737,5 +3738,8 @@
         </div>
       </div>
     </div>
+  <!-- Mobile behavior layer: gestures, scroll-lock, table wrappers, nav auto-close -->
+  <!-- Loaded last so window.openMobileSidebar / closeMobileSidebar are already defined -->
+  <script src="./mobile-behavior.js" defer></script>
   </body>
 </html>
