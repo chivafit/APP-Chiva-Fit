@@ -432,3 +432,212 @@
 
 /* ─── 25. LOGIN PAGE ─────────────────────────────────────────── */
 /* login.html has complete inline responsive CSS — no overrides needed */
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 2 — JS-INTEGRATED BEHAVIOR LAYER
+   Styles that pair with mobile-behavior.js
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 26. BODY SCROLL LOCK (paired with initScrollLock in JS) ── */
+body.sidebar-open {
+  overflow: hidden;
+  /* Prevent rubberbanding/overscroll behind the drawer */
+  overscroll-behavior: none;
+}
+
+/* ─── 27. TABLE SCROLL WRAPPER (paired with wrapTable in JS) ─── */
+/*
+   .mobile-table-scroll is injected by mobile-behavior.js around
+   every .chiva-table. On mobile it becomes the scroll viewport;
+   on desktop it is visually invisible.
+*/
+.mobile-table-scroll {
+  width: 100%;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .mobile-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Subtle fade-edge hint that table scrolls */
+    border-radius: var(--r-md);
+  }
+
+  /* Undo the CSS-only display:block approach now that JS wrapper exists */
+  .mobile-table-scroll .chiva-table {
+    display: table;
+    overflow-x: visible;
+    min-width: 520px;
+  }
+
+  /* Scrollbar styling inside the wrapper */
+  .mobile-table-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+  .mobile-table-scroll::-webkit-scrollbar-thumb {
+    background: var(--border2, #2a3d2e);
+    border-radius: 4px;
+  }
+}
+
+/* ─── 28. iOS SAFE AREA INSETS ──────────────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  /* Detail drawer: clear bottom notch */
+  #detail-drawer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* WhatsApp modal */
+  #wa-modal .wa-box {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  /* Cart history modal */
+  #car-history-modal > div {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  /* Topbar: respect status bar on iOS PWA */
+  #topbar {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Page bottom padding: above home indicator */
+  @media (max-width: 768px) {
+    .page {
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* ─── 29. ALERT LIST ACTIONS — single action on small screens ── */
+/*
+   .alert-list-item at ≤640px becomes 3 columns (32px 1fr auto).
+   The actions cell has two buttons; the second one wraps awkwardly
+   on very narrow screens.
+*/
+@media (max-width: 480px) {
+  .alert-list-actions {
+    flex-direction: column;
+    gap: 4px;
+    align-items: stretch;
+  }
+
+  .alert-list-btn {
+    min-height: 36px;
+    font-size: 11px;
+    padding: 6px 8px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* Hide the secondary "Ver perfil" button to save space;
+     the row itself is clickable (onclick="openClientePage(...)") */
+  .alert-list-btn--ghost {
+    display: none;
+  }
+}
+
+/* ─── 30. RADAR / OPP CARDS — tighter on phone ─────────────── */
+@media (max-width: 480px) {
+  .radar-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .radar-card {
+    padding: 14px 12px;
+  }
+
+  .radar-card-vals {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .radar-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .opp-mini-btn {
+    flex: 1;
+    min-height: 40px;
+    justify-content: center;
+  }
+}
+
+/* ─── 31. TASKS KPI ROW — 2 cols on mobile ──────────────────── */
+@media (max-width: 600px) {
+  .tasks-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .tasks-kpi {
+    padding: 10px 12px;
+  }
+}
+
+/* ─── 32. DRAWER SCROLL AREA FIX ───────────────────────────── */
+/* Ensure drawer body scrolls independently and doesn't bleed */
+@media (max-width: 600px) {
+  .drawer-body {
+    /* Momentum scroll on iOS */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* ─── 33. SIDEBAR OPEN STATE REFINEMENTS ───────────────────── */
+/* When JS adds .open, ensure sidebar is fully visible above overlay */
+@media (max-width: 768px) {
+  #sidebar.open {
+    z-index: 200;
+    /* Hardware-accelerate the drawer for smooth 60fps slide */
+    will-change: transform;
+  }
+
+  /* Slightly stronger overlay tint for depth perception */
+  #sidebar-overlay.visible {
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+}
+
+/* ─── 34. MODAL BACKDROPS — full-height on mobile ───────────── */
+@media (max-width: 600px) {
+  #wa-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  #wa-modal .wa-box {
+    width: 100%;
+    margin: 0;
+    border-radius: 20px 20px 0 0;
+    max-height: 90dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ─── 35. CAR-HISTORY MODAL ────────────────────────────────── */
+@media (max-width: 600px) {
+  #car-history-modal > div {
+    width: 100%;
+    margin: 0;
+    border-radius: 20px 20px 0 0;
+    max-height: 85dvh;
+    overflow-y: auto;
+    align-self: flex-end;
+  }
+}
+
+/* ─── 36. TOPBAR: hide title on very narrow screens ─────────── */
+/* Title is redundant with the page heading inside the content */
+@media (max-width: 400px) {
+  .topbar-title {
+    display: none;
+  }
+}
