@@ -55,7 +55,8 @@ describe('jsonResponse', () => {
   it('includes custom CORS headers', () => {
     const req = new Request('https://example.com', { headers: { origin: 'https://example.com' } });
     const res = jsonResponse({ ok: true }, 200, req);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+    // Origem não permitida retorna o fallback
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://app-chiva-fit.vercel.app');
   });
 
   it('serializes body as JSON', async () => {
