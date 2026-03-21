@@ -1,4 +1,10 @@
-# CRM (Frontend estático)
+# CRM Chiva Fit
+
+[![CI](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/ci.yml/badge.svg)](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/codeql-analysis.yml)
+[![Deploy Functions](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/supabase-functions-deploy.yml/badge.svg)](https://github.com/chivafit/APP-Chiva-Fit/actions/workflows/supabase-functions-deploy.yml)
+[![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-Private-red)](./LICENSE)
 
 Frontend em HTML/CSS/JS para uso via GitHub Pages (ou qualquer host estático), com persistência e integrações via Supabase (DB + Realtime + Edge Functions).
 

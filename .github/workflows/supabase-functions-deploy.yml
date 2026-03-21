@@ -97,9 +97,23 @@ jobs:
 
       - name: Notify failure
         if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           echo "::error::Deploy falhou — verifique os logs acima."
-          # Para notificação via Slack, configure o secret SLACK_WEBHOOK_URL e descomente:
-          # curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
-          #   -H "Content-Type: application/json" \
-          #   -d "{\"text\":\"❌ *Deploy falhou* em \`${{ github.repository }}\` (branch: \`${{ github.ref_name }}\`)\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver logs>\"}"
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"❌ *Deploy de Edge Functions falhou*\n*Repositório:* \`${{ github.repository }}\`\n*Branch:* \`${{ github.ref_name }}\`\n*Commit:* ${{ github.sha }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|📋 Ver logs>\"}"
+          fi
+
+      - name: Notify success
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"✅ *Deploy de Edge Functions concluído com sucesso*\n*Repositório:* \`${{ github.repository }}\`\n*Branch:* \`${{ github.ref_name }}\`\n*Funções:* ${{ steps.changed.outputs.functions }}\"}"
+          fi

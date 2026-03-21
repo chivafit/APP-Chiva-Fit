@@ -174,3 +174,14 @@ jobs:
             echo "bling-sync still hasMore after ${max_batches} batches (possible backlog or bug)."
             exit 1
           fi
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"⚠️ *Bling Sync falhou*\n*Workflow:* Cron Sync\n*Branch:* \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|📋 Ver logs>\"}"
+          fi
