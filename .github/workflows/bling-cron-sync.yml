@@ -60,34 +60,22 @@ jobs:
           fi
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/checkout@v4
+        if: steps.prep.outputs.ready == 'true'
+        with:
+          sparse-checkout: |
+            .github/scripts
+          sparse-checkout-cone-mode: false
+
       - name: Validate secrets
         if: steps.prep.outputs.ready == 'true'
         env:
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$SUPABASE_PROJECT_ID" ]; then
-            echo "Missing SUPABASE_PROJECT_ID secret"
-            exit 1
-          fi
-          if [ -z "$CRON_SECRET" ]; then
-            echo "Missing CRON_SECRET secret"
-            exit 1
-          fi
-          if echo "$SUPABASE_PROJECT_ID" | grep -qiE 'https?://|supabase\.co'; then
-            echo "SUPABASE_PROJECT_ID must be the project ref only (ex: nvbicjjtnobnnscmypeq), not a URL"
-            exit 1
-          fi
-          if ! echo "$SUPABASE_PROJECT_ID" | grep -qE '^[a-z0-9]{20}$'; then
-            echo "SUPABASE_PROJECT_ID looks invalid. Expected 20 lowercase alnum chars."
-            echo "Got length: ${#SUPABASE_PROJECT_ID}"
-            exit 1
-          fi
-          if [ "${#CRON_SECRET}" -lt 20 ]; then
-            echo "CRON_SECRET looks too short. Use a long random value."
-            echo "Got length: ${#CRON_SECRET}"
-            exit 1
-          fi
+          set -euo pipefail
+          source .github/scripts/validate-secrets.sh
+          validate_supabase_secrets
 
       - name: Trigger bling-sync (persist)
         if: steps.prep.outputs.ready == 'true'
