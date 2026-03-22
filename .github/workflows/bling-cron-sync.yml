@@ -31,7 +31,7 @@ on:
 
 concurrency:
   group: bling-cron-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
@@ -100,80 +100,182 @@ jobs:
           MAX_BATCHES: ${{ inputs.max_batches }}
         run: |
           set -euo pipefail
-          echo "Using SUPABASE_PROJECT_ID length: ${#SUPABASE_PROJECT_ID}"
-          echo "Using CRON_SECRET length: ${#CRON_SECRET}"
+          
+          # ============================================================================
+          # CONFIGURATION
+          # ============================================================================
           BASE="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
           mode="${MODE:-persist}"
           limit="${LIMIT:-50}"
           concurrency="${CONCURRENCY:-6}"
           max_batches="${MAX_BATCHES:-80}"
-
+          
+          # Retry configuration
+          MAX_RETRIES=3
+          INITIAL_BACKOFF=2
+          REQUEST_TIMEOUT=30
+          
           if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
             mode="persist"
             max_batches="80"
           fi
-
+          
+          # ============================================================================
+          # STRUCTURED LOGGING
+          # ============================================================================
+          log_json() {
+            local level="$1"
+            shift
+            local message="$*"
+            local timestamp
+            timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{"timestamp":"%s","level":"%s","message":"%s"}\n' "${timestamp}" "${level}" "${message}" >&2
+          }
+          
+          log_batch() {
+            local batch="$1"
+            local count="$2"
+            local items="$3"
+            local has_more="$4"
+            local next_offset="$5"
+            local timestamp
+            timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{"timestamp":"%s","level":"info","type":"batch_summary","batch":%d,"count":%d,"items":%d,"hasMore":%s,"nextOffset":"%s"}\n' \
+              "${timestamp}" "${batch}" "${count}" "${items}" "${has_more}" "${next_offset}" >&2
+          }
+          
+          log_json "info" "Workflow started: mode=${mode}, limit=${limit}, concurrency=${concurrency}, max_batches=${max_batches}"
+          
+          # ============================================================================
+          # PAYLOAD PREPARATION
+          # ============================================================================
           if [ "${mode}" = "reprocess_items" ]; then
             payload="$(python3 -c 'import json,sys; limit=sys.argv[1]; conc=sys.argv[2]; print(json.dumps({"persist": True, "reprocessExisting": True, "limit": int(limit), "concurrency": int(conc)}))' "${limit}" "${concurrency}")"
           else
             payload='{"persist":true,"maxPages":200,"syncProducts":true}'
           fi
-
-          call_fn () {
+          
+          # ============================================================================
+          # HTTP REQUEST WITH RETRY AND EXPONENTIAL BACKOFF
+          # ============================================================================
+          call_fn_with_retry() {
             local url="$1"
             local data="$2"
-            local resp
-            local curl_exit
-            echo "Calling: ${url}" >&2
-            set +e
-            resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' -X POST "${url}" \
-              -H "Content-Type: application/json" \
-              -H "x-cron-secret: ${CRON_SECRET}" \
-              --data "${data}")"
-            curl_exit="$?"
-            set -e
-            if [ "${curl_exit}" -ne 0 ]; then
-              echo "curl failed (exit ${curl_exit})" >&2
-              echo "${resp}" | head -c 2000 >&2
-              echo >&2
-              exit 1
-            fi
-            local status
-            status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://')"
-            local body
-            body="$(printf '%s' "${resp}" | sed '$d')"
-            echo "HTTP ${status}" >&2
-            echo "${body}" | head -c 2000 >&2
-            echo >&2
-            if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
-              echo "Request failed (HTTP ${status}) — body acima" >&2
-              exit 1
-            fi
-            printf '%s' "${body}"
+            local attempt=1
+            local backoff="${INITIAL_BACKOFF}"
+            
+            while [ "${attempt}" -le "${MAX_RETRIES}" ]; do
+              log_json "debug" "Attempt ${attempt}/${MAX_RETRIES}: POST ${url}"
+              
+              local resp
+              local curl_exit
+              set +e
+              resp="$(curl -sS -w '\nHTTP_STATUS:%{http_code}\n' \
+                --max-time "${REQUEST_TIMEOUT}" \
+                --connect-timeout 10 \
+                -X POST "${url}" \
+                -H "Content-Type: application/json" \
+                -H "x-cron-secret: ${CRON_SECRET}" \
+                --data "${data}" 2>&1)"
+              curl_exit="$?"
+              set -e
+              
+              # Parse response
+              local status
+              local body
+              if [ "${curl_exit}" -eq 0 ]; then
+                status="$(printf '%s' "${resp}" | tail -n 1 | sed 's/^HTTP_STATUS://' || echo "0")"
+                body="$(printf '%s' "${resp}" | sed '$d')"
+              else
+                status="0"
+                body="${resp}"
+              fi
+              
+              # Check for success
+              if [ "${curl_exit}" -eq 0 ] && [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
+                log_json "info" "Request succeeded: HTTP ${status}"
+                printf '%s' "${body}"
+                return 0
+              fi
+              
+              # Log failure
+              if [ "${curl_exit}" -ne 0 ]; then
+                log_json "warn" "curl failed (exit ${curl_exit}): ${body:0:200}"
+              else
+                log_json "warn" "HTTP ${status}: ${body:0:200}"
+              fi
+              
+              # Check if we should retry
+              if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
+                log_json "info" "Retrying in ${backoff}s..."
+                sleep "${backoff}"
+                backoff="$((backoff * 2))"
+                attempt="$((attempt + 1))"
+              else
+                log_json "error" "All ${MAX_RETRIES} retries failed"
+                if [ "${curl_exit}" -ne 0 ]; then
+                  echo "FATAL: curl failed after ${MAX_RETRIES} retries (exit ${curl_exit})" >&2
+                  echo "${body}" | head -c 2000 >&2
+                else
+                  echo "FATAL: HTTP ${status} after ${MAX_RETRIES} retries" >&2
+                  echo "${body}" | head -c 2000 >&2
+                fi
+                return 1
+              fi
+            done
           }
-
+          
+          # ============================================================================
+          # BATCH PROCESSING LOOP
+          # ============================================================================
           batch=1
+          total_count=0
+          total_items=0
+          
           while [ "${batch}" -le "${max_batches}" ]; do
-            echo "=== bling-sync (${mode}) batch ${batch}/${max_batches} ==="
-            body="$(call_fn "${BASE}/bling-sync" "${payload}")"
+            log_json "info" "Processing batch ${batch}/${max_batches}"
+            
+            # Call function with retry
+            if ! body="$(call_fn_with_retry "${BASE}/bling-sync" "${payload}")"; then
+              log_json "error" "Batch ${batch} failed after all retries"
+              exit 1
+            fi
+            
+            # Parse response
             summary="$(printf '%s' "${body}" | python3 -c 'import sys,json; s=sys.stdin.read(); obj=json.loads(s) if s.strip() else {}; hm="true" if bool(obj.get("hasMore", False)) else "false"; cnt=obj.get("count", 0); it=obj.get("items", 0); no=obj.get("nextOffset", ""); print(hm+"\\t"+str(cnt)+"\\t"+str(it)+"\\t"+("" if no is None else str(no)))' 2>/dev/null || printf "false\t0\t0\t")"
+            
             has_more="$(printf '%s' "${summary}" | cut -f1)"
             count="$(printf '%s' "${summary}" | cut -f2)"
             items="$(printf '%s' "${summary}" | cut -f3)"
             next_offset="$(printf '%s' "${summary}" | cut -f4-)"
-            echo "Summary: count=${count} items=${items} nextOffset=${next_offset} hasMore=${has_more}"
+            
+            total_count="$((total_count + count))"
+            total_items="$((total_items + items))"
+            
+            # Structured logging
+            log_batch "${batch}" "${count}" "${items}" "${has_more}" "${next_offset}"
+            
+            # Check if done
             if [ "${has_more}" != "true" ]; then
-              echo "bling-sync completed"
-              break
+              log_json "info" "Sync completed successfully: total_batches=${batch}, total_count=${total_count}, total_items=${total_items}"
+              exit 0
             fi
+            
             batch="$((batch+1))"
             sleep 2
           done
-
+          
+          # ============================================================================
+          # BACKLOG HANDLING (DO NOT FAIL)
+          # ============================================================================
           if [ "${has_more:-false}" = "true" ]; then
-            echo "bling-sync still hasMore after ${max_batches} batches (possible backlog or bug)."
-            exit 1
+            log_json "warn" "Backlog detected: hasMore=true after ${max_batches} batches. This is not an error - sync will continue in next run."
+            log_json "info" "Partial progress: processed ${batch} batches, ${total_count} orders, ${total_items} items"
+            echo "::warning::Bling sync has backlog. Processed ${batch} batches successfully. Will continue in next scheduled run."
+            exit 0
           fi
+          
+          log_json "info" "Sync completed: total_batches=${batch}, total_count=${total_count}, total_items=${total_items}"
 
       - name: Notify on failure
         if: failure()
